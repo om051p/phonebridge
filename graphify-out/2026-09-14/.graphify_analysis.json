@@ -1,0 +1,215 @@
+{
+  "communities": {
+    "0": [
+      "android_kotlin_host",
+      "core_go_core",
+      "docs_architecture_doc",
+      "linux_daemon",
+      "proto_buf_gen_config",
+      "server_signaling",
+      "ui_flutter_ui",
+      "ui_pubspec_config"
+    ],
+    "1": [
+      "contributing_doc",
+      "docs_decisions_dec_001",
+      "docs_decisions_dec_010",
+      "docs_decisions_dec_011",
+      "docs_decisions_doc",
+      "master_handoff_doc",
+      "readme_doc",
+      "security_doc"
+    ],
+    "2": [
+      "package_flutter_material_dart",
+      "statelesswidget",
+      "ui_lib_main",
+      "ui_lib_main_build",
+      "ui_lib_main_main",
+      "ui_lib_main_phonebridgeapp"
+    ],
+    "3": [
+      "package_flutter_test_flutter_test_dart",
+      "package_phonebridge_ui_main_dart",
+      "ui_test_smoke_test",
+      "ui_test_smoke_test_main"
+    ],
+    "4": [
+      "core_cmd_daemon_main",
+      "core_cmd_daemon_main_main",
+      "core_cmd_daemon_main_xdgruntimedir"
+    ],
+    "5": [
+      "android_app_build_gradle"
+    ],
+    "6": [
+      "android_settings_gradle"
+    ],
+    "7": [
+      "core_pkg_clipboard_doc"
+    ],
+    "8": [
+      "core_pkg_crypto_doc"
+    ],
+    "9": [
+      "core_pkg_discovery_doc"
+    ],
+    "10": [
+      "core_pkg_engine_doc"
+    ],
+    "11": [
+      "core_pkg_protocol_doc"
+    ],
+    "12": [
+      "core_pkg_transfer_doc"
+    ],
+    "13": [
+      "core_pkg_webrtc_doc"
+    ],
+    "14": [
+      "docs_protocol_envelope"
+    ],
+    "15": [
+      "docs_security_threat_model"
+    ],
+    "16": [
+      "pkg_github_com_om051p_phonebridge_core"
+    ],
+    "17": [
+      "proto_buf_config"
+    ]
+  },
+  "cohesion": {
+    "0": 0.25,
+    "1": 0.2857142857142857,
+    "2": 0.3333333333333333,
+    "3": 0.5,
+    "4": 1.0,
+    "5": 1.0,
+    "6": 1.0,
+    "7": 1.0,
+    "8": 1.0,
+    "9": 1.0,
+    "10": 1.0,
+    "11": 1.0,
+    "12": 1.0,
+    "13": 1.0,
+    "14": 1.0,
+    "15": 1.0,
+    "16": 1.0,
+    "17": 1.0
+  },
+  "gods": [
+    {
+      "id": "docs_architecture_doc",
+      "label": "Architecture Blueprint",
+      "degree": 5
+    },
+    {
+      "id": "docs_decisions_doc",
+      "label": "Decision Log",
+      "degree": 5
+    },
+    {
+      "id": "master_handoff_doc",
+      "label": "Master Project Handoff",
+      "degree": 4
+    },
+    {
+      "id": "contributing_doc",
+      "label": "Contributing Guidelines",
+      "degree": 3
+    },
+    {
+      "id": "core_go_core",
+      "label": "Go Core Engine",
+      "degree": 3
+    },
+    {
+      "id": "core_cmd_daemon_main_main",
+      "label": "main()",
+      "degree": 2
+    },
+    {
+      "id": "core_cmd_daemon_main_xdgruntimedir",
+      "label": "xdgRuntimeDir()",
+      "degree": 2
+    },
+    {
+      "id": "ui_lib_main_phonebridgeapp",
+      "label": "PhoneBridgeApp",
+      "degree": 2
+    },
+    {
+      "id": "ui_flutter_ui",
+      "label": "Flutter UI Layer",
+      "degree": 2
+    },
+    {
+      "id": "ui_lib_main_main",
+      "label": "main",
+      "degree": 1
+    }
+  ],
+  "surprises": [
+    {
+      "source": "Architecture Blueprint",
+      "target": "Master Project Handoff",
+      "source_files": [
+        "docs/architecture.md",
+        "MASTER_HANDOFF.md"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "connects across different repos/directories; bridges separate communities"
+    },
+    {
+      "source": "Buf Generation Configuration",
+      "target": "Go Core Engine",
+      "source_files": [
+        "proto/buf.gen.yaml",
+        "docs/architecture.md"
+      ],
+      "confidence": "INFERRED",
+      "relation": "references",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories"
+    },
+    {
+      "source": "Signaling Server",
+      "target": "Go Core Engine",
+      "source_files": [
+        "server/README.md",
+        "docs/architecture.md"
+      ],
+      "confidence": "INFERRED",
+      "relation": "conceptually_related_to",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories"
+    },
+    {
+      "source": "Contributing Guidelines",
+      "target": "Master Project Handoff",
+      "source_files": [
+        "CONTRIBUTING.md",
+        "MASTER_HANDOFF.md"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "connects across different repos/directories"
+    },
+    {
+      "source": "Decision Log",
+      "target": "Master Project Handoff",
+      "source_files": [
+        "docs/decisions.md",
+        "MASTER_HANDOFF.md"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "connects across different repos/directories"
+    }
+  ],
+  "tokens": {
+    "input": 32663,
+    "output": 2678
+  }
+}

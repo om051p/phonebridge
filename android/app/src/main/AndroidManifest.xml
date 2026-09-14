@@ -1,0 +1,4 @@
+<!-- PLANNED stub — permissions/services added per feature phase. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- See docs/security.md for permission rationale per subsystem. -->
+</manifest>

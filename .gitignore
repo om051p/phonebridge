@@ -1,0 +1,36 @@
+# Go
+/core/pkg/protocol/*.pb.go
+/core/pkg/protocol/*_grpc.pb.go
+
+# Dart / Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+.pub-cache/
+.pub/
+ui/.dart_tool/
+ui/build/
+ui/.flutter-plugins*
+
+# Android
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+*.keystore
+*.jks
+
+# Buf / protoc
+proto/.buf/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*~

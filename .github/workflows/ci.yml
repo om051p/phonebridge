@@ -1,0 +1,82 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  proto:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - run: buf lint --config proto/buf.yaml
+      - run: buf breaking --config proto/buf.yaml --against '.git#branch=main'
+        # First proto commit has no prior baseline; allow failure until repo has history
+        continue-on-error: true
+      - run: buf generate --config proto/buf.yaml --template proto/buf.gen.yaml
+      - run: git diff --exit-code -- proto/ core/pkg/protocol/ ui/lib/generated/
+        # Drift gate: generated code must be committed
+
+  go:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: core/go.sum
+      - run: go vet ./...
+      - run: go build ./...
+      - run: go test ./... -count=1 -race
+
+  flutter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - working-directory: ui
+        run: flutter pub get
+      - working-directory: ui
+        run: flutter analyze
+      - working-directory: ui
+        run: flutter test
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Required files exist
+        run: |
+          test -f LICENSE
+          test -f NOTICE
+          test -f SECURITY.md
+          test -f CONTRIBUTING.md
+          test -f docs/architecture.md
+          test -f docs/security.md
+          test -f docs/protocol.md
+          test -f docs/development.md
+          test -f docs/decisions.md
+      - name: No GPL in manifests
+        run: |
+          ! grep -ri "GPL" core/go.mod ui/pubspec.yaml 2>/dev/null || (echo "GPL string found in manifests — review licensing" && exit 1)
+          echo "GPL check passed"
+      - name: Spike docs present
+        run: |
+          for f in 01-flutter-go-ipc-linux 02-flutter-kotlin-go-android 03-android-mediaprojection-encoder 04-pion-webrtc-android-linux 05-android-clipboard-background 06-cosmic-clipboard 07-cosmic-input 08-bidirectional-large-file 09-lan-discovery 10-remote-p2p-turn; do
+            test -f "docs/spikes/$f.md" || (echo "missing docs/spikes/$f.md" && exit 1)
+          done
+          echo "All 10 spike docs present"

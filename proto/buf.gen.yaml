@@ -1,0 +1,16 @@
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package
+      value: github.com/om051p/phonebridge/core/pkg/protocol/phonebridgev1
+plugins:
+  - remote: buf.build/protocolbuffers/go
+    out: ../core/pkg/protocol
+    opt: paths=source_relative
+  - remote: buf.build/grpc/go
+    out: ../core/pkg/protocol
+    opt: paths=source_relative,require_unimplemented_servers=false
+  # Dart generation is wired when protoc-gen-dart is available;
+  # until then ui/lib/generated/ is produced via local protoc.
+  # - remote: buf.build/protocolbuffers/dart  # enable when buf registry Dart plugin is vetted

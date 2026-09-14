@@ -1,0 +1,152 @@
+{
+  "android/app/build.gradle.kts": {
+    "mtime": 1789414280.6534176,
+    "seen": 1789414330.4363632,
+    "ast_hash": "51ba1270ece8a4ad65ad701fc495739d",
+    "semantic_hash": "51ba1270ece8a4ad65ad701fc495739d"
+  },
+  "android/settings.gradle.kts": {
+    "mtime": 1789414278.7523801,
+    "seen": 1789414330.4363668,
+    "ast_hash": "6fc88ae1c6c6d79c40dff2a27830336a",
+    "semantic_hash": "6fc88ae1c6c6d79c40dff2a27830336a"
+  },
+  "core/cmd/daemon/main.go": {
+    "mtime": 1789414249.1237962,
+    "seen": 1789414330.4363687,
+    "ast_hash": "a565b7e13c2a26425dbfd7e636a246b6",
+    "semantic_hash": "a565b7e13c2a26425dbfd7e636a246b6"
+  },
+  "core/go.mod": {
+    "mtime": 1789414247.1547575,
+    "seen": 1789414330.43637,
+    "ast_hash": "420188aa1862ee7609090f5f6d6159f0",
+    "semantic_hash": "420188aa1862ee7609090f5f6d6159f0"
+  },
+  "core/pkg/clipboard/doc.go": {
+    "mtime": 1789414254.4719017,
+    "seen": 1789414330.4363708,
+    "ast_hash": "e15a410d208529d45020ff925ceedabc",
+    "semantic_hash": "e15a410d208529d45020ff925ceedabc"
+  },
+  "core/pkg/crypto/doc.go": {
+    "mtime": 1789414254.4559014,
+    "seen": 1789414330.4363718,
+    "ast_hash": "476a9a042801f794ab5ef8910c7b6da1",
+    "semantic_hash": "476a9a042801f794ab5ef8910c7b6da1"
+  },
+  "core/pkg/discovery/doc.go": {
+    "mtime": 1789414254.4589014,
+    "seen": 1789414330.436373,
+    "ast_hash": "564fe1ede9a023852aa2db2d8fda90e7",
+    "semantic_hash": "564fe1ede9a023852aa2db2d8fda90e7"
+  },
+  "core/pkg/engine/doc.go": {
+    "mtime": 1789414254.4739017,
+    "seen": 1789414330.436386,
+    "ast_hash": "b2a82f11275bc2d67237ea7e21a05179",
+    "semantic_hash": "b2a82f11275bc2d67237ea7e21a05179"
+  },
+  "core/pkg/protocol/doc.go": {
+    "mtime": 1789414254.4659016,
+    "seen": 1789414330.4363883,
+    "ast_hash": "5e99b4dbc0bf9857bea7d6e61297353b",
+    "semantic_hash": "5e99b4dbc0bf9857bea7d6e61297353b"
+  },
+  "core/pkg/transfer/doc.go": {
+    "mtime": 1789414254.4689016,
+    "seen": 1789414330.4363897,
+    "ast_hash": "ceb5e2884803c7994ae1bee229a5f9b9",
+    "semantic_hash": "ceb5e2884803c7994ae1bee229a5f9b9"
+  },
+  "core/pkg/webrtc/doc.go": {
+    "mtime": 1789414254.4629016,
+    "seen": 1789414330.4363909,
+    "ast_hash": "f457cba829c56b76d594342ab2052942",
+    "semantic_hash": "f457cba829c56b76d594342ab2052942"
+  },
+  "ui/lib/main.dart": {
+    "mtime": 1789414274.1842902,
+    "seen": 1789414330.4363925,
+    "ast_hash": "cb98d22e9d7f42f193be4a864fe9893c",
+    "semantic_hash": "cb98d22e9d7f42f193be4a864fe9893c"
+  },
+  "ui/test/smoke_test.dart": {
+    "mtime": 1789414275.493316,
+    "seen": 1789414330.436394,
+    "ast_hash": "a3a1249397e163b1b8bf89940a4cda48",
+    "semantic_hash": "a3a1249397e163b1b8bf89940a4cda48"
+  },
+  "CONTRIBUTING.md": {
+    "mtime": 1789414197.1077738,
+    "seen": 1789414330.4363947,
+    "ast_hash": "815251692c4a72679f017ad116c6abab",
+    "semantic_hash": "815251692c4a72679f017ad116c6abab"
+  },
+  "MASTER_HANDOFF.md": {
+    "mtime": 1789412694.9321666,
+    "seen": 1789414330.436396,
+    "ast_hash": "47c1db35308964a3ed97df33b117ed93",
+    "semantic_hash": "47c1db35308964a3ed97df33b117ed93"
+  },
+  "README.md": {
+    "mtime": 1789414320.3802004,
+    "seen": 1789414330.4363968,
+    "ast_hash": "9940f3703c4ba437db4f94be55f4d04a",
+    "semantic_hash": "9940f3703c4ba437db4f94be55f4d04a"
+  },
+  "SECURITY.md": {
+    "mtime": 1789414200.8248787,
+    "seen": 1789414330.4363978,
+    "ast_hash": "e89eee96edfa6721d17e6480051eb862",
+    "semantic_hash": "e89eee96edfa6721d17e6480051eb862"
+  },
+  "docs/architecture.md": {
+    "mtime": 1789414209.5716152,
+    "seen": 1789414330.4363985,
+    "ast_hash": "418bdcf38fde6807ded1a3f35d795027",
+    "semantic_hash": "418bdcf38fde6807ded1a3f35d795027"
+  },
+  "docs/decisions.md": {
+    "mtime": 1789414226.1073346,
+    "seen": 1789414330.4363995,
+    "ast_hash": "4c050b7b75be6127410846c23466d098",
+    "semantic_hash": "4c050b7b75be6127410846c23466d098"
+  },
+  "docs/protocol.md": {
+    "mtime": 1789414219.0214329,
+    "seen": 1789414330.4364004,
+    "ast_hash": "974d9d92e371947396c2c0ef21d2a21a",
+    "semantic_hash": "974d9d92e371947396c2c0ef21d2a21a"
+  },
+  "docs/security.md": {
+    "mtime": 1789414213.5043387,
+    "seen": 1789414330.4364011,
+    "ast_hash": "5cc66c8def5158b5115a953f266e1cb4",
+    "semantic_hash": "5cc66c8def5158b5115a953f266e1cb4"
+  },
+  "proto/buf.gen.yaml": {
+    "mtime": 1789414233.0869136,
+    "seen": 1789414330.4364018,
+    "ast_hash": "baca757542eda2b0bdbf37fcf7eff22c",
+    "semantic_hash": "baca757542eda2b0bdbf37fcf7eff22c"
+  },
+  "proto/buf.yaml": {
+    "mtime": 1789414229.6573322,
+    "seen": 1789414330.4364035,
+    "ast_hash": "0c583c6b4c434ddf14a7693713ec081d",
+    "semantic_hash": "0c583c6b4c434ddf14a7693713ec081d"
+  },
+  "server/README.md": {
+    "mtime": 1789414260.8970282,
+    "seen": 1789414330.4364042,
+    "ast_hash": "39a8abd8f467d30a7ac5684bd0810975",
+    "semantic_hash": "39a8abd8f467d30a7ac5684bd0810975"
+  },
+  "ui/pubspec.yaml": {
+    "mtime": 1789414270.0112078,
+    "seen": 1789414330.436405,
+    "ast_hash": "e4a32ac51ff6b9e44c22b30470c1b21e",
+    "semantic_hash": "e4a32ac51ff6b9e44c22b30470c1b21e"
+  }
+}

@@ -1,0 +1,259 @@
+{
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Android device",
+      "wraps": [
+        "a-ui",
+        "a-kotlin"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Linux desktop",
+      "wraps": [
+        "l-ui",
+        "l-daemon"
+      ]
+    },
+    {
+      "kind": "security-group",
+      "label": "PhoneBridge Protocol (E2E)",
+      "wraps": [
+        "a-kotlin",
+        "go-core",
+        "l-daemon"
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "items": [
+        "mDNS discovery on LAN, P2P/WebRTC with TURN fallback on WAN",
+        "QR + PIN pairing, per-device identity keys"
+      ],
+      "title": "Transport"
+    },
+    {
+      "dot": "emerald",
+      "items": [
+        "Clipboard sync, file transfer, notifications, device status in MVP",
+        "Screen mirroring and remote input in V1"
+      ],
+      "title": "Features"
+    },
+    {
+      "dot": "rose",
+      "items": [
+        "KDE Connect and scrcpy are reference-only, never copied",
+        "Proto-first: proto/phonebridge/v1/phonebridge.proto leads all changes"
+      ],
+      "title": "Rules"
+    }
+  ],
+  "components": [
+    {
+      "id": "a-ui",
+      "label": "Flutter UI",
+      "pos": [
+        60,
+        300
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sublabel": "pairing, dashboard",
+      "type": "frontend"
+    },
+    {
+      "id": "a-kotlin",
+      "label": "Kotlin Host",
+      "pos": [
+        260,
+        300
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sublabel": "Android APIs",
+      "type": "backend"
+    },
+    {
+      "id": "go-core",
+      "label": "Go Core",
+      "pos": [
+        470,
+        300
+      ],
+      "size": [
+        140,
+        64
+      ],
+      "sublabel": "protocol engine",
+      "tag": "crypto + discovery + transfer",
+      "type": "backend"
+    },
+    {
+      "id": "l-daemon",
+      "label": "Go Daemon",
+      "pos": [
+        690,
+        300
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sublabel": "Linux APIs, D-Bus",
+      "type": "backend"
+    },
+    {
+      "id": "l-ui",
+      "label": "Flutter UI",
+      "pos": [
+        890,
+        300
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sublabel": "pairing, dashboard",
+      "type": "frontend"
+    },
+    {
+      "id": "lan",
+      "label": "LAN",
+      "pos": [
+        470,
+        130
+      ],
+      "size": [
+        130,
+        56
+      ],
+      "sublabel": "direct / P2P",
+      "type": "cloud"
+    },
+    {
+      "id": "wan",
+      "label": "Internet",
+      "pos": [
+        470,
+        450
+      ],
+      "size": [
+        130,
+        56
+      ],
+      "sublabel": "P2P / TURN",
+      "type": "cloud"
+    },
+    {
+      "id": "proto",
+      "label": "phonebridge.proto",
+      "pos": [
+        60,
+        580
+      ],
+      "size": [
+        150,
+        56
+      ],
+      "sublabel": "canonical contract",
+      "type": "database"
+    }
+  ],
+  "connections": [
+    {
+      "from": "a-ui",
+      "id": "a-ui-host",
+      "to": "a-kotlin"
+    },
+    {
+      "from": "a-kotlin",
+      "id": "a-host-core",
+      "label": "embedded Go",
+      "to": "go-core",
+      "variant": "emphasis"
+    },
+    {
+      "from": "l-daemon",
+      "id": "l-daemon-core",
+      "to": "go-core"
+    },
+    {
+      "from": "l-ui",
+      "id": "l-ui-daemon",
+      "to": "l-daemon"
+    },
+    {
+      "from": "go-core",
+      "id": "core-lan",
+      "label": "WebRTC",
+      "to": "lan",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "from": "go-core",
+      "id": "core-wan",
+      "to": "wan",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "proto",
+      "id": "proto-core",
+      "label": "generates",
+      "to": "go-core",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "via": [
+        [
+          135,
+          420
+        ],
+        [
+          540,
+          420
+        ]
+      ]
+    }
+  ],
+  "diagram_type": "architecture",
+  "meta": {
+    "output": "phonebridge-architecture.html",
+    "quality_profile": "showcase",
+    "title": "PhoneBridge Architecture",
+    "views": [
+      {
+        "focus": [
+          "a-ui",
+          "a-kotlin",
+          "go-core",
+          "l-daemon",
+          "l-ui"
+        ],
+        "id": "device-path",
+        "label": "Device path",
+        "note": "Follow a clipboard event from Android UI through Go core to the Linux desktop."
+      },
+      {
+        "focus": [
+          "go-core",
+          "lan",
+          "wan"
+        ],
+        "id": "transport",
+        "label": "Transport",
+        "note": "LAN direct versus Internet P2P/TURN fallback."
+      }
+    ]
+  },
+  "schema_version": 1
+}

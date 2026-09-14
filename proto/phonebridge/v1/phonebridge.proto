@@ -1,0 +1,179 @@
+// PhoneBridge Protocol — v1
+// Package: phonebridge.v1
+// Status: PLANNED — Phase 0 envelope only. Feature payloads are stubs.
+// Source of truth for wire compatibility: this file + buf breaking checks.
+//
+// Conventions (see docs/protocol.md):
+// - Every application message is framed as Envelope.
+// - version/capabilities negotiated via DeviceHello handshake.
+// - sequence + nonce provide replay protection per session_id.
+// - New fields are optional; removed fields are reserved. New oneof branches
+//   are safe for old peers (ignored).
+syntax = "proto3";
+
+package phonebridge.v1;
+
+option go_package = "github.com/om051p/phonebridge/core/pkg/protocol/phonebridgev1;phonebridgev1";
+option java_package = "dev.phonebridge.proto.v1";
+option java_multiple_files = true;
+
+// ---------------------------------------------------------------------------
+// Envelope — top-level framing for every message on the wire.
+// ---------------------------------------------------------------------------
+message Envelope {
+  // Protocol version (monotonic uint32). Negotiated via VersionNegotiation.
+  uint32 version = 1;
+
+  // Stable device identity — fingerprint of Ed25519 public key (hex or base64url per spec).
+  string device_id = 2;
+
+  // Per-connection session identifier (random, e.g. UUID v4).
+  string session_id = 3;
+
+  // Per-session monotonic sequence. Authoritative ordering; receiver rejects
+  // duplicates/old values per replay window.
+  uint64 sequence = 4;
+
+  // Sender wall-clock in milliseconds since Unix epoch (informational, not ordering).
+  uint64 timestamp_ms = 5;
+
+  // Per-message nonce for replay-window uniqueness (e.g. 16 random bytes).
+  bytes nonce = 6;
+
+  // Sender-advertised capabilities for this session.
+  CapabilitySet capabilities = 7;
+
+  // Exactly one payload. Unknown branches must be ignored by older peers.
+  oneof payload {
+    Ping ping = 10;
+    Pong pong = 11;
+    DeviceHello device_hello = 12;
+    PairRequest pair_request = 13;
+    PairAccept pair_accept = 14;
+    PairReject pair_reject = 15;
+    Error error = 16;
+
+    // Feature payloads — PLANNED stubs (filled in their respective phases).
+    ClipboardUpdate clipboard_update = 20; // PLANNED
+    NotificationEvent notification_event = 21; // PLANNED
+    NotificationAction notification_action = 22; // PLANNED
+    NotificationDismissed notification_dismissed = 23; // PLANNED
+    FileOffer file_offer = 24; // PLANNED
+    FileAccept file_accept = 25; // PLANNED
+    FileChunk file_chunk = 26; // PLANNED
+    FileComplete file_complete = 27; // PLANNED
+    FileCancel file_cancel = 28; // PLANNED
+    ScreenStart screen_start = 29; // PLANNED
+    ScreenStop screen_stop = 30; // PLANNED
+    InputKeyboard input_keyboard = 31; // PLANNED
+    InputMouse input_mouse = 32; // PLANNED
+    InputTouch input_touch = 33; // PLANNED
+    DeviceStatus device_status = 34; // PLANNED
+  }
+
+  reserved 8, 9;
+}
+
+// ---------------------------------------------------------------------------
+// Capabilities & version negotiation
+// ---------------------------------------------------------------------------
+enum Capability {
+  CAPABILITY_UNSPECIFIED = 0;
+  CAPABILITY_CLIPBOARD = 1;
+  CAPABILITY_FILES = 2;
+  CAPABILITY_NOTIFICATIONS = 3;
+  CAPABILITY_SCREEN = 4;
+  CAPABILITY_INPUT = 5;
+  CAPABILITY_DEVICE_STATUS = 6;
+}
+
+message CapabilitySet {
+  repeated Capability capabilities = 1;
+}
+
+message VersionNegotiation {
+  uint32 min_version = 1;
+  uint32 max_version = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Control / handshake — minimal stubs for Phase 0.
+// Full pairing/SAS flow is EXPERIMENTAL until validated.
+// ---------------------------------------------------------------------------
+message DeviceHello {
+  // Human-readable device name.
+  string display_name = 1;
+  // Platform identifier (e.g. "android", "linux").
+  string platform = 2;
+  // Ed25519 public key (raw 32 bytes) or fingerprint — exact encoding TBD (EXPERIMENTAL).
+  bytes identity_pubkey = 3;
+  VersionNegotiation version_negotiation = 4;
+  CapabilitySet capabilities = 5;
+}
+
+message PairRequest {
+  DeviceHello hello = 1;
+  // QR / rendezvous correlation id.
+  string pairing_token = 2;
+}
+
+message PairAccept {
+  DeviceHello hello = 1;
+  // Short Authentication String (human-verified).
+  string sas = 2;
+}
+
+message PairReject {
+  Error error = 1;
+}
+
+message Ping {
+  uint64 nonce = 1;
+}
+
+message Pong {
+  uint64 nonce = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Error model
+// ---------------------------------------------------------------------------
+enum Code {
+  CODE_UNSPECIFIED = 0;
+  CODE_OK = 1;
+  CODE_INVALID_ARGUMENT = 2;
+  CODE_UNAUTHENTICATED = 3;
+  CODE_PERMISSION_DENIED = 4;
+  CODE_NOT_FOUND = 5;
+  CODE_ALREADY_EXISTS = 6;
+  CODE_INCOMPATIBLE_VERSION = 7;
+  CODE_RESOURCE_EXHAUSTED = 8;
+  CODE_INTERNAL = 9;
+  CODE_UNAVAILABLE = 10;
+}
+
+message Error {
+  Code code = 1;
+  string message = 2;
+  map<string, string> details = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Feature payloads — PLANNED stubs. No fields populated in Phase 0.
+// Each will be expanded in its feature phase with reserved ranges preserved.
+// ---------------------------------------------------------------------------
+message ClipboardUpdate {} // PLANNED
+message NotificationEvent {} // PLANNED
+message NotificationAction {} // PLANNED
+message NotificationDismissed {} // PLANNED
+message FileOffer {} // PLANNED
+message FileAccept {} // PLANNED
+message FileChunk {} // PLANNED
+message FileComplete {} // PLANNED
+message FileCancel {} // PLANNED
+message ScreenStart {} // PLANNED
+message ScreenStop {} // PLANNED
+message InputKeyboard {} // PLANNED
+message InputMouse {} // PLANNED
+message InputTouch {} // PLANNED
+message DeviceStatus {} // PLANNED

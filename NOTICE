@@ -1,0 +1,13 @@
+PhoneBridge
+Copyright 2026 PhoneBridge Contributors
+
+This product includes software developed by the PhoneBridge project
+and is licensed under the Apache License, Version 2.0. See LICENSE
+for the full license text.
+
+Third-party dependencies and their licenses are listed in
+third-party/DEPENDENCIES.md. Each dependency's own LICENSE/NOTICE
+requirements apply to redistributions that include it.
+
+This project does not include KDE Connect or scrcpy source code.
+Those projects are prior art/reference only.
