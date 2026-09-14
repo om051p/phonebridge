@@ -12,7 +12,7 @@ What is the best local IPC between Flutter and `phonebridge-daemon` on Wayland/C
 ## Target environment
 - Ubuntu/COSMIC Wayland (primary)
 - Another mainstream Wayland compositor (e.g. GNOME Wayland)
-- Flutter stable, Go 1.22+, systemd user service
+- Flutter stable, Go 1.23+, systemd user service
 
 ## Minimal prototype
 - Go daemon listening on `$XDG_RUNTIME_DIR/phonebridge/engine.sock` with a trivial gRPC service (`Ping`).

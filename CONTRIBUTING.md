@@ -33,14 +33,16 @@ Cross-layer change requires canonical interface update first (protocol or docume
 ## Protocol-first workflow
 
 ```
-proto/phonebridge/v1/phonebridge.proto  →  buf generate  →  layer impl  →  tests
+proto/phonebridge/v1/phonebridge.proto  →  cd proto && buf generate  →  layer impl  →  tests
 ```
 
 1. Edit `proto/phonebridge/v1/phonebridge.proto`.
-2. `buf lint && buf breaking --against '.git#branch=main'`.
-3. `make gen` (or `buf generate`).
+2. `cd proto && buf lint`, then from the repo root `buf breaking --config proto/buf.yaml --against '.git#branch=main'`.
+3. Generate: `cd proto && buf generate` (or `make -C core gen`).
 4. Update Go / Dart / Kotlin consumers.
-5. Add/update tests. CI checks `git diff --exit-code` for drift.
+5. Add/update tests. **Commit the regenerated files** — CI fails on any drift, including newly
+   generated files that are not yet tracked (`git status --porcelain -- core/pkg/protocol ui/lib/generated`
+   must be empty). See `docs/decisions.md` DEC-015.
 
 Do not hand-edit generated code.
 
@@ -60,14 +62,14 @@ No GPL-family dependency without explicit licensing decision (recorded in `docs/
 See [`docs/development.md`](docs/development.md) for prerequisites.
 
 ```bash
-# Go core
-cd core && go vet ./... && go test ./... -count=1
-# Protocol
-buf lint && buf generate && git diff --exit-code
+# Go core (requires Go >= 1.23 — docs/decisions.md DEC-017)
+cd core && go vet ./... && go build ./... && go test ./... -count=1
+# Protocol (buf module root is proto/)
+cd proto && buf lint && buf generate && cd ..
+git status --porcelain -- core/pkg/protocol ui/lib/generated   # must be empty
 # Flutter (when ui/ exists)
 cd ui && flutter analyze && flutter test
-# Android (when android/ exists)
-cd android && ./gradlew test
+# Android: NOT WIRED — no gradle wrapper yet, so `./gradlew test` cannot run.
 ```
 
 ## Branches & PRs

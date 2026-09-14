@@ -1,3 +1,5 @@
 module github.com/om051p/phonebridge/core
 
-go 1.22
+go 1.23
+
+require google.golang.org/protobuf v1.36.12

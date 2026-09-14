@@ -1,6 +1,6 @@
-# Go
-/core/pkg/protocol/*.pb.go
-/core/pkg/protocol/*_grpc.pb.go
+# Go — NOTE: generated protobuf code under core/pkg/protocol/ IS committed.
+# See docs/decisions.md DEC-015 and proto/buf.gen.yaml. Do not re-ignore it:
+# the CI drift gate depends on generated code being tracked.
 
 # Dart / Flutter
 .dart_tool/

@@ -14,16 +14,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # buf breaking needs the baseline commit, not a shallow checkout
+          fetch-depth: 0
       - uses: bufbuild/buf-setup-action@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-      - run: buf lint --config proto/buf.yaml
-      - run: buf breaking --config proto/buf.yaml --against '.git#branch=main'
-        # First proto commit has no prior baseline; allow failure until repo has history
-        continue-on-error: true
-      - run: buf generate --config proto/buf.yaml --template proto/buf.gen.yaml
-      - run: git diff --exit-code -- proto/ core/pkg/protocol/ ui/lib/generated/
-        # Drift gate: generated code must be committed
+          # Pinned: an unpinned buf can change lint/breaking/generation behaviour
+          version: "1.73.0"
+      - name: Ensure local main ref exists (buf breaking baseline)
+        run: git show-ref --verify --quiet refs/heads/main || git fetch --no-tags origin main:refs/heads/main
+      # lint/generate run with CWD=proto/ — `out: ../core/pkg/protocol` in buf.gen.yaml is
+      # resolved relative to the working directory; from the repo root it writes outside the
+      # checkout and the drift gate below would pass vacuously.
+      - name: buf lint
+        working-directory: proto
+        run: buf lint
+      - name: buf generate
+        working-directory: proto
+        run: buf generate
+      # Detects modified tracked output AND newly generated (untracked) files;
+      # `git diff --exit-code` alone cannot see untracked files.
+      - name: Drift gate — generated code must be committed
+        run: |
+          if [ -n "$(git status --porcelain -- core/pkg/protocol ui/lib/generated)" ]; then
+            echo "::error::Generated code is stale. Run: cd proto && buf generate"
+            git status --porcelain -- core/pkg/protocol ui/lib/generated
+            git --no-pager diff -- core/pkg/protocol ui/lib/generated
+            exit 1
+          fi
+      # Must run from the repo root: the baseline image is built with the repo root as
+      # module root, so comparing from proto/ reports a false FILE_NO_DELETE.
+      - name: buf breaking
+        run: buf breaking --config proto/buf.yaml --against '.git#branch=main'
 
   go:
     runs-on: ubuntu-latest
@@ -34,7 +57,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          # google.golang.org/protobuf v1.36.12 (required by the pinned codegen plugin)
+          # declares `go 1.23`; 1.22 cannot build this module.
+          go-version: "1.23.x"
           cache-dependency-path: core/go.sum
       - run: go vet ./...
       - run: go build ./...

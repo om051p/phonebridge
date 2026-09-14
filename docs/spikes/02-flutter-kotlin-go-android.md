@@ -11,7 +11,7 @@ Which embedding is most reliable: embedded Go as `c-shared` + JNI/UDS vs `gomobi
 
 ## Target environment
 - Android 13/14+ on physical device + emulator
-- Flutter stable, Go 1.22+, NDK
+- Flutter stable, Go 1.23+, NDK
 
 ## Minimal prototype
 - Build Go as `c-shared` and as `gomobile` lib; expose `Ping`/`Echo`.

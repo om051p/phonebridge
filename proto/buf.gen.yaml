@@ -1,16 +1,32 @@
 version: v2
-managed:
-  enabled: true
-  override:
-    - file_option: go_package
-      value: github.com/om051p/phonebridge/core/pkg/protocol/phonebridgev1
+# Generated code IS committed (see docs/decisions.md DEC-015). CI fails if it drifts.
+#
+# Invoke from this directory: `cd proto && buf generate`.
+# `out` is resolved relative to the current working directory, so `../core/pkg/protocol`
+# is only correct when CWD is proto/. Running buf from the repo root writes outside the
+# repository and makes the CI drift gate pass vacuously.
+#
+# `paths=import` + `module=<go import path prefix>` puts the generated files in a
+# directory that matches `option go_package` in the .proto
+# (.../core/pkg/protocol/phonebridgev1), so imports resolve. Plain `paths=source_relative`
+# would place them in a directory named `phonebridge/v1`, which does not match the
+# declared import path.
+#
+# Plugin versions are pinned inline: an unpinned remote plugin resolves to "latest",
+# which silently changes the required protobuf runtime and therefore the required Go
+# toolchain version.
+#
+# No `managed:` block on purpose. Managed mode's `go_package` override is global to the
+# module, so it cannot express a second Go package (the local IPC contract, spike 01)
+# later; each .proto keeps an explicit, self-documenting `option go_package` instead.
 plugins:
-  - remote: buf.build/protocolbuffers/go
+  - remote: buf.build/protocolbuffers/go:v1.36.12
     out: ../core/pkg/protocol
-    opt: paths=source_relative
-  - remote: buf.build/grpc/go
+    opt: paths=import,module=github.com/om051p/phonebridge/core/pkg/protocol
+  - remote: buf.build/grpc/go:v1.5.1
     out: ../core/pkg/protocol
-    opt: paths=source_relative,require_unimplemented_servers=false
-  # Dart generation is wired when protoc-gen-dart is available;
-  # until then ui/lib/generated/ is produced via local protoc.
-  # - remote: buf.build/protocolbuffers/dart  # enable when buf registry Dart plugin is vetted
+    opt: paths=import,module=github.com/om051p/phonebridge/core/pkg/protocol,require_unimplemented_servers=false
+  # Dart generation is enabled once spike 01 fixes the local IPC transport
+  # (gRPC over UDS vs FFI) and therefore the local IPC contract itself.
+  # - remote: buf.build/protocolbuffers/dart:v<version>
+  #   out: ../ui/lib/generated

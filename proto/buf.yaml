@@ -1,9 +1,18 @@
 version: v2
+# Canonical invocation is from THIS directory: `cd proto && buf lint|generate|breaking`.
+# Buf resolves a module `path` relative to the workspace root (the input directory),
+# not relative to the config file. So `buf lint --config proto/buf.yaml` run from the
+# repository root would treat the repo root as the module root and fail
+# PACKAGE_DIRECTORY_MATCH at proto/phonebridge/v1/phonebridge.proto.
+# Declaring the module root here keeps module resolution explicit and independent of
+# any stray input directory above proto/.
+modules:
+  - path: .
 lint:
   use:
     - STANDARD
-  except:
-    - PACKAGE_VERSION_SUFFIX
+  # No `except` entries: with the module root set to proto/, `phonebridge.v1`
+  # satisfies PACKAGE_DIRECTORY_MATCH and PACKAGE_VERSION_SUFFIX on its own.
 breaking:
   use:
     - FILE

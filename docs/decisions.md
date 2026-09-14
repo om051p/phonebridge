@@ -17,8 +17,9 @@
 | DEC-011 | scrcpy | Reference only, no source copy | `CONFIRMED` |
 | DEC-012 | File transfer | MVP, bidirectional | `PLANNED` |
 | DEC-013 | Module path | `github.com/om051p/phonebridge` (from `origin`) — Go module `core/` uses `github.com/om051p/phonebridge/core` | `CONFIRMED` (Phase 0) |
-| DEC-014 | Codegen | `buf` pinned ≥1.32; `buf.gen.yaml` for Go+Dart; `make check-generated` drift gate | `CONFIRMED` (Phase 0) |
-| DEC-015 | Generated output | Committed under `core/pkg/protocol/` + `ui/lib/generated/` with drift gate (TBD final if generated size warrants gitignore) | `PLANNED` |
+| DEC-014 | Codegen toolchain | `buf` **pinned** (`bufbuild/buf-setup-action` with `version`); remote plugins **pinned inline** in `proto/buf.gen.yaml` (`protocolbuffers/go:v1.36.12`, `grpc/go:v1.5.1`). An unpinned plugin resolves to `latest`, which silently changes the required protobuf runtime and the required Go toolchain | `CONFIRMED` (Phase 0) |
+| DEC-015 | Generated output | Generated Go **is committed** under `core/pkg/protocol/` (and Dart under `ui/lib/generated/` once enabled). CI drift gate fails on modified **or newly generated (untracked)** output. Canonical invocation is `cd proto && buf generate` (`out` is CWD-relative; from the repo root it writes outside the repository). Output uses `paths=import,module=github.com/om051p/phonebridge/core/pkg/protocol` so the on-disk directory matches `option go_package` (`.../protocol/phonebridgev1`) and imports resolve | `CONFIRMED` (Phase 0) |
 | DEC-016 | Legacy handling | No legacy code in current `main`; if legacy appears, isolate on `archive/legacy-python` branch or `legacy/` dir — never imported by new layers | `CONFIRMED` (Phase 0) |
+| DEC-017 | Go toolchain floor | `core/` requires **Go ≥ 1.23** (`google.golang.org/protobuf v1.36.12` declares `go 1.23`). CI pins `1.23.x`. `core/go.sum` is committed and is the CI cache key | `CONFIRMED` (Phase 0) |
 
 Update this file when a spike validates or overturns a `PLANNED`/`EXPERIMENTAL` choice.

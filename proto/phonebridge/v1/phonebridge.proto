@@ -14,8 +14,8 @@ syntax = "proto3";
 package phonebridge.v1;
 
 option go_package = "github.com/om051p/phonebridge/core/pkg/protocol/phonebridgev1;phonebridgev1";
-option java_package = "dev.phonebridge.proto.v1";
 option java_multiple_files = true;
+option java_package = "dev.phonebridge.proto.v1";
 
 // ---------------------------------------------------------------------------
 // Envelope — top-level framing for every message on the wire.

@@ -32,19 +32,19 @@ third-party/            dependency ledger
 ## Quickstart
 
 ```bash
-# Proto (requires buf ≥1.32)
-buf lint --config proto/buf.yaml
-buf generate --config proto/buf.yaml --template proto/buf.gen.yaml
-buf breaking --config proto/buf.yaml --against '.git#branch=main'
+# Proto (buf pinned; module root is proto/, so lint/generate run with CWD=proto/)
+cd proto && buf lint && buf generate && cd ..
+buf breaking --config proto/buf.yaml --against '.git#branch=main'   # from repo root
+git status --porcelain -- core/pkg/protocol ui/lib/generated         # drift check: must be empty
 
-# Go core
-cd core && go vet ./... && go test ./... -count=1 -race
+# Go core (requires Go >= 1.23 — see docs/decisions.md DEC-017)
+cd core && go vet ./... && go build ./... && go test ./... -count=1 -race
 
 # Flutter
 cd ui && flutter pub get && flutter analyze && flutter test
 
-# Android (when wired)
-cd android && ./gradlew test
+# Android: NOT WIRED — no gradle wrapper; `flutter build apk` fails until the
+# Android host project layout is decided (see docs/development.md).
 ```
 
 Details: [`docs/development.md`](docs/development.md).
