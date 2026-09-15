@@ -1,0 +1,111 @@
+// PhoneBridge Spike 01 — provisional local IPC contract (EXPERIMENTAL).
+//
+// This file exists ONLY to exercise the Flutter <-> Go local transport
+// boundary on Linux. It is deliberately NOT `phonebridge.v1`:
+//   * `phonebridge.v1` (proto/phonebridge/v1/phonebridge.proto) is the
+//     device <-> device wire protocol. It has no `service`, because the
+//     local IPC contract is a different boundary with a different trust
+//     model (same machine, same user) and is decided by this spike.
+//   * Keeping the spike contract separate means the spike cannot freeze or
+//     drift the product schema (see docs/decisions.md DEC-014/DEC-015).
+//
+// The contract is intentionally minimal (Ping/Pong + push + peer identity).
+// No product feature is modelled here.
+
+syntax = "proto3";
+
+package phonebridge.spike.localipc.v1;
+
+option go_package = "github.com/om051p/phonebridge/spikes/localipc-spike/internal/spikepb;spikepb";
+
+// LocalIpcSpikeService is the spike's stand-in for the future local IPC
+// service. Only transport-relevant shapes are modelled.
+service LocalIpcSpikeService {
+  // Ping is the unary round-trip used for feasibility + latency measurement.
+  rpc Ping(PingRequest) returns (PingResponse);
+
+  // Subscribe is a server-streaming RPC used to measure Go -> Flutter push
+  // (the direction FFI cannot provide without a Dart API DL callback shim).
+  rpc Subscribe(SubscribeRequest) returns (stream SubscribeResponse);
+
+  // WhoAmI returns the server's view of the calling process (SO_PEERCRED),
+  // which is the basis of the same-user trust boundary.
+  rpc WhoAmI(WhoAmIRequest) returns (WhoAmIResponse);
+}
+
+// PingRequest carries a caller nonce and an optional payload used to sweep
+// message sizes (chunking evidence for future file/clipboard transfer).
+message PingRequest {
+  // Caller-chosen nonce, echoed back to prove the reply belongs to the call.
+  uint64 nonce = 1;
+
+  // Opaque payload; length drives the size sweep (0..64 KiB in the spike).
+  bytes payload = 2;
+}
+
+// PingResponse is the daemon's reply to PingRequest.
+message PingResponse {
+  // Echo of PingRequest.nonce.
+  uint64 nonce = 1;
+
+  // Daemon build/version string (identity + reconnect check).
+  string server_version = 2;
+
+  // Echo of PingRequest.payload (possibly truncated by the daemon).
+  bytes payload = 3;
+
+  // Daemon wall clock (CLOCK_REALTIME, nanoseconds) when the request was
+  // received; lets the client split transit from service time.
+  uint64 server_recv_unix_nanos = 4;
+}
+
+// SubscribeRequest configures the push test.
+message SubscribeRequest {
+  // Number of events to emit before the stream ends.
+  uint32 count = 1;
+
+  // Delay between events, in milliseconds.
+  uint32 interval_ms = 2;
+
+  // Bytes of synthetic payload attached to each event.
+  uint32 payload_size = 3;
+}
+
+// SubscribeResponse is one pushed event.
+message SubscribeResponse {
+  // Monotonic per-stream sequence number, starting at 1.
+  uint64 seq = 1;
+
+  // Event kind label (spike-internal, e.g. "tick").
+  string kind = 2;
+
+  // Daemon wall clock (CLOCK_REALTIME, nanoseconds) at emission time.
+  uint64 emitted_unix_nanos = 3;
+
+  // Synthetic payload (payload_size bytes).
+  bytes payload = 4;
+}
+
+// WhoAmIRequest is empty; the caller identity comes from the socket itself.
+message WhoAmIRequest {}
+
+// WhoAmIResponse is the server's view of the peer process.
+message WhoAmIResponse {
+  // Peer UID from SO_PEERCRED on the accepted Unix socket.
+  uint32 peer_uid = 1;
+
+  // Peer PID from SO_PEERCRED (Linux). Informational.
+  int32 peer_pid = 2;
+
+  // Peer primary GID from SO_PEERCRED. Informational.
+  uint32 peer_gid = 3;
+
+  // Absolute path of the socket the request arrived on.
+  string socket_path = 4;
+
+  // Daemon's own effective UID (the expected peer UID).
+  uint32 server_uid = 5;
+
+  // Whether the daemon enforced a bearer-token check for this call.
+  bool token_required = 6;
+}

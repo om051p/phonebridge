@@ -1,0 +1,35 @@
+name: phonebridge_spike01_harness
+description: >-
+  Spike 01 harness — Flutter ↔ Go local IPC on Linux (UDS+gRPC vs FFI).
+  EXPERIMENTAL, throwaway: not product code, not a package, never published.
+publish_to: none
+version: 0.0.0+0
+
+environment:
+  sdk: ">=3.8.0 <4.0.0"
+
+# Dependency ledger for the spike (see third-party/DEPENDENCIES.md for the
+# product policy). All three are Apache-2.0/BSD-3 and already anticipated by
+# the product manifests (ui/pubspec.yaml lists grpc/protobuf as "added when
+# local IPC uses gRPC"):
+#   grpc     ^5.1.0  Apache-2.0  (dart.dev publisher) — pure Dart, UDS-capable
+#   protobuf ^6.1.0  BSD-3       (dart.dev) — runtime for protoc_plugin 25.1.0 output
+#   ffi      ^2.1.0  BSD-3       (dart.dev) — only used by the FFI branch
+# No native plugin is added: nothing here needs a platform channel.
+dependencies:
+  flutter:
+    sdk: flutter
+  grpc: ^5.1.0
+  protobuf: ^6.1.0
+  # fixnum is imported directly by the harness because protobuf maps uint64
+  # fields (nonce, seq, nanosecond timestamps) to fixnum.Int64, not int.
+  fixnum: ^1.1.1
+  ffi: ^2.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: false

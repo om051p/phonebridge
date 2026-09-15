@@ -6,7 +6,7 @@ Per `MASTER_HANDOFF.md` §Immediate Next Action, ten validation spikes block fre
 
 | # | Spike | File |
 |---|-------|------|
-| 01 | Flutter ↔ Go local IPC on Linux | [01-flutter-go-ipc-linux.md](01-flutter-go-ipc-linux.md) |
+| 01 | Flutter ↔ Go local IPC on Linux | [01-flutter-go-ipc-linux.md](01-flutter-go-ipc-linux.md) — **results: [01-flutter-go-ipc-linux-results.md](01-flutter-go-ipc-linux-results.md)** (`EXPERIMENTAL`, recommends UDS+gRPC) |
 | 02 | Flutter/Kotlin ↔ Go on Android | [02-flutter-kotlin-go-android.md](02-flutter-kotlin-go-android.md) |
 | 03 | Android MediaProjection → encoder | [03-android-mediaprojection-encoder.md](03-android-mediaprojection-encoder.md) |
 | 04 | Pion WebRTC Android ↔ Linux | [04-pion-webrtc-android-linux.md](04-pion-webrtc-android-linux.md) |

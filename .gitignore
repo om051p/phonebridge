@@ -34,3 +34,9 @@ Thumbs.db
 .vscode/
 *.swp
 *~
+
+# Spikes — build outputs and regenerable per-run evidence.
+# Spike trees are self-contained; rebuild with the spike Makefile
+# (spikes/<id>/make build|perf). Never commit spike binaries.
+spikes/*/go/bin/
+spikes/*/results/

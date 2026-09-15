@@ -1,0 +1,11 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    # protoc_plugin output — do not hand-edit, do not lint as handwritten code.
+    - lib/generated/**
+    - build/**
+  errors:
+    # Generated Dart for protobuf/grpc trips a few lint hints; keep them visible
+    # in the generated dir only if the exclude above is ever lifted.
+    unused_element: ignore

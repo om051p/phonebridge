@@ -1,0 +1,15 @@
+version: v2
+# Spike-local buf module. Canonical invocation: `cd spikes/01-flutter-go-ipc-linux/proto && buf lint && buf generate`.
+#
+# This is a SEPARATE module from `proto/` on purpose: spike output must never
+# land in the committed product codegen paths (core/pkg/protocol,
+# ui/lib/generated) — the CI drift gate in .github/workflows/ci.yml fails on
+# any change there.
+modules:
+  - path: .
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - FILE

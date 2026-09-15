@@ -1,0 +1,24 @@
+version: v2
+# Spike 01 codegen. LOCAL plugins only (no buf.build remote plugins) so the
+# spike needs no registry credentials and cannot silently change versions.
+#
+# Plugin binaries and their versions mirror the product pins where they exist
+# (docs/decisions.md DEC-014):
+#   * protoc-gen-go       v1.36.12  (product: buf.build/protocolbuffers/go:v1.36.12)
+#   * protoc-gen-go-grpc  v1.5.1    (product: buf.build/grpc/go:v1.5.1)
+#   * protoc-gen-dart     protoc_plugin 25.1.0 (product: commented out until
+#     spike 01 chooses the transport — this is the spike's Dart feasibility test)
+#
+# `paths=import,module=...` + an explicit `option go_package` makes the output
+# directory match the Go import path, exactly like the product config. `out` is
+# CWD-relative, so run from this directory.
+plugins:
+  - local: protoc-gen-go
+    out: ../go
+    opt: paths=import,module=github.com/om051p/phonebridge/spikes/localipc-spike
+  - local: protoc-gen-go-grpc
+    out: ../go
+    opt: paths=import,module=github.com/om051p/phonebridge/spikes/localipc-spike,require_unimplemented_servers=false
+  - local: protoc-gen-dart
+    out: ../harness/lib/generated
+    opt: grpc
