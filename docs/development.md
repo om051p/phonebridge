@@ -24,7 +24,7 @@ cd ..
 git status --porcelain -- core/pkg/protocol ui/lib/generated   # drift check: must be empty
 
 # buf breaking must run from the repo root (baseline module root must match the input)
-buf breaking --config proto/buf.yaml --against '.git#branch=main'
+buf breaking proto --against '.git#branch=main,subdir=proto'
 
 # Go core
 cd core && go vet ./... && go build ./... && go test ./... -count=1 -race
@@ -46,7 +46,7 @@ Canonical schema: `proto/phonebridge/v1/phonebridge.proto`.
 cd proto && buf lint && buf generate
 
 # breaking: run from the repo root (baseline module root must match the input)
-buf breaking --config proto/buf.yaml --against '.git#branch=main'
+buf breaking proto --against '.git#branch=main,subdir=proto'
 
 # Make aliases (they cd into proto/ internally)
 make -C core gen

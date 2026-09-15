@@ -1,8 +1,9 @@
 # Spike 01 Results — Flutter ↔ Go local IPC on Linux
 
-> Status: `EXPERIMENTAL` — spike artifact. Evidence for the transport decision
-> that gates freezing the IPC contract; results feed a future DEC entry in
-> `docs/decisions.md` once ratified.
+> Status: `EXPERIMENTAL` artifact — **decision ratified as `DEC-018`**
+> (UDS + gRPC; pass-through `Envelope` framing). Preserved as the evidence
+> record for that decision; the spike schema `phonebridge.spike.localipc.v1`
+> was never promoted to a production package.
 
 Frame: [01-flutter-go-ipc-linux.md](01-flutter-go-ipc-linux.md) ·
 Prototype: [`spikes/01-flutter-go-ipc-linux/`](../../spikes/01-flutter-go-ipc-linux/) ·
@@ -140,7 +141,13 @@ outside per-frame budgets and is a one-time cost.
    a Dart crash kills the core; with UDS the daemon survives and the UI
    reconnects.
 
-## Decision to be made (recommendation)
+## Decision — ratified (DEC-018)
+
+Ratified as DEC-018: UDS + gRPC, pass-through `Envelope` framing in
+`StreamEventsResponse`, FFI rejected as the primary boundary. Production
+contract: `proto/phonebridge/localipc/v1/local_ipc.proto`.
+
+The original recommendation, preserved verbatim:
 
 Adopt **UDS + gRPC (single transport) for the Flutter ↔ Go boundary on Linux**:
 

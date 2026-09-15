@@ -34,7 +34,7 @@ third-party/            dependency ledger
 ```bash
 # Proto (buf pinned; module root is proto/, so lint/generate run with CWD=proto/)
 cd proto && buf lint && buf generate && cd ..
-buf breaking --config proto/buf.yaml --against '.git#branch=main'   # from repo root
+buf breaking proto --against '.git#branch=main,subdir=proto'   # from repo root
 git status --porcelain -- core/pkg/protocol ui/lib/generated         # drift check: must be empty
 
 # Go core (requires Go >= 1.23 — see docs/decisions.md DEC-017)

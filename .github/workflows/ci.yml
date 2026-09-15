@@ -43,10 +43,15 @@ jobs:
             git --no-pager diff -- core/pkg/protocol ui/lib/generated
             exit 1
           fi
-      # Must run from the repo root: the baseline image is built with the repo root as
-      # module root, so comparing from proto/ reports a false FILE_NO_DELETE.
+      # Must run from the repo root: `.git#branch=main` resolves .git relative to the
+      # working directory, and the baseline image is built with the repo root as module
+      # root, so comparing from proto/ reports a false FILE_NO_DELETE.
+      # `proto` (input) + `subdir=proto` (baseline) pin BOTH sides to the module root —
+      # the root-CWD invocation alone breaks once a proto imports another (cross-package
+      # imports resolve against the CWD as module root and fail with "imported file does
+      # not exist"), e.g. the local IPC contract importing phonebridge/v1.
       - name: buf breaking
-        run: buf breaking --config proto/buf.yaml --against '.git#branch=main'
+        run: buf breaking proto --against '.git#branch=main,subdir=proto'
 
   go:
     runs-on: ubuntu-latest

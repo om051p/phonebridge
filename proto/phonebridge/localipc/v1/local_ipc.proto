@@ -1,0 +1,154 @@
+// PhoneBridge Local IPC — v1
+// Package: phonebridge.localipc.v1
+// Status: CONFIRMED (Phase 0) — contract ratified from Spike 01 (DEC-018).
+// Source of truth for wire compatibility: this file + buf breaking checks.
+//
+// Scope and isolation rules (see docs/protocol.md):
+// - This contract serves the SAME-USER, SAME-MACHINE boundary only:
+//   Flutter UI <-> phonebridge daemon over a Unix domain socket.
+// - It MUST NOT be exposed on any network listener and MUST NOT become part
+//   of the device-to-device protocol (phonebridge.v1), which is a different
+//   boundary with a different trust model. The daemon is the only component
+//   that speaks both; StreamEventsResponse.envelope is opaque relay payload, not a
+//   transport definition for phonebridge.v1.
+// - phonebridge.spike.localipc.v1 (Spike 01) is a throwaway schema and was
+//   never promoted; nothing here reuses it.
+//
+// Transport (ratified by Spike 01, DEC-018):
+// - Socket: $XDG_RUNTIME_DIR/phonebridge/engine.sock
+//   Directory created 0700, owned by the daemon's effective user; socket
+//   file 0600. A stale socket from a crashed predecessor is removed at
+//   startup only after verifying no live listener exists.
+// - Gate 1 (primary, kernel-verified): SO_PEERCRED on every accepted
+//   connection; peers whose UID differs from the daemon's effective UID are
+//   rejected pre-auth (gRPC transport credentials).
+// - Gate 2 (defense-in-depth): gRPC metadata
+//   `authorization: Bearer <token>` on every call, constant-time compared.
+//   Token provisioning: at startup the daemon generates >= 256 bits from a
+//   CSPRNG and writes it to $XDG_RUNTIME_DIR/phonebridge/token, mode 0600,
+//   owned by the daemon's effective user. A legitimate client is any
+//   process running as the same OS user (exactly the privilege the uid gate
+//   enforces): it reads that file and attaches the bearer metadata to every
+//   call. The token rotates on every daemon start; on UNAUTHENTICATED the
+//   client re-reads the file and reconnects. The bearer token covers
+//   socket-permission misconfiguration and uncooperative same-uid
+//   processes; on a correctly configured system the uid gate is the
+//   primary boundary.
+// - Lifecycle: the daemon is a foreground process (systemd user service
+//   Type=simple, Restart=on-failure); SIGTERM -> graceful stop, streams end
+//   cleanly, socket removed. Clients reconnect with backoff; continuity is
+//   detected via HandshakeResponse.daemon_generation and StreamEventsResponse.seq.
+// - Payloads: gRPC's default 4 MiB message ceiling applies. Bulk content
+//   (file bytes, large clipboard bodies) MUST additionally be chunked at
+//   <= 64 KiB per message (Spike 01: a 64 KiB message costs ~2x a small
+//   one; chunking bounds relay latency and head-of-line blocking).
+
+syntax = "proto3";
+
+package phonebridge.localipc.v1;
+
+import "phonebridge/v1/phonebridge.proto";
+
+option go_package = "github.com/om051p/phonebridge/core/pkg/protocol/phonebridgelocalipcv1;phonebridgelocalipcv1";
+option java_multiple_files = true;
+option java_package = "dev.phonebridge.proto.localipc.v1";
+
+// ---------------------------------------------------------------------------
+// LocalEngineService — the UI-facing engine service on the local Unix socket.
+// ---------------------------------------------------------------------------
+service LocalEngineService {
+  // Handshake negotiates the local protocol version and returns daemon
+  // identity. Must be the first call on a new connection.
+  rpc Handshake(HandshakeRequest) returns (HandshakeResponse);
+
+  // Ping is a cheap liveness/reconnect probe.
+  rpc Ping(PingRequest) returns (PingResponse);
+
+  // StreamEvents pushes relayed device-protocol messages to the UI.
+  // Server-streaming; the daemon ends the stream cleanly on shutdown, and
+  // the client re-subscribes with backoff after any stream end.
+  rpc StreamEvents(StreamEventsRequest) returns (stream StreamEventsResponse);
+
+  // Health reports daemon readiness without opening an event stream.
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+// HandshakeRequest advertises the client's local-IPC protocol support.
+message HandshakeRequest {
+  // Highest phonebridge.localipc protocol version the client implements.
+  // Currently always 1. The server negotiates down to its own maximum.
+  uint32 client_version = 1;
+}
+
+// HandshakeResponse answers Handshake.
+message HandshakeResponse {
+  // Version selected for this connection: min(client_version, server max).
+  // Currently always 1.
+  uint32 negotiated_version = 1;
+
+  // Daemon build/version string (informational identity for logs/debug).
+  string server_version = 2;
+
+  // Identifier of the daemon process instance. Changes on every daemon
+  // (re)start; clients use it to detect daemon replacement across
+  // reconnects. Matches StreamEventsResponse.daemon_generation on later streams.
+  uint64 daemon_generation = 3;
+}
+
+// PingRequest carries a caller nonce for reply correlation.
+message PingRequest {
+  // Caller-chosen nonce, echoed in PingResponse.
+  uint64 nonce = 1;
+}
+
+// PingResponse answers PingRequest.
+message PingResponse {
+  // Echo of PingRequest.nonce.
+  uint64 nonce = 1;
+
+  // Daemon build/version string (identity check after a reconnect).
+  string server_version = 2;
+}
+
+// StreamEventsRequest subscribes to relayed device-protocol events.
+// Intentionally empty in v1: future filters (event kinds, device ids) are
+// added as optional fields; older servers ignore unknown fields.
+message StreamEventsRequest {}
+
+// StreamEventsResponse is one pushed message on the StreamEvents stream.
+// (the "local event" of DEC-018; the type is named to satisfy the repo's STANDARD lint)
+message StreamEventsResponse {
+  // Per-stream monotonic sequence starting at 1. The local ordering
+  // authority — clients detect gaps and must resubscribe/resync via Health.
+  // (Distinct from Envelope.sequence, which orders the DEVICE session.)
+  uint64 seq = 1;
+
+  // Daemon instance identifier; equals HandshakeResponse.daemon_generation for the
+  // serving daemon. A change means the daemon restarted under the client.
+  uint64 daemon_generation = 2;
+
+  // Opaque relayed device-protocol message (phonebridge.v1). The daemon
+  // forwards the Envelope verbatim; the UI decodes device payloads
+  // directly. Pass-through framing per DEC-018: this is payload relay,
+  // NOT a new transport for phonebridge.v1, and LocalEngine is never a
+  // device peer.
+  phonebridge.v1.Envelope envelope = 3;
+}
+
+// HealthRequest is empty.
+message HealthRequest {}
+
+// HealthResponse answers Health.
+message HealthResponse {
+  // True once the daemon is serving (its READY state).
+  bool ready = 1;
+
+  // Daemon instance identifier (see HandshakeResponse.daemon_generation).
+  uint64 daemon_generation = 2;
+
+  // Daemon build/version string.
+  string server_version = 3;
+
+  // Milliseconds since daemon start (informational).
+  uint64 uptime_ms = 4;
+}

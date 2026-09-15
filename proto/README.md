@@ -23,12 +23,14 @@ buf generate
 buf format --diff --exit-code phonebridge/v1/phonebridge.proto   # optional style check
 ```
 
-`buf breaking` must run from the **repository root** instead — the baseline image is
-built with the repo root as module root, so comparing from here reports a false
-`FILE_NO_DELETE`:
+`buf breaking` must also run from the **repository root** — `.git#ref` resolves `.git`
+relative to the working directory, and the baseline image is built with the repo root as
+module root (so comparing from here reports a false `FILE_NO_DELETE`). Pin BOTH sides to
+the module root with an explicit input + `subdir`; the bare root-CWD form breaks once a
+proto imports another (cross-package imports resolve against the CWD as module root):
 
 ```bash
-buf breaking --config proto/buf.yaml --against '.git#branch=main'
+buf breaking proto --against '.git#branch=main,subdir=proto'
 ```
 
 Drift check (must be empty; detects modified *and* newly generated files):
@@ -49,6 +51,8 @@ make -C core check-generated
 - Go: `core/pkg/protocol/phonebridgev1/phonebridge.pb.go`
   (`paths=import,module=github.com/om051p/phonebridge/core/pkg/protocol` makes the
   directory match `option go_package`, so imports resolve)
+- Go (local IPC): `core/pkg/protocol/phonebridgelocalipcv1/local_ipc*.pb.go`
+  (package `phonebridge.localipc.v1`; same pinned plugins, same module mapping)
 - Dart: `ui/lib/generated/` (when the Dart plugin is enabled, after spike 01)
 
 Never hand-edit generated files. CI fails on drift.

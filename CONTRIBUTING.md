@@ -37,7 +37,7 @@ proto/phonebridge/v1/phonebridge.proto  →  cd proto && buf generate  →  laye
 ```
 
 1. Edit `proto/phonebridge/v1/phonebridge.proto`.
-2. `cd proto && buf lint`, then from the repo root `buf breaking --config proto/buf.yaml --against '.git#branch=main'`.
+2. `cd proto && buf lint`, then from the repo root `buf breaking proto --against '.git#branch=main,subdir=proto'`.
 3. Generate: `cd proto && buf generate` (or `make -C core gen`).
 4. Update Go / Dart / Kotlin consumers.
 5. Add/update tests. **Commit the regenerated files** — CI fails on any drift, including newly
