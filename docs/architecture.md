@@ -84,6 +84,20 @@ Android: Flutter/Kotlin ── (embedded Go c-shared or gomobile) ── Go core
 
 Spike 01 and 02 validate the final choice.
 
+## Android capture pipeline
+
+Ratified pipeline (DEC-020, spike 03): MediaProjection → VirtualDisplay → codec input `Surface` →
+hardware H.264 `MediaCodec` (byte-buffer output) → Kotlin → JNI `byte[]` → Go core. The constraints
+that shape the product:
+
+- **Consent first.** Activity `createScreenCaptureIntent()` → foreground service with `type=mediaProjection` → `getMediaProjection`/`registerCallback` → `createVirtualDisplay`. Starting the FGS *before* consent throws `SecurityException` on Android 15 at both targetSdk 34 and 35 (the gate is the `project_media` appop that only consent grants).
+- **One projection per consent.** Resolution changes end the session and need a new consent; in-session adaptation is limited to bitrate and sync-frame requests.
+- **Capture is damage-driven at panel refresh.** Neither `KEY_FRAME_RATE` nor `Surface.setFrameRate()` throttles composition, so Kotlin throttles to the negotiated stream rate and Go paces a bursty source (0-fps periods on static content or screen-off are normal, not a stall).
+- **Codec chosen by capability.** Hardware H.264 primary, HEVC optional (present but unmeasured), AV1 excluded (software-only ≤ 1920 px on target devices).
+
+Evidence: [spike 03 results](spikes/03-android-mediaprojection-encoder-results.md). Kotlin throttling,
+Go-side pacing, and H.264 byte-level framing are open prerequisites for spike 04, not measured here.
+
 ## Repository layout
 
 ```
@@ -103,4 +117,5 @@ third-party/            dependency ledger
 - Flutter ↔ Go on Android embedding — `EXPERIMENTAL`
 - Wayland clipboard/input (COSMIC portal/EIS) — `EXPERIMENTAL`
 - WebRTC media perf / codec choice — `EXPERIMENTAL`
+- Kotlin capture throttling + Go-side pacing (required by DEC-020) — `PLANNED`, not yet implemented
 - TURN infra/cost — `PLANNED`, no commitment in Phase 0

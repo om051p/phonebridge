@@ -40,3 +40,5 @@ Thumbs.db
 # (spikes/<id>/make build|perf). Never commit spike binaries.
 spikes/*/go/bin/
 spikes/*/results/
+spikes/*/android/.gradle/
+spikes/*/android/local.properties

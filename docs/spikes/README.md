@@ -8,7 +8,7 @@ Per `MASTER_HANDOFF.md` §Immediate Next Action, ten validation spikes block fre
 |---|-------|------|
 | 01 | Flutter ↔ Go local IPC on Linux | [01-flutter-go-ipc-linux.md](01-flutter-go-ipc-linux.md) — **results: [01-flutter-go-ipc-linux-results.md](01-flutter-go-ipc-linux-results.md)** (`EXPERIMENTAL` — decision ratified as DEC-018: UDS+gRPC) |
 | 02 | Flutter/Kotlin ↔ Go on Android | [02-flutter-kotlin-go-android.md](02-flutter-kotlin-go-android.md) |
-| 03 | Android MediaProjection → encoder | [03-android-mediaprojection-encoder.md](03-android-mediaprojection-encoder.md) |
+| 03 | Android MediaProjection → encoder | [03-android-mediaprojection-encoder.md](03-android-mediaprojection-encoder.md) — **results: [03-android-mediaprojection-encoder-results.md](03-android-mediaprojection-encoder-results.md)** (`EXPERIMENTAL` — hardware H.264 validated; decision proposed, see §12) |
 | 04 | Pion WebRTC Android ↔ Linux | [04-pion-webrtc-android-linux.md](04-pion-webrtc-android-linux.md) |
 | 05 | Android background clipboard | [05-android-clipboard-background.md](05-android-clipboard-background.md) |
 | 06 | COSMIC clipboard access | [06-cosmic-clipboard.md](06-cosmic-clipboard.md) |
