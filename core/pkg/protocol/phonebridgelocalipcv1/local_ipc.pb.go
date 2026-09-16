@@ -24,16 +24,28 @@
 //   rejected pre-auth (gRPC transport credentials).
 // - Gate 2 (defense-in-depth): gRPC metadata
 //   `authorization: Bearer <token>` on every call, constant-time compared.
-//   Token provisioning: at startup the daemon generates >= 256 bits from a
-//   CSPRNG and writes it to $XDG_RUNTIME_DIR/phonebridge/token, mode 0600,
-//   owned by the daemon's effective user. A legitimate client is any
-//   process running as the same OS user (exactly the privilege the uid gate
-//   enforces): it reads that file and attaches the bearer metadata to every
-//   call. The token rotates on every daemon start; on UNAUTHENTICATED the
-//   client re-reads the file and reconnects. The bearer token covers
-//   socket-permission misconfiguration and uncooperative same-uid
-//   processes; on a correctly configured system the uid gate is the
-//   primary boundary.
+//   Token provisioning and client acquisition mechanism:
+//   1. Generation: At daemon startup, the daemon generates >= 256 bits of
+//      cryptographically secure randomness from a CSPRNG (e.g. crypto/rand)
+//      and writes it as a hex/ASCII string to $XDG_RUNTIME_DIR/phonebridge/token
+//      (mode 0600, owned by the daemon's effective UID).
+//   2. Client Discovery & Acquisition: The legitimate Flutter UI client,
+//      executing as the same OS user, resolves the token file path
+//      ($XDG_RUNTIME_DIR/phonebridge/token). If the file is not yet present at
+//      client launch, the client polls with exponential backoff (e.g. 50ms,
+//      100ms, up to 3s) until the daemon signals READY. The client reads the
+//      token from the file into memory.
+//   3. RPC Authentication: The client attaches the token to every gRPC call
+//      via metadata: `authorization: Bearer <token>` (e.g., via grpc-dart
+//      CallOptions(metadata: {'authorization': 'Bearer $token'})).
+//   4. Rotation & Re-auth: The token rotates on every daemon start. When the
+//      client receives gRPC status UNAUTHENTICATED (code 16), it invalidates
+//      its in-memory token cache, re-reads the token file from disk, and
+//      re-establishes the connection with backoff.
+//   The bearer token covers socket-permission misconfiguration (e.g.
+//   accidentally world-accessible socket files) and cross-namespace or
+//   container leaks; on a correctly configured system under POSIX DAC the
+//   uid gate is the primary boundary.
 // - Lifecycle: the daemon is a foreground process (systemd user service
 //   Type=simple, Restart=on-failure); SIGTERM -> graceful stop, streams end
 //   cleanly, socket removed. Clients reconnect with backoff; continuity is
@@ -393,6 +405,72 @@ func (x *StreamEventsResponse) GetEnvelope() *phonebridgev1.Envelope {
 	return nil
 }
 
+// LocalEvent represents a pushed local event containing the relayed device envelope.
+// On the wire, StreamEvents yields StreamEventsResponse (whose fields match LocalEvent)
+// to satisfy standard gRPC request/response naming conventions.
+type LocalEvent struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Per-stream monotonic sequence starting at 1.
+	Seq uint64 `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
+	// Daemon instance identifier; equals HandshakeResponse.daemon_generation.
+	DaemonGeneration uint64 `protobuf:"varint,2,opt,name=daemon_generation,json=daemonGeneration,proto3" json:"daemon_generation,omitempty"`
+	// Opaque relayed device-protocol message (phonebridge.v1).
+	Envelope      *phonebridgev1.Envelope `protobuf:"bytes,3,opt,name=envelope,proto3" json:"envelope,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LocalEvent) Reset() {
+	*x = LocalEvent{}
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LocalEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LocalEvent) ProtoMessage() {}
+
+func (x *LocalEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LocalEvent.ProtoReflect.Descriptor instead.
+func (*LocalEvent) Descriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *LocalEvent) GetSeq() uint64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
+func (x *LocalEvent) GetDaemonGeneration() uint64 {
+	if x != nil {
+		return x.DaemonGeneration
+	}
+	return 0
+}
+
+func (x *LocalEvent) GetEnvelope() *phonebridgev1.Envelope {
+	if x != nil {
+		return x.Envelope
+	}
+	return nil
+}
+
 // HealthRequest is empty.
 type HealthRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -402,7 +480,7 @@ type HealthRequest struct {
 
 func (x *HealthRequest) Reset() {
 	*x = HealthRequest{}
-	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[6]
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -414,7 +492,7 @@ func (x *HealthRequest) String() string {
 func (*HealthRequest) ProtoMessage() {}
 
 func (x *HealthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[6]
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -427,7 +505,7 @@ func (x *HealthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthRequest.ProtoReflect.Descriptor instead.
 func (*HealthRequest) Descriptor() ([]byte, []int) {
-	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{6}
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{7}
 }
 
 // HealthResponse answers Health.
@@ -447,7 +525,7 @@ type HealthResponse struct {
 
 func (x *HealthResponse) Reset() {
 	*x = HealthResponse{}
-	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[7]
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -459,7 +537,7 @@ func (x *HealthResponse) String() string {
 func (*HealthResponse) ProtoMessage() {}
 
 func (x *HealthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[7]
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -472,7 +550,7 @@ func (x *HealthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthResponse.ProtoReflect.Descriptor instead.
 func (*HealthResponse) Descriptor() ([]byte, []int) {
-	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{7}
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *HealthResponse) GetReady() bool {
@@ -523,6 +601,11 @@ const file_phonebridge_localipc_v1_local_ipc_proto_rawDesc = "" +
 	"\x14StreamEventsResponse\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x04R\x03seq\x12+\n" +
 	"\x11daemon_generation\x18\x02 \x01(\x04R\x10daemonGeneration\x124\n" +
+	"\benvelope\x18\x03 \x01(\v2\x18.phonebridge.v1.EnvelopeR\benvelope\"\x81\x01\n" +
+	"\n" +
+	"LocalEvent\x12\x10\n" +
+	"\x03seq\x18\x01 \x01(\x04R\x03seq\x12+\n" +
+	"\x11daemon_generation\x18\x02 \x01(\x04R\x10daemonGeneration\x124\n" +
 	"\benvelope\x18\x03 \x01(\v2\x18.phonebridge.v1.EnvelopeR\benvelope\"\x0f\n" +
 	"\rHealthRequest\"\x97\x01\n" +
 	"\x0eHealthResponse\x12\x14\n" +
@@ -549,7 +632,7 @@ func file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP() []byte {
 	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescData
 }
 
-var file_phonebridge_localipc_v1_local_ipc_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_phonebridge_localipc_v1_local_ipc_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_phonebridge_localipc_v1_local_ipc_proto_goTypes = []any{
 	(*HandshakeRequest)(nil),       // 0: phonebridge.localipc.v1.HandshakeRequest
 	(*HandshakeResponse)(nil),      // 1: phonebridge.localipc.v1.HandshakeResponse
@@ -557,25 +640,27 @@ var file_phonebridge_localipc_v1_local_ipc_proto_goTypes = []any{
 	(*PingResponse)(nil),           // 3: phonebridge.localipc.v1.PingResponse
 	(*StreamEventsRequest)(nil),    // 4: phonebridge.localipc.v1.StreamEventsRequest
 	(*StreamEventsResponse)(nil),   // 5: phonebridge.localipc.v1.StreamEventsResponse
-	(*HealthRequest)(nil),          // 6: phonebridge.localipc.v1.HealthRequest
-	(*HealthResponse)(nil),         // 7: phonebridge.localipc.v1.HealthResponse
-	(*phonebridgev1.Envelope)(nil), // 8: phonebridge.v1.Envelope
+	(*LocalEvent)(nil),             // 6: phonebridge.localipc.v1.LocalEvent
+	(*HealthRequest)(nil),          // 7: phonebridge.localipc.v1.HealthRequest
+	(*HealthResponse)(nil),         // 8: phonebridge.localipc.v1.HealthResponse
+	(*phonebridgev1.Envelope)(nil), // 9: phonebridge.v1.Envelope
 }
 var file_phonebridge_localipc_v1_local_ipc_proto_depIdxs = []int32{
-	8, // 0: phonebridge.localipc.v1.StreamEventsResponse.envelope:type_name -> phonebridge.v1.Envelope
-	0, // 1: phonebridge.localipc.v1.LocalEngineService.Handshake:input_type -> phonebridge.localipc.v1.HandshakeRequest
-	2, // 2: phonebridge.localipc.v1.LocalEngineService.Ping:input_type -> phonebridge.localipc.v1.PingRequest
-	4, // 3: phonebridge.localipc.v1.LocalEngineService.StreamEvents:input_type -> phonebridge.localipc.v1.StreamEventsRequest
-	6, // 4: phonebridge.localipc.v1.LocalEngineService.Health:input_type -> phonebridge.localipc.v1.HealthRequest
-	1, // 5: phonebridge.localipc.v1.LocalEngineService.Handshake:output_type -> phonebridge.localipc.v1.HandshakeResponse
-	3, // 6: phonebridge.localipc.v1.LocalEngineService.Ping:output_type -> phonebridge.localipc.v1.PingResponse
-	5, // 7: phonebridge.localipc.v1.LocalEngineService.StreamEvents:output_type -> phonebridge.localipc.v1.StreamEventsResponse
-	7, // 8: phonebridge.localipc.v1.LocalEngineService.Health:output_type -> phonebridge.localipc.v1.HealthResponse
-	5, // [5:9] is the sub-list for method output_type
-	1, // [1:5] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	9, // 0: phonebridge.localipc.v1.StreamEventsResponse.envelope:type_name -> phonebridge.v1.Envelope
+	9, // 1: phonebridge.localipc.v1.LocalEvent.envelope:type_name -> phonebridge.v1.Envelope
+	0, // 2: phonebridge.localipc.v1.LocalEngineService.Handshake:input_type -> phonebridge.localipc.v1.HandshakeRequest
+	2, // 3: phonebridge.localipc.v1.LocalEngineService.Ping:input_type -> phonebridge.localipc.v1.PingRequest
+	4, // 4: phonebridge.localipc.v1.LocalEngineService.StreamEvents:input_type -> phonebridge.localipc.v1.StreamEventsRequest
+	7, // 5: phonebridge.localipc.v1.LocalEngineService.Health:input_type -> phonebridge.localipc.v1.HealthRequest
+	1, // 6: phonebridge.localipc.v1.LocalEngineService.Handshake:output_type -> phonebridge.localipc.v1.HandshakeResponse
+	3, // 7: phonebridge.localipc.v1.LocalEngineService.Ping:output_type -> phonebridge.localipc.v1.PingResponse
+	5, // 8: phonebridge.localipc.v1.LocalEngineService.StreamEvents:output_type -> phonebridge.localipc.v1.StreamEventsResponse
+	8, // 9: phonebridge.localipc.v1.LocalEngineService.Health:output_type -> phonebridge.localipc.v1.HealthResponse
+	6, // [6:10] is the sub-list for method output_type
+	2, // [2:6] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_phonebridge_localipc_v1_local_ipc_proto_init() }
@@ -589,7 +674,7 @@ func file_phonebridge_localipc_v1_local_ipc_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_phonebridge_localipc_v1_local_ipc_proto_rawDesc), len(file_phonebridge_localipc_v1_local_ipc_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

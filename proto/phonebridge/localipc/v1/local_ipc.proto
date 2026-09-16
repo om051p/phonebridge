@@ -24,16 +24,28 @@
 //   rejected pre-auth (gRPC transport credentials).
 // - Gate 2 (defense-in-depth): gRPC metadata
 //   `authorization: Bearer <token>` on every call, constant-time compared.
-//   Token provisioning: at startup the daemon generates >= 256 bits from a
-//   CSPRNG and writes it to $XDG_RUNTIME_DIR/phonebridge/token, mode 0600,
-//   owned by the daemon's effective user. A legitimate client is any
-//   process running as the same OS user (exactly the privilege the uid gate
-//   enforces): it reads that file and attaches the bearer metadata to every
-//   call. The token rotates on every daemon start; on UNAUTHENTICATED the
-//   client re-reads the file and reconnects. The bearer token covers
-//   socket-permission misconfiguration and uncooperative same-uid
-//   processes; on a correctly configured system the uid gate is the
-//   primary boundary.
+//   Token provisioning and client acquisition mechanism:
+//   1. Generation: At daemon startup, the daemon generates >= 256 bits of
+//      cryptographically secure randomness from a CSPRNG (e.g. crypto/rand)
+//      and writes it as a hex/ASCII string to $XDG_RUNTIME_DIR/phonebridge/token
+//      (mode 0600, owned by the daemon's effective UID).
+//   2. Client Discovery & Acquisition: The legitimate Flutter UI client,
+//      executing as the same OS user, resolves the token file path
+//      ($XDG_RUNTIME_DIR/phonebridge/token). If the file is not yet present at
+//      client launch, the client polls with exponential backoff (e.g. 50ms,
+//      100ms, up to 3s) until the daemon signals READY. The client reads the
+//      token from the file into memory.
+//   3. RPC Authentication: The client attaches the token to every gRPC call
+//      via metadata: `authorization: Bearer <token>` (e.g., via grpc-dart
+//      CallOptions(metadata: {'authorization': 'Bearer $token'})).
+//   4. Rotation & Re-auth: The token rotates on every daemon start. When the
+//      client receives gRPC status UNAUTHENTICATED (code 16), it invalidates
+//      its in-memory token cache, re-reads the token file from disk, and
+//      re-establishes the connection with backoff.
+//   The bearer token covers socket-permission misconfiguration (e.g.
+//   accidentally world-accessible socket files) and cross-namespace or
+//   container leaks; on a correctly configured system under POSIX DAC the
+//   uid gate is the primary boundary.
 // - Lifecycle: the daemon is a foreground process (systemd user service
 //   Type=simple, Restart=on-failure); SIGTERM -> graceful stop, streams end
 //   cleanly, socket removed. Clients reconnect with backoff; continuity is
@@ -132,6 +144,20 @@ message StreamEventsResponse {
   // directly. Pass-through framing per DEC-018: this is payload relay,
   // NOT a new transport for phonebridge.v1, and LocalEngine is never a
   // device peer.
+  phonebridge.v1.Envelope envelope = 3;
+}
+
+// LocalEvent represents a pushed local event containing the relayed device envelope.
+// On the wire, StreamEvents yields StreamEventsResponse (whose fields match LocalEvent)
+// to satisfy standard gRPC request/response naming conventions.
+message LocalEvent {
+  // Per-stream monotonic sequence starting at 1.
+  uint64 seq = 1;
+
+  // Daemon instance identifier; equals HandshakeResponse.daemon_generation.
+  uint64 daemon_generation = 2;
+
+  // Opaque relayed device-protocol message (phonebridge.v1).
   phonebridge.v1.Envelope envelope = 3;
 }
 

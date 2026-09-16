@@ -88,12 +88,17 @@ was not modified for local IPC.
    from the daemon's effective UID are rejected pre-auth (Spike 01 pattern).
 2. **Bearer token (defense-in-depth)** — gRPC metadata
    `authorization: Bearer <token>` on every call, constant-time compared.
-   Provisioning: at startup the daemon generates ≥ 256 bits from a CSPRNG and
-   writes `$XDG_RUNTIME_DIR/phonebridge/token` (mode `0600`, owner = daemon
-   user). A legitimate client — any process running as the same OS user,
-   exactly the privilege the uid gate enforces — reads that file and attaches
-   the metadata to every call. The token rotates on each daemon start;
-   clients re-read it after `UNAUTHENTICATED` and reconnect.
+   - **Provisioning:** At startup the daemon generates ≥ 256 bits from a CSPRNG
+     and writes the secret to `$XDG_RUNTIME_DIR/phonebridge/token` (mode `0600`,
+     owned by the daemon's effective UID).
+   - **Flutter Client Acquisition:** The Flutter UI client (running as the same OS
+     user) resolves `$XDG_RUNTIME_DIR/phonebridge/token`. On cold start or system boot
+     when the daemon is launching, the client polls for the token file with backoff
+     (e.g., 50 ms initial, doubling to a 3 s cap). Once read into memory, the client
+     wires it into the gRPC stub via `CallOptions(metadata: {'authorization': 'Bearer $token'})`.
+   - **Rotation & Reconnect:** The token rotates on every daemon restart. If any RPC
+     fails with gRPC status `UNAUTHENTICATED` (code 16), the client clears its token cache,
+     re-reads `$XDG_RUNTIME_DIR/phonebridge/token`, and reconnects with exponential backoff.
 
 ### Lifecycle & payloads
 
