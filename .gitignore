@@ -53,6 +53,11 @@ Thumbs.db
 # Spike trees are self-contained; rebuild with the spike Makefile
 # (spikes/<id>/make build|perf). Never commit spike binaries.
 spikes/*/go/bin/
+spikes/*/go/tools/
 spikes/*/results/
 spikes/*/android/.gradle/
 spikes/*/android/local.properties
+# Spike JNI libraries (cgo c-shared outputs, ~14 MB/ABI) and the Linux
+# receiver built by `make receiver` (~15 MB). Sources sit next to them.
+spikes/*/android/app/src/main/jniLibs/
+spikes/*/tools/spike*-receiver
