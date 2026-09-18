@@ -14,11 +14,14 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import dev.phonebridge.bridge.GoBridge
 import dev.phonebridge.capture.CaptureConfig
+import dev.phonebridge.capture.CodecSelector
 import dev.phonebridge.capture.ScreenCaptureEngine
 import dev.phonebridge.discovery.NsdAdvertiser
 import dev.phonebridge.security.DeviceIdentityManager
 import dev.phonebridge.security.TrustStore
+import dev.phonebridge.signaling.DeviceMediaCapabilities
 import dev.phonebridge.signaling.LanSignalingServer
+import dev.phonebridge.signaling.SessionNegotiation
 import android.provider.Settings
 import java.io.File
 
@@ -116,8 +119,18 @@ class PhoneBridgeService : Service() {
             val identityManager = DeviceIdentityManager.loadOrGenerate(applicationContext)
             val trustStore = TrustStore(File(applicationContext.filesDir, "trusted_devices.json"))
 
+            // DEC-022: the phone answers with what it will actually apply, so the
+            // negotiation handler reads the live capture pipeline's *measured*
+            // state rather than a configured constant (the encoder ignores the
+            // requested frame rate, per DEC-020).
+            val handler = LanSignalingServer.DefaultSignalingHandler(
+                liveCapture = { captureEngine?.takeIf { it.isCapturing }?.liveCapture() },
+                capabilities = { deviceMediaCapabilities() },
+            )
+
             val server = LanSignalingServer(
                 port = LanSignalingServer.DEFAULT_PORT,
+                handler = handler,
                 identityManager = identityManager,
                 trustStore = trustStore
             )
@@ -138,6 +151,34 @@ class PhoneBridgeService : Service() {
             Log.i(TAG, "NsdAdvertiser registered for device $deviceId")
         } catch (t: Throwable) {
             Log.e(TAG, "Failed to start LAN services: ${t.message}", t)
+        }
+    }
+
+    /**
+     * Advertises what this device can capture, taken from the encoder the
+     * selector actually picks (DEC-020: hardware H.264, Surface input). Values
+     * stay at 0 where the platform does not report a bound, which the
+     * negotiation treats as "no stated limit" rather than "unsupported".
+     */
+    private fun deviceMediaCapabilities(): DeviceMediaCapabilities {
+        return try {
+            val selection = CodecSelector.select(CaptureConfig())
+            val caps = selection.candidate?.caps?.videoCapabilities
+            val codecName = if (selection.candidate != null) "h264" else ""
+            DeviceMediaCapabilities(
+                codecs = if (codecName.isEmpty()) emptyList() else listOf(codecName),
+                maxWidth = caps?.supportedWidths?.upper ?: 0,
+                maxHeight = caps?.supportedHeights?.upper ?: 0,
+                maxFps = caps?.supportedFrameRates?.upper?.toInt() ?: 0,
+                widthAlignment = caps?.widthAlignment ?: 0,
+                heightAlignment = caps?.heightAlignment ?: 0,
+                supportsScreen = selection.candidate != null,
+            )
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to read encoder capabilities: ${t.message}")
+            // Undisclosed capabilities must not become a false refusal: report
+            // screen support and no bounds so the platform check decides.
+            DeviceMediaCapabilities()
         }
     }
 
@@ -268,7 +309,22 @@ class PhoneBridgeService : Service() {
 
                 override fun onCaptureError(error: Throwable) {
                     Log.e(TAG, "Screen capture error: ${error.message}", error)
+                    // Typed, and reported before teardown: a capture failure is
+                    // not a transport failure, and the peer must be able to tell
+                    // them apart (DEC-022).
+                    reportSessionError(
+                        SessionNegotiation.CODE_CAPTURE_FAILED,
+                        error.message ?: "capture failed",
+                    )
                     stateListener?.invoke(false, error.message)
+                }
+
+                override fun onConsentRevoked(reason: String) {
+                    Log.w(TAG, "MediaProjection consent revoked: $reason")
+                    reportSessionError(
+                        SessionNegotiation.CODE_CONSENT_REVOKED,
+                        "screen capture consent was withdrawn",
+                    )
                 }
             }
         )
@@ -294,6 +350,24 @@ class PhoneBridgeService : Service() {
         if (GoBridge.loaded) {
             GoBridge.mediaStop()
             GoBridge.mediaRelease()
+        }
+    }
+
+    /**
+     * Sends a typed sender-side failure to the connected peer. Best effort by
+     * design: if it cannot be delivered (no peer, no negotiated transport), the
+     * teardown that follows is what the peer ultimately observes.
+     */
+    private fun reportSessionError(code: String, message: String) {
+        if (!GoBridge.loaded) return
+        val sent = try {
+            GoBridge.mediaReportSessionError(code, message)
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to report $code: ${t.message}")
+            false
+        }
+        if (!sent) {
+            Log.i(TAG, "Session error $code could not be delivered to a peer (no active session)")
         }
     }
 

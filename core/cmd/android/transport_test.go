@@ -176,6 +176,53 @@ func TestMediaTransportConcurrentStop(t *testing.T) {
 	_ = tr.MediaStatsJSON()
 }
 
+func TestSessionErrorPayload(t *testing.T) {
+	payload, err := sessionErrorPayload("CONSENT_REVOKED", "user revoked screen sharing")
+	if err != nil {
+		t.Fatalf("build payload: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("payload is not JSON: %v", err)
+	}
+	if decoded["type"] != "session_error" {
+		t.Errorf("type = %v, want session_error", decoded["type"])
+	}
+	if decoded["code"] != "CONSENT_REVOKED" {
+		t.Errorf("code = %v, want CONSENT_REVOKED", decoded["code"])
+	}
+	if decoded["message"] != "user revoked screen sharing" {
+		t.Errorf("message = %v", decoded["message"])
+	}
+
+	// An unrecognised code must be refused, not forwarded: the receiver decides
+	// recovery policy from the code, so a typo must not invent a failure class
+	// the peer would not recognise.
+	if _, err := sessionErrorPayload("NOT_A_REAL_CODE", "x"); err == nil {
+		t.Error("expected an unknown code to be rejected")
+	}
+}
+
+func TestMediaTransport_ReportSessionErrorRequiresNegotiation(t *testing.T) {
+	tr := newMediaTransport(64, 4000, 3000)
+
+	// Before any transport exists the call is a documented error, not a panic.
+	if err := tr.ReportSessionError("CAPTURE_FAILED", "encoder died"); err == nil {
+		t.Error("expected reporting to fail before init")
+	}
+
+	if err := tr.MediaInit(); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	t.Cleanup(tr.MediaRelease)
+
+	// Initialized but not negotiated: there is no control channel to send on, so
+	// claiming success here would silently drop a real failure report.
+	if err := tr.ReportSessionError("CAPTURE_FAILED", "encoder died"); err == nil {
+		t.Error("expected reporting to fail before the answer is applied")
+	}
+}
+
 func TestSDPBlobRoundTrip(t *testing.T) {
 	b, err := json.Marshal(sdpBlob{Type: "answer", SDP: "v=0"})
 	if err != nil {

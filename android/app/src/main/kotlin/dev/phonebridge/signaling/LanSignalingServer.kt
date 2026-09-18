@@ -26,9 +26,13 @@ import java.util.concurrent.atomic.AtomicBoolean
  * - GET  /health          -> 200 {"status":"ok"}
  * - POST /pairing/request -> 200 {"display_name":"...","platform":"...","public_key":"...","sas":"..."}
  * - POST /pairing/confirm -> 200 {"status":"paired"}
- * - POST /session/offer   -> 200 {"type":"offer","sdp":"..."} (Authenticated)
+ * - POST /session/offer   -> 200 {"type":"offer","sdp":"...","accepted":true,"actual":{...}} (Authenticated)
+ *                            or a typed refusal: 409 {"accepted":false,"code":"...","message":"..."}
  * - POST /session/answer  -> 200 {"status":"ok"} (Authenticated)
  * - POST /session/stop    -> 200 {"status":"ok"} (Authenticated)
+ *
+ * The session endpoints are ratified by DEC-022: parameters are settled before
+ * the offer exists, and the answer states what this device will actually apply.
  */
 class LanSignalingServer(
     val port: Int = DEFAULT_PORT,
@@ -42,8 +46,11 @@ class LanSignalingServer(
     }
 
     interface SignalingHandler {
-        /** Creates the SDP offer JSON {"type":"offer","sdp":"..."} */
-        fun handleOffer(): ByteArray
+        /**
+         * Judges the negotiation request and, when it is accepted, creates the
+         * SDP offer. A rejected request must not touch the media transport.
+         */
+        fun handleOffer(request: SessionOfferRequest): SessionOfferAnswer
 
         /** Applies the remote SDP answer JSON {"type":"answer","sdp":"..."} and starts streaming */
         fun handleAnswer(answerJson: ByteArray): Boolean
@@ -52,15 +59,45 @@ class LanSignalingServer(
         fun handleStop(reason: String)
     }
 
-    /** Default handler binding to GoBridge JNI */
-    class DefaultSignalingHandler : SignalingHandler {
-        override fun handleOffer(): ByteArray {
-            if (!GoBridge.loaded) {
-                return """{"type":"offer","sdp":"v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"}""".toByteArray(StandardCharsets.UTF_8)
+    /**
+     * Default handler binding to GoBridge JNI.
+     *
+     * @param liveCapture reports the capture pipeline's *measured* state, or
+     *        null when nothing is being captured. Defaults to "not capturing"
+     *        so an unwired handler cannot claim a tuple it has not applied.
+     * @param capabilities what the selected encoder can actually do.
+     */
+    class DefaultSignalingHandler(
+        private val liveCapture: () -> LiveCapture? = { null },
+        private val capabilities: () -> DeviceMediaCapabilities = { DeviceMediaCapabilities() },
+    ) : SignalingHandler {
+        override fun handleOffer(request: SessionOfferRequest): SessionOfferAnswer {
+            val caps = capabilities()
+            val result = SessionNegotiation.negotiate(request, liveCapture(), caps)
+            if (result is SessionNegotiationResult.Rejected) {
+                // Refusals never build a peer connection: an unnegotiable request
+                // must leave any existing transport untouched.
+                return SessionOfferAnswer(sdp = "", result = result, capabilities = caps)
             }
+            if (!GoBridge.loaded) {
+                return SessionOfferAnswer(
+                    sdp = "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n",
+                    result = result,
+                    capabilities = caps,
+                )
+            }
+            // Transport-only repair: this rebuilds the peer connection, and is
+            // deliberately not allowed to touch the capture pipeline, because
+            // DEC-020 records that restarting capture cannot resume delivery and
+            // a geometry change needs a fresh consent.
             GoBridge.mediaRelease()
             GoBridge.mediaInit()
-            return GoBridge.mediaCreateOffer()
+            val offerBytes = GoBridge.mediaCreateOffer()
+            return SessionOfferAnswer(
+                sdp = String(offerBytes, StandardCharsets.UTF_8),
+                result = result,
+                capabilities = caps,
+            )
         }
 
         override fun handleAnswer(answerJson: ByteArray): Boolean {
@@ -277,10 +314,30 @@ class LanSignalingServer(
                 when (path) {
                     "/session/offer" -> {
                         try {
-                            val offerBytes = handler.handleOffer()
-                            sendResponse(out, 200, "OK", "application/json", offerBytes)
+                            val request = parseOfferRequest(body)
+                            val answer = handler.handleOffer(request)
+                            val payload = SessionNegotiationJson.offerResponse(answer)
+                                .toByteArray(StandardCharsets.UTF_8)
+                            when (val result = answer.result) {
+                                is SessionNegotiationResult.Rejected -> sendResponse(
+                                    out,
+                                    result.httpStatus,
+                                    if (result.httpStatus == 409) "Conflict" else "Bad Request",
+                                    "application/json",
+                                    payload,
+                                )
+                                is SessionNegotiationResult.Accepted -> sendResponse(
+                                    out, 200, "OK", "application/json", payload,
+                                )
+                            }
                         } catch (t: Throwable) {
-                            val err = """{"error":"${t.message}"}""".toByteArray(StandardCharsets.UTF_8)
+                            logW(TAG, "/session/offer failed: ${t.message}")
+                            val err = JSONObject()
+                                .put("accepted", false)
+                                .put("code", "CAPTURE_FAILED")
+                                .put("message", t.message ?: "offer failed")
+                                .toString()
+                                .toByteArray(StandardCharsets.UTF_8)
                             sendResponse(out, 500, "Internal Server Error", "application/json", err)
                         }
                     }
@@ -311,6 +368,21 @@ class LanSignalingServer(
             else -> {
                 sendResponse(out, 404, "Not Found", "text/plain", "Endpoint not found".toByteArray())
             }
+        }
+    }
+
+    /**
+     * Parses the offer body tolerantly: an empty or malformed body is treated as
+     * an older peer that predates DEC-022, which still gets a usable offer rather
+     * than a hard failure. The negotiation fields then simply go unreported.
+     */
+    internal fun parseOfferRequest(body: ByteArray): SessionOfferRequest {
+        if (body.isEmpty()) return SessionOfferRequest()
+        return try {
+            SessionOfferRequest.parse(JSONObject(String(body, StandardCharsets.UTF_8)))
+        } catch (t: Throwable) {
+            logW(TAG, "Malformed session offer body (${t.message}); treating as a pre-DEC-022 peer")
+            SessionOfferRequest()
         }
     }
 

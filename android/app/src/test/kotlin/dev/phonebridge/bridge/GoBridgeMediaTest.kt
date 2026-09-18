@@ -154,6 +154,27 @@ class GoBridgeMediaTest {
     }
 
     @Test
+    fun `typed session errors cross JNI and are refused without a negotiated peer`() {
+        requireEngine()
+        try {
+            // Before any transport exists there is nowhere to report to; the call
+            // must return false rather than pretend it was delivered.
+            assertFalse(GoBridge.mediaReportSessionError("CONSENT_REVOKED", "revoked"))
+
+            GoBridge.mediaInit()
+            // Initialized but not negotiated: still no control channel.
+            assertFalse(GoBridge.mediaReportSessionError("CONSENT_REVOKED", "revoked"))
+
+            // Empty code is rejected at the wrapper (never a wire value).
+            assertFalse(GoBridge.mediaReportSessionError("", "revoked"))
+        } finally {
+            GoBridge.mediaStop()
+            GoBridge.mediaRelease()
+            GoBridge.stop()
+        }
+    }
+
+    @Test
     fun `invoke stays the control plane - unknown method throws`() {
         requireEngine()
         try {

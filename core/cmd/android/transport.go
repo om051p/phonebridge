@@ -218,6 +218,53 @@ func (t *MediaTransport) MediaRelease() {
 	t.state.Store(trIdle)
 }
 
+// sessionErrorCodes are the typed failures this device may report to the peer
+// over the control channel (DEC-022). Unknown codes are refused rather than
+// forwarded, so a typo cannot invent a failure class the receiver will not
+// recognise.
+var sessionErrorCodes = map[string]bool{
+	"CONSENT_REVOKED":  true,
+	"CAPTURE_FAILED":   true,
+	"TRANSPORT_FAILED": true,
+}
+
+// sessionErrorPayload builds the control-channel message carrying a typed
+// sender-side failure. Kept separate from the send path so the wire shape is
+// unit-testable.
+func sessionErrorPayload(code, message string) ([]byte, error) {
+	if !sessionErrorCodes[code] {
+		return nil, fmt.Errorf("unknown session error code %q", code)
+	}
+	return json.Marshal(map[string]any{
+		"type":    "session_error",
+		"code":    code,
+		"message": message,
+	})
+}
+
+// ReportSessionError tells the peer that this device hit a typed, sender-side
+// failure (consent withdrawn, capture failed) instead of leaving it to guess
+// from a stream that stops. It is only meaningful while streaming; before that
+// there is no control channel to send on, and the failure belongs in the
+// signaling answer.
+func (t *MediaTransport) ReportSessionError(code, message string) error {
+	payload, err := sessionErrorPayload(code, message)
+	if err != nil {
+		return err
+	}
+	t.mu.Lock()
+	sess := t.session
+	state := t.state.Load()
+	t.mu.Unlock()
+	if sess == nil || state < trNegotiated {
+		return fmt.Errorf("no negotiated transport to report %s on (state %d)", code, state)
+	}
+	if err := sess.SendControl(payload); err != nil {
+		return fmt.Errorf("report %s: %w", code, err)
+	}
+	return nil
+}
+
 // MediaStatsJSON serializes counters + connection state for diagnostics.
 // Counters survive Stop (reported from the retired sender).
 func (t *MediaTransport) MediaStatsJSON() []byte {

@@ -70,6 +70,62 @@ jobs:
       - run: go build ./...
       - run: go test ./... -count=1 -race
 
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      # The Kotlin unit tests load the c-shared Go library built from the same
+      # sources as the Android .so (DEC-019), so this job needs the core
+      # toolchain floor too (Pion v4 requires Go 1.24 — DEC-017).
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache-dependency-path: core/go.sum
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      # The app is a Flutter module (settings.gradle.kts includes the Flutter
+      # Gradle tooling), so the SDK must be present before Gradle configures.
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Install pinned SDK packages
+        run: |
+          sdkmanager --install "platforms;android-34" "build-tools;34.0.0"
+      # local.properties is machine-local (gitignored); CI must point Gradle at
+      # both SDKs the way a developer machine does.
+      - name: Write local.properties
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          echo "flutter.sdk=$FLUTTER_ROOT" >> local.properties
+      - name: Flutter dependencies
+        working-directory: ui
+        run: flutter pub get
+      - name: Build host c-shared library (JNI smoke tests)
+        working-directory: core
+        run: go build -tags jni -buildmode=c-shared -o build/libphonebridge_core.so ./cmd/android
+      - name: Unit tests (negotiation + signalling + JNI smoke)
+        run: ./gradlew :app:testDebugUnitTest --console=plain
+      # Compile-only: an instrumented run needs a device or emulator, which CI
+      # does not provide. This still catches androidTest source drift (for
+      # example a handler interface change) without one.
+      - name: Compile instrumented tests
+        run: ./gradlew :app:assembleDebugAndroidTest --console=plain
+      - name: Upload unit test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-unit-test-reports
+          path: android/app/build/reports/tests/testDebugUnitTest
+          if-no-files-found: ignore
+
   flutter:
     runs-on: ubuntu-latest
     steps:

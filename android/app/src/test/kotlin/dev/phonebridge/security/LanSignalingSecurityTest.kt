@@ -1,6 +1,9 @@
 package dev.phonebridge.security
 
 import dev.phonebridge.signaling.LanSignalingServer
+import dev.phonebridge.signaling.SessionNegotiationResult
+import dev.phonebridge.signaling.SessionOfferAnswer
+import dev.phonebridge.signaling.SessionOfferRequest
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -30,9 +33,11 @@ class LanSignalingSecurityTest {
     private lateinit var clientDeviceId: String
 
     private val testHandler = object : LanSignalingServer.SignalingHandler {
-        override fun handleOffer(): ByteArray {
-            return """{"type":"offer","sdp":"mock-sdp-offer"}""".toByteArray(StandardCharsets.UTF_8)
-        }
+        override fun handleOffer(request: SessionOfferRequest): SessionOfferAnswer =
+            SessionOfferAnswer(
+                sdp = "mock-sdp-offer",
+                result = SessionNegotiationResult.Accepted(actual = null, message = "test"),
+            )
         override fun handleAnswer(answerJson: ByteArray): Boolean = true
         override fun handleStop(reason: String) {}
     }

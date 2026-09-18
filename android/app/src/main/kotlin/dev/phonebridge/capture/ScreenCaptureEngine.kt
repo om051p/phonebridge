@@ -14,6 +14,7 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.Surface
 import dev.phonebridge.bridge.GoBridge
+import dev.phonebridge.signaling.LiveCapture
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -38,6 +39,15 @@ class ScreenCaptureEngine(
         fun onCaptureStarted()
         fun onCaptureStopped(reason: String)
         fun onCaptureError(error: Throwable)
+
+        /**
+         * The system withdrew the MediaProjection consent (DEC-022). This is
+         * distinct from a capture failure and from a transport failure: the
+         * link may be perfectly healthy while there is no longer a screen to
+         * send. Called before [onCaptureStopped] so the peer can be told the
+         * typed reason while the transport is still alive.
+         */
+        fun onConsentRevoked(reason: String) {}
     }
 
     companion object {
@@ -65,6 +75,7 @@ class ScreenCaptureEngine(
     val transportDroppedFrames = AtomicLong(0L)
     val firstPtsUs = AtomicLong(-1L)
     val lastPtsUs = AtomicLong(0L)
+    private val startedAtMs = AtomicLong(0L)
 
     var selectedCodecName: String = ""
         private set
@@ -73,6 +84,44 @@ class ScreenCaptureEngine(
 
     val isCapturing: Boolean
         get() = isRunning.get()
+
+    /**
+     * The measured state of this capture session, for session negotiation
+     * (DEC-022). Frame rates and GOP length are taken from the encoder's own
+     * counters rather than from the requested configuration, because DEC-020
+     * records that this platform ignores the requested frame rate (it encoded
+     * ~120 fps against a 30 fps request) — a configured value would be a
+     * fiction.
+     */
+    fun liveCapture(): LiveCapture {
+        val encoded = encodedFrames.get()
+        val key = keyframes.get()
+        val started = startedAtMs.get()
+        val elapsedSec = if (started > 0L) {
+            ((SystemClock.elapsedRealtime() - started).coerceAtLeast(1L)) / 1000.0
+        } else {
+            0.0
+        }
+        val encodedFps = if (elapsedSec > 0.0) encoded / elapsedSec else 0.0
+
+        val gopEstimated = key < 1
+        val gopAus = if (gopEstimated) {
+            config.expectedGopAus
+        } else {
+            Math.round(encoded.toDouble() / key.toDouble()).toInt().coerceAtLeast(1)
+        }
+
+        return LiveCapture(
+            width = config.width,
+            height = config.height,
+            bitrateKbps = config.bitrate / 1000,
+            codec = if (config.mime == "video/avc") "h264" else config.mime,
+            encodedFps = encodedFps,
+            gopAus = gopAus,
+            keepFrames = config.keepFrames,
+            gopEstimated = gopEstimated,
+        )
+    }
 
     /**
      * Starts the capture pipeline using the provided consented [MediaProjection].
@@ -95,6 +144,16 @@ class ScreenCaptureEngine(
         val cb = object : MediaProjection.Callback() {
             override fun onStop() {
                 Log.i(TAG, "MediaProjection.Callback: onStop received from system")
+                if (isRunning.get()) {
+                    // Report the typed reason while the transport is still up;
+                    // otherwise the peer sees a stream that simply stops and
+                    // cannot tell a revocation from a network fault.
+                    try {
+                        listener?.onConsentRevoked("projection_stopped_by_system")
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "onConsentRevoked listener threw: ${t.message}")
+                    }
+                }
                 stop("projection_stopped_by_system")
             }
         }
@@ -140,6 +199,7 @@ class ScreenCaptureEngine(
             virtualDisplay = vd
 
             isRunning.set(true)
+            startedAtMs.set(SystemClock.elapsedRealtime())
             gopFilter.reset()
             encodedFrames.set(0L)
             keyframes.set(0L)
@@ -346,6 +406,10 @@ class ScreenCaptureEngine(
         codec = null
 
         try {
+            // Unregister BEFORE stopping: stopping the projection fires the
+            // system callback, and a deliberate stop must not be reported to the
+            // peer as a withdrawn consent (DEC-022). Only a stop we did not ask
+            // for reaches onConsentRevoked.
             projectionCallback?.let { projection?.unregisterCallback(it) }
             projection?.stop()
         } catch (t: Throwable) {

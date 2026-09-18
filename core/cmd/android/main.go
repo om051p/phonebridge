@@ -380,6 +380,22 @@ func cBytes(env *C.JNIEnv, arr C.jbyteArray) []byte {
 	return buf
 }
 
+// goString copies a Java String into a Go string (empty for null). The JVM
+// chars are released immediately, so the result owns no JVM memory (JNI
+// critical: a borrowed pointer would be invalid after the export returns).
+func goString(env *C.JNIEnv, s C.jstring) string {
+	if C.isNull(C.jobject(s)) == 1 {
+		return ""
+	}
+	chars := C.getUTFChars(env, s)
+	if chars == nil {
+		return ""
+	}
+	out := C.GoString(chars)
+	C.releaseUTFChars(env, s, chars)
+	return out
+}
+
 // goBytesToJava copies a Go slice into a fresh Java byte[].
 func goBytesToJava(env *C.JNIEnv, b []byte) C.jbyteArray {
 	var ptr *C.char
@@ -458,6 +474,25 @@ func Java_dev_phonebridge_bridge_GoBridge_nativeMediaStart(env *C.JNIEnv, clazz 
 		cErr := C.CString(err.Error())
 		defer C.free(unsafe.Pointer(cErr))
 		C.throwIllegalState(env, cErr)
+		return C.JNI_FALSE
+	}
+	return C.JNI_TRUE
+}
+
+//export Java_dev_phonebridge_bridge_GoBridge_nativeMediaReportSessionError
+func Java_dev_phonebridge_bridge_GoBridge_nativeMediaReportSessionError(env *C.JNIEnv, clazz C.jclass, jCode C.jstring, jMessage C.jstring) C.jboolean {
+	_ = clazz
+	defer mediaRecover(env, "mediaReportSessionError")
+	code := goString(env, jCode)
+	message := goString(env, jMessage)
+	if code == "" {
+		C.throwIllegalState(env, C.CString("session error code cannot be empty"))
+		return C.JNI_FALSE
+	}
+	if err := currentTransport().ReportSessionError(code, message); err != nil {
+		// A failure to report is not itself fatal: the caller is already on an
+		// error path, and the session teardown that follows is what the peer
+		// ultimately observes. Return false so Kotlin can log it.
 		return C.JNI_FALSE
 	}
 	return C.JNI_TRUE

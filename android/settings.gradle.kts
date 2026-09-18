@@ -1,5 +1,7 @@
-// Android — PLANNED stub (Phase 0). No feature logic yet.
-// Validated by spike 02 before freezing Go embedding choice.
+// Android host application: Flutter UI shell, Kotlin platform layer, and the
+// in-process Go core loaded as a c-shared library (DEC-019). The Flutter Gradle
+// tooling below is resolved from local.properties, so the SDK path is provided
+// per machine (CI writes it in .github/workflows/ci.yml).
 
 pluginManagement {
     val flutterSdkPath = run {

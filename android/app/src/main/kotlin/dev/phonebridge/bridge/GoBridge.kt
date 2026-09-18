@@ -131,6 +131,22 @@ object GoBridge {
     }
 
     /**
+     * Tells the peer that this device hit a typed, sender-side failure
+     * (DEC-022), so it can classify the cause instead of inferring one from a
+     * stream that stops.
+     *
+     * Only meaningful while a transport is negotiated: before that there is no
+     * control channel, and the failure belongs in the signalling answer.
+     * Returns false when the report could not be sent — the caller is already
+     * on an error path, so a failed report is logged rather than escalated.
+     */
+    fun mediaReportSessionError(code: String, message: String): Boolean {
+        if (!isLoaded) return false
+        if (code.isEmpty()) return false
+        return nativeMediaReportSessionError(code, message)
+    }
+
+    /**
      * Stops the stream: discards queued frames, stops the writer, closes the
      * PeerConnection. Idempotent and safe before init.
      */
@@ -188,6 +204,9 @@ object GoBridge {
 
     @JvmStatic
     private external fun nativeMediaOnFrame(ptsUs: Long, au: ByteArray, keyframe: Boolean): Boolean
+
+    @JvmStatic
+    private external fun nativeMediaReportSessionError(code: String, message: String): Boolean
 
     @JvmStatic
     private external fun nativeMediaStop()

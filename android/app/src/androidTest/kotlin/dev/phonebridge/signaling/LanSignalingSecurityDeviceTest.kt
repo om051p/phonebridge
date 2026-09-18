@@ -33,9 +33,11 @@ class LanSignalingSecurityDeviceTest {
     private lateinit var clientDeviceId: String
 
     private val testHandler = object : LanSignalingServer.SignalingHandler {
-        override fun handleOffer(): ByteArray {
-            return """{"type":"offer","sdp":"v=0\r\no=- 123 2 IN IP4 127.0.0.1"}""".toByteArray(StandardCharsets.UTF_8)
-        }
+        override fun handleOffer(request: SessionOfferRequest): SessionOfferAnswer =
+            SessionOfferAnswer(
+                sdp = "v=0\r\no=- 123 2 IN IP4 127.0.0.1",
+                result = SessionNegotiationResult.Accepted(actual = null, message = "device test"),
+            )
         override fun handleAnswer(answerJson: ByteArray): Boolean = true
         override fun handleStop(reason: String) {}
     }
