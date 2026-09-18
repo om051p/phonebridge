@@ -14,13 +14,102 @@ import (
 	"github.com/om051p/phonebridge/core/pkg/crypto"
 )
 
+// LAN signaling contract version (DEC-022). Bumped only for an incompatible
+// change to the /session/* shape; the device protocol carries its own version
+// in DeviceHello and is negotiated independently.
+const signalingVersion uint32 = 1
+
+// signalingCapabilities is what this (Linux) side advertises in the handshake.
+// It receives screen streams and drives the pairing/trust flow.
+var signalingCapabilities = []string{"SCREEN"}
+
 type sdpPayload struct {
 	Type string `json:"type"`
 	SDP  string `json:"sdp"`
 }
 
+// mediaParamsJSON is the wire projection of MediaParams. Zero values are
+// omitted so "no preference" is distinguishable from an explicit value by
+// absence rather than by a magic number.
+type mediaParamsJSON struct {
+	Width       uint32 `json:"width,omitempty"`
+	Height      uint32 `json:"height,omitempty"`
+	FPS         uint32 `json:"fps,omitempty"`
+	BitrateKbps uint32 `json:"bitrate_kbps,omitempty"`
+	Codec       string `json:"codec,omitempty"`
+}
+
+func toMediaParamsJSON(p MediaParams) mediaParamsJSON {
+	return mediaParamsJSON{
+		Width:       uint32(max0(p.Width)),
+		Height:      uint32(max0(p.Height)),
+		FPS:         uint32(max0(p.FPS)),
+		BitrateKbps: uint32(max0(p.BitrateKbps)),
+		Codec:       p.Codec,
+	}
+}
+
+func (j mediaParamsJSON) toMediaParams() MediaParams {
+	return MediaParams{
+		Width:       int(j.Width),
+		Height:      int(j.Height),
+		FPS:         int(j.FPS),
+		BitrateKbps: int(j.BitrateKbps),
+		Codec:       j.Codec,
+	}
+}
+
+type mediaCapabilityJSON struct {
+	Codecs         []string `json:"codecs,omitempty"`
+	MaxWidth       uint32   `json:"max_width,omitempty"`
+	MaxHeight      uint32   `json:"max_height,omitempty"`
+	MaxFPS         uint32   `json:"max_fps,omitempty"`
+	SupportsScreen bool     `json:"supports_screen,omitempty"`
+}
+
+// versionAdvert is the VersionNegotiation projection.
+type versionAdvert struct {
+	Min uint32 `json:"min"`
+	Max uint32 `json:"max"`
+}
+
+// offerRequest is the POST /session/offer body: the DEC-022 handshake plus the
+// requested media parameters. Parameters must be settled here, before the offer
+// exists, because Android needs a MediaProjection consent before capture exists
+// (DEC-020).
+type offerRequest struct {
+	ProtocolVersion uint32          `json:"protocol_version"`
+	Version         versionAdvert   `json:"version"`
+	Capabilities    []string        `json:"capabilities,omitempty"`
+	Requested       mediaParamsJSON `json:"requested"`
+}
+
+// offerResponse is the phone's answer: the SDP offer plus the typed negotiation
+// result. `accepted` is a pointer so that a legacy peer which reports no
+// negotiation fields is distinguishable from one that explicitly rejected:
+// absent means "not reported", false means "rejected".
+type offerResponse struct {
+	Type            string                `json:"type"`
+	SDP             string                `json:"sdp"`
+	ProtocolVersion uint32                `json:"protocol_version,omitempty"`
+	Code            string                `json:"code,omitempty"`
+	Message         string                `json:"message,omitempty"`
+	Accepted        *bool                 `json:"accepted,omitempty"`
+	RejectReason    string                `json:"reject_reason,omitempty"`
+	Actual          *mediaParamsJSON      `json:"actual,omitempty"`
+	Capabilities    []mediaCapabilityJSON `json:"capabilities,omitempty"`
+}
+
+// errorResponse is used for non-200 answers, which may still carry a typed code
+// (for example a 409 SESSION_BUSY).
+type errorResponse struct {
+	Code    string `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
 type stopPayload struct {
-	Reason string `json:"reason"`
+	Reason     string `json:"reason"`
+	ReasonCode string `json:"reason_code,omitempty"`
 }
 
 // SignalingClient handles HTTP offer/answer/stop signaling with PhoneBridge devices on LAN.
@@ -58,35 +147,130 @@ func (c *SignalingClient) applyAuth(req *http.Request, body []byte) {
 	}
 }
 
-// RequestOffer requests an SDP offer from the target device.
-func (c *SignalingClient) RequestOffer(ctx context.Context, endpoint string) (pion.SessionDescription, error) {
-	url := fmt.Sprintf("http://%s/session/offer", endpoint)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
-	if err != nil {
-		return pion.SessionDescription{}, fmt.Errorf("create offer request: %w", err)
-	}
-	c.applyAuth(req, nil)
+// NegotiationRequest bundles what the initiator asks the capture device for.
+type NegotiationRequest struct {
+	// Requested is the desired media tuple; zero fields mean "no preference".
+	Requested MediaParams
+}
 
-	resp, err := c.client.Do(req)
+// RequestOffer performs the DEC-022 handshake and requests an SDP offer from
+// the target device, carrying the requested media parameters. It returns the
+// offer together with the device's typed negotiation answer.
+//
+// A non-nil error is always a signaling-level failure (transport/auth/timeout)
+// and is retryable; a negotiation rejection is reported in the response, not as
+// an error, so callers cannot confuse "the device said no" with "we could not
+// ask".
+func (c *SignalingClient) RequestOffer(ctx context.Context, endpoint string, req NegotiationRequest) (NegotiationResponse, error) {
+	url := fmt.Sprintf("http://%s/session/offer", endpoint)
+
+	body, err := json.Marshal(offerRequest{
+		ProtocolVersion: signalingVersion,
+		Version:         versionAdvert{Min: signalingVersion, Max: signalingVersion},
+		Capabilities:    signalingCapabilities,
+		Requested:       toMediaParamsJSON(req.Requested),
+	})
 	if err != nil {
-		return pion.SessionDescription{}, fmt.Errorf("do offer request to %s: %w", url, err)
+		return NegotiationResponse{}, &SignalError{Op: "marshal offer request", Endpoint: endpoint, Err: err}
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return NegotiationResponse{}, &SignalError{Op: "create offer request", Endpoint: endpoint, Err: err}
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	c.applyAuth(httpReq, body)
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return NegotiationResponse{}, &SignalError{Op: "request offer", Endpoint: endpoint, Err: err}
 	}
 	defer resp.Body.Close()
 
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return NegotiationResponse{}, &SignalError{Op: "read offer response", Endpoint: endpoint, Err: err}
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		return pion.SessionDescription{}, fmt.Errorf("offer request failed (%d): %s", resp.StatusCode, string(b))
+		// A non-200 may still be a typed outcome (e.g. 409 SESSION_BUSY).
+		var errBody errorResponse
+		if json.Unmarshal(raw, &errBody) == nil && errBody.Code != "" {
+			if code, ok := ParseCode(errBody.Code); ok {
+				return NegotiationResponse{Code: code, Message: errBody.Message}, nil
+			}
+		}
+		return NegotiationResponse{}, &SignalError{
+			Op:       "request offer",
+			Endpoint: endpoint,
+			Err:      fmt.Errorf("unexpected status %d: %s", resp.StatusCode, truncate(string(raw), 200)),
+		}
 	}
 
-	var payload sdpPayload
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return pion.SessionDescription{}, fmt.Errorf("decode offer json: %w", err)
+	var payload offerResponse
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return NegotiationResponse{}, &SignalError{Op: "decode offer json", Endpoint: endpoint, Err: err}
 	}
 
-	return pion.SessionDescription{
-		Type: pion.SDPTypeOffer,
-		SDP:  payload.SDP,
-	}, nil
+	out := NegotiationResponse{
+		Offer:           payload.SDP,
+		ProtocolVersion: payload.ProtocolVersion,
+		Message:         payload.Message,
+	}
+	for _, caps := range payload.Capabilities {
+		out.Capabilities = append(out.Capabilities, MediaCapability{
+			Codecs:         caps.Codecs,
+			MaxWidth:       int(caps.MaxWidth),
+			MaxHeight:      int(caps.MaxHeight),
+			MaxFPS:         int(caps.MaxFPS),
+			SupportsScreen: caps.SupportsScreen,
+		})
+	}
+
+	// A typed non-OK code is a rejection regardless of the accepted flag.
+	if payload.Code != "" {
+		code, ok := ParseCode(payload.Code)
+		if !ok {
+			return NegotiationResponse{}, &SignalError{
+				Op:       "decode offer json",
+				Endpoint: endpoint,
+				Err:      fmt.Errorf("unrecognised negotiation code %q", payload.Code),
+			}
+		}
+		if code != CodeOK {
+			out.Code = code
+			out.Accepted = false
+			out.RejectReason = payload.Message
+			return out, nil
+		}
+	}
+	out.Code = CodeOK
+
+	switch {
+	case payload.Accepted == nil:
+		// Legacy/partial peer: it did not report a negotiation outcome. We do
+		// not invent one — the actual tuple stays unknown and is reported as
+		// such rather than assumed to equal the request.
+		out.Accepted = true
+	case *payload.Accepted:
+		out.Accepted = true
+	default:
+		out.Accepted = false
+		out.RejectReason = payload.RejectReason
+		if out.RejectReason == "" {
+			out.RejectReason = "device rejected the requested parameters"
+		}
+		if out.Code == CodeOK {
+			out.Code = CodeUnsupportedMediaParams
+		}
+		return out, nil
+	}
+
+	if payload.Actual != nil {
+		out.Actual = payload.Actual.toMediaParams()
+		out.ActualKnown = true
+	}
+	return out, nil
 }
 
 // SendAnswer sends the local SDP answer to the target device.
@@ -97,44 +281,63 @@ func (c *SignalingClient) SendAnswer(ctx context.Context, endpoint string, answe
 		SDP:  answer.SDP,
 	})
 	if err != nil {
-		return fmt.Errorf("marshal answer json: %w", err)
+		return &SignalError{Op: "marshal answer json", Endpoint: endpoint, Err: err}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
 	if err != nil {
-		return fmt.Errorf("create answer request: %w", err)
+		return &SignalError{Op: "create answer request", Endpoint: endpoint, Err: err}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	c.applyAuth(req, data)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("do answer request to %s: %w", url, err)
+		return &SignalError{Op: "send answer", Endpoint: endpoint, Err: err}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("answer request failed (%d): %s", resp.StatusCode, string(b))
+		return &SignalError{
+			Op:       "send answer",
+			Endpoint: endpoint,
+			Err:      fmt.Errorf("unexpected status %d: %s", resp.StatusCode, truncate(string(b), 200)),
+		}
 	}
 	return nil
 }
 
-// StopSession notifies the target device that the session has ended.
-func (c *SignalingClient) StopSession(ctx context.Context, endpoint string, reason string) error {
+// StopSession notifies the target device that the session has ended, carrying
+// the typed reason so the device can distinguish a user stop from a failure.
+func (c *SignalingClient) StopSession(ctx context.Context, endpoint string, reason string, code Code) error {
 	url := fmt.Sprintf("http://%s/session/stop", endpoint)
-	data, _ := json.Marshal(stopPayload{Reason: reason})
+	data, _ := json.Marshal(stopPayload{Reason: reason, ReasonCode: string(code)})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
 	if err != nil {
-		return err
+		return &SignalError{Op: "create stop request", Endpoint: endpoint, Err: err}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	c.applyAuth(req, data)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return err
+		return &SignalError{Op: "stop session", Endpoint: endpoint, Err: err}
 	}
 	defer resp.Body.Close()
 	return nil
+}
+
+func max0(v int) int {
+	if v < 0 {
+		return 0
+	}
+	return v
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }

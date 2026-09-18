@@ -56,12 +56,20 @@ func TestSignalingClient_OfferAnswerStop(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Test RequestOffer
-	desc, err := client.RequestOffer(ctx, endpoint)
+	resp, err := client.RequestOffer(ctx, endpoint, NegotiationRequest{
+		Requested: MediaParams{Width: 720, Height: 1600, FPS: 30},
+	})
 	if err != nil {
 		t.Fatalf("RequestOffer failed: %v", err)
 	}
-	if !offerReceived || desc.Type != pion.SDPTypeOffer || !strings.Contains(desc.SDP, "v=0") {
-		t.Fatalf("unexpected offer: %+v", desc)
+	if !offerReceived || resp.Offer == "" || !strings.Contains(resp.Offer, "v=0") {
+		t.Fatalf("unexpected offer: %+v", resp)
+	}
+	if !resp.Accepted {
+		t.Fatalf("expected the offer to be accepted, got %+v", resp)
+	}
+	if resp.ActualKnown {
+		t.Fatalf("a peer that reports no actual tuple must leave it unknown, got %+v", resp.Actual)
 	}
 
 	// 2. Test SendAnswer
@@ -77,7 +85,7 @@ func TestSignalingClient_OfferAnswerStop(t *testing.T) {
 	}
 
 	// 3. Test StopSession
-	if err := client.StopSession(ctx, endpoint, "test done"); err != nil {
+	if err := client.StopSession(ctx, endpoint, "test done", CodeOK); err != nil {
 		t.Fatalf("StopSession failed: %v", err)
 	}
 	if !stopReceived {
@@ -151,7 +159,7 @@ func TestSession_SignalingConnectAndStreamLoopback(t *testing.T) {
 	cfg.ConnectTimeout = 3 * time.Second
 
 	var transitions []SessionState
-	s := NewSession("sess-e2e", cfg, reg, func(oldState, newState SessionState, reason string) {
+	s := NewSession("sess-e2e", cfg, reg, func(oldState, newState SessionState, reason string, code SessionReason) {
 		transitions = append(transitions, newState)
 	})
 

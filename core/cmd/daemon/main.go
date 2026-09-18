@@ -89,6 +89,7 @@ func main() {
 			SessionId:    evt.SessionID,
 			State:        localipc.ToProtoSessionState(evt.State),
 			Reason:       evt.Reason,
+			ReasonCode:   localipc.ToProtoSessionReason(evt.ReasonCode),
 			ErrorMessage: evt.ErrorMessage,
 		})
 	})

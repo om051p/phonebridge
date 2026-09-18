@@ -65,7 +65,9 @@ func GenerateToken() (string, error) {
 
 // SessionOrchestrator manages device discovery and LAN session lifecycle for LocalEngineService.
 type SessionOrchestrator interface {
-	StartSession(ctx context.Context, deviceID string) (*engine.Session, error)
+	// StartSession asks the capture device for a session. requested carries the
+	// media tuple the caller wants; zero fields mean "use the engine defaults".
+	StartSession(ctx context.Context, deviceID string, requested engine.MediaParams) (*engine.Session, error)
 	StopSession(sessionID, reason string) error
 	GetSessionState(sessionID string) (engine.SessionSnapshot, error)
 	ListDevices() []discovery.Device
@@ -453,7 +455,7 @@ func (s *Server) StartSession(ctx context.Context, req *phonebridgelocalipcv1.St
 		return nil, status.Error(codes.FailedPrecondition, "session orchestrator not configured")
 	}
 
-	sess, err := s.orchestrator.StartSession(ctx, req.GetDeviceId())
+	sess, err := s.orchestrator.StartSession(ctx, req.GetDeviceId(), FromProtoMediaParams(req.GetRequested()))
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "start session failed: %v", err)
 	}
@@ -508,6 +510,13 @@ func (s *Server) GetSessionState(_ context.Context, req *phonebridgelocalipcv1.G
 		DeviceId:            snap.TargetDevice.ID,
 		ConnectedDurationMs: uint64(snap.ConnectedDuration.Milliseconds()),
 		ErrorMessage:        snap.ErrorMessage,
+		ReasonCode:          ToProtoSessionReason(snap.ReasonCode),
+		Requested:           ToProtoMediaParams(snap.Requested),
+		// Actual is only reported when the device stated it: an absent tuple
+		// tells the caller "not reported", which is different from a tuple that
+		// happens to equal the request (DEC-022: no silent substitution).
+		Actual:            ToProtoMediaParamsKnown(snap.Actual, snap.ActualKnown),
+		ReconnectAttempts: uint32(snap.ReconnectAttempts),
 		Stats: &phonebridgelocalipcv1.StreamStats{
 			Packets:     uint64(snap.Stats.Packets),
 			BytesRtp:    uint64(snap.Stats.BytesRTP),
@@ -644,6 +653,82 @@ func (s *Server) RevokeDevice(_ context.Context, req *phonebridgelocalipcv1.Revo
 		DeviceId: req.GetDeviceId(),
 		Success:  true,
 	}, nil
+}
+
+// ToProtoSessionReason converts an internal engine.SessionReason to the wire enum.
+// The two taxonomies are defined field-for-field alike, so this is a mapping and
+// not a translation: a new reason must be added to both.
+func ToProtoSessionReason(r engine.SessionReason) phonebridgelocalipcv1.SessionReason {
+	switch r {
+	case engine.ReasonNone:
+		return phonebridgelocalipcv1.SessionReason_SESSION_REASON_NONE
+	case engine.ReasonProtocolVersionMismatch:
+		return phonebridgelocalipcv1.SessionReason_SESSION_REASON_PROTOCOL_VERSION_MISMATCH
+	case engine.ReasonUnsupportedMediaParams:
+		return phonebridgelocalipcv1.SessionReason_SESSION_REASON_UNSUPPORTED_MEDIA_PARAMS
+	case engine.ReasonDeviceNotTrusted:
+		return phonebridgelocalipcv1.SessionReason_SESSION_REASON_DEVICE_NOT_TRUSTED
+	case engine.ReasonDeviceNotFound:
+		return phonebridgelocalipcv1.SessionReason_SESSION_REASON_DEVICE_NOT_FOUND
+	case engine.ReasonSessionBusy:
+		return phonebridgelocalipcv1.SessionReason_SESSION_REASON_SESSION_BUSY
+	case engine.ReasonConsentRevoked:
+		return phonebridgelocalipcv1.SessionReason_SESSION_REASON_CONSENT_REVOKED
+	case engine.ReasonCaptureFailed:
+		return phonebridgelocalipcv1.SessionReason_SESSION_REASON_CAPTURE_FAILED
+	case engine.ReasonTransportFailed:
+		return phonebridgelocalipcv1.SessionReason_SESSION_REASON_TRANSPORT_FAILED
+	case engine.ReasonReconnectTimeout:
+		return phonebridgelocalipcv1.SessionReason_SESSION_REASON_RECONNECT_TIMEOUT
+	case engine.ReasonSignalingFailed:
+		return phonebridgelocalipcv1.SessionReason_SESSION_REASON_SIGNALING_FAILED
+	case engine.ReasonUserStopped:
+		return phonebridgelocalipcv1.SessionReason_SESSION_REASON_USER_STOPPED
+	default:
+		return phonebridgelocalipcv1.SessionReason_SESSION_REASON_UNSPECIFIED
+	}
+}
+
+// ToProtoMediaParams converts a negotiated media tuple. A zero field stays zero,
+// which the contract reads as "no preference / not reported".
+func ToProtoMediaParams(p engine.MediaParams) *phonebridgev1.MediaParams {
+	return &phonebridgev1.MediaParams{
+		Width:       uint32(max0(p.Width)),
+		Height:      uint32(max0(p.Height)),
+		Fps:         uint32(max0(p.FPS)),
+		BitrateKbps: uint32(max0(p.BitrateKbps)),
+		Codec:       p.Codec,
+	}
+}
+
+// ToProtoMediaParamsKnown returns nil when the tuple is not known, so a caller
+// cannot mistake "the device did not say" for "the device said nothing".
+func ToProtoMediaParamsKnown(p engine.MediaParams, known bool) *phonebridgev1.MediaParams {
+	if !known {
+		return nil
+	}
+	return ToProtoMediaParams(p)
+}
+
+// FromProtoMediaParams converts a wire tuple into the engine representation.
+func FromProtoMediaParams(p *phonebridgev1.MediaParams) engine.MediaParams {
+	if p == nil {
+		return engine.MediaParams{}
+	}
+	return engine.MediaParams{
+		Width:       int(p.GetWidth()),
+		Height:      int(p.GetHeight()),
+		FPS:         int(p.GetFps()),
+		BitrateKbps: int(p.GetBitrateKbps()),
+		Codec:       p.GetCodec(),
+	}
+}
+
+func max0(v int) int {
+	if v < 0 {
+		return 0
+	}
+	return v
 }
 
 // ToProtoSessionState converts an internal engine.SessionState to the protobuf SessionState enum.

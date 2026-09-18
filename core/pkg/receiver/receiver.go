@@ -26,9 +26,18 @@ type Config struct {
 	IncludeLoopback bool
 	QueueDepth      int
 	Sink            FrameSink
-	OnStateChange   func(pion.PeerConnectionState)
-	OnConnected     func()
-	OnDisconnected  func()
+	// KeepSinkOpen makes Close leave the sink open, so the caller owns its
+	// lifetime. The session sets this: its sink must outlive an individual
+	// transport, because a reconnect repairs the transport and must not
+	// restart the display path (DEC-022).
+	KeepSinkOpen   bool
+	OnStateChange  func(pion.PeerConnectionState)
+	OnConnected    func()
+	OnDisconnected func()
+	// OnSessionError receives a typed failure reported by the sending device
+	// over the control channel (for example CONSENT_REVOKED or
+	// CAPTURE_FAILED). The message is the device's human-readable detail.
+	OnSessionError func(code string, message string)
 }
 
 // Receiver coordinates the WebRTC peer connection, RFC 6184 RTP depacketization,
@@ -93,7 +102,8 @@ func NewReceiver(cfg Config) (*Receiver, error) {
 		dc.OnMessage(func(msg pion.DataChannelMessage) {
 			var m map[string]any
 			if json.Unmarshal(msg.Data, &m) == nil {
-				if m["type"] == "ping" {
+				switch m["type"] {
+				case "ping":
 					// Echo pong with the sender's transmit timestamp
 					resp, _ := json.Marshal(map[string]any{
 						"type":        "pong",
@@ -101,6 +111,15 @@ func NewReceiver(cfg Config) (*Receiver, error) {
 						"rx_epoch_ms": time.Now().UnixMilli(),
 					})
 					_ = dc.SendText(string(resp))
+				case "session_error":
+					// Typed sender-side failure (DEC-022). The device tells us what
+					// actually went wrong so the session can classify it rather than
+					// infer a cause from a stalled stream.
+					code, _ := m["code"].(string)
+					msg, _ := m["message"].(string)
+					if cfg.OnSessionError != nil {
+						cfg.OnSessionError(code, msg)
+					}
 				}
 			}
 		})
@@ -211,8 +230,10 @@ func (r *Receiver) Close() error {
 	close(r.auChan)
 	r.workerWg.Wait()
 
-	if err := r.sink.Close(); err != nil && firstErr == nil {
-		firstErr = err
+	if !r.cfg.KeepSinkOpen {
+		if err := r.sink.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
 
 	return firstErr

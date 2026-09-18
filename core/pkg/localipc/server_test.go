@@ -453,11 +453,13 @@ func TestPollAndConnect(t *testing.T) {
 }
 
 type mockOrchestrator struct {
-	startErr error
-	stopErr  error
-	snapshot engine.SessionSnapshot
-	session  *engine.Session
-	devices  []discovery.Device
+	mu            sync.Mutex
+	startErr      error
+	stopErr       error
+	snapshot      engine.SessionSnapshot
+	session       *engine.Session
+	devices       []discovery.Device
+	lastRequested engine.MediaParams
 
 	pairName    string
 	pairSAS     string
@@ -467,7 +469,10 @@ type mockOrchestrator struct {
 	revokeErr   error
 }
 
-func (m *mockOrchestrator) StartSession(ctx context.Context, deviceID string) (*engine.Session, error) {
+func (m *mockOrchestrator) StartSession(ctx context.Context, deviceID string, requested engine.MediaParams) (*engine.Session, error) {
+	m.mu.Lock()
+	m.lastRequested = requested
+	m.mu.Unlock()
 	if m.startErr != nil {
 		return nil, m.startErr
 	}
@@ -505,6 +510,26 @@ func (m *mockOrchestrator) RevokeDevice(deviceID string) error {
 	return m.revokeErr
 }
 
+func TestMediaParamsConversions(t *testing.T) {
+	p := engine.MediaParams{Width: 720, Height: 1600, FPS: 30, BitrateKbps: 4000, Codec: "h264"}
+
+	if back := FromProtoMediaParams(ToProtoMediaParams(p)); !back.Equal(p) {
+		t.Errorf("round trip lost data: %s -> %s", p, back)
+	}
+	if got := FromProtoMediaParams(nil); !got.IsZero() {
+		t.Errorf("nil must decode to a zero tuple, got %s", got)
+	}
+
+	// An unreported tuple must stay absent on the wire, so a client cannot read
+	// "unknown" as "the device confirmed the request".
+	if got := ToProtoMediaParamsKnown(p, false); got != nil {
+		t.Errorf("an unknown tuple must be encoded as absent, got %v", got)
+	}
+	if got := ToProtoMediaParamsKnown(p, true); got == nil || got.GetFps() != 30 {
+		t.Errorf("a known tuple must be encoded, got %v", got)
+	}
+}
+
 func TestRPC_SessionLifecycle_And_Events(t *testing.T) {
 	sock, tok, tokVal := testSetup(t)
 
@@ -518,6 +543,10 @@ func TestRPC_SessionLifecycle_And_Events(t *testing.T) {
 			State:             engine.StateStreaming,
 			ConnectedDuration: 5 * time.Second,
 			ErrorMessage:      "",
+			ReasonCode:        engine.ReasonNone,
+			Requested:         engine.MediaParams{Width: 1080, Height: 2400, FPS: 60, BitrateKbps: 8000},
+			Actual:            engine.MediaParams{Width: 720, Height: 1600, FPS: 30, BitrateKbps: 4000},
+			ActualKnown:       true,
 		},
 		devices: []discovery.Device{
 			{
@@ -575,12 +604,23 @@ func TestRPC_SessionLifecycle_And_Events(t *testing.T) {
 		t.Errorf("device id = %s, want device-pixel-7", listResp.GetDevices()[0].GetId())
 	}
 
-	// 3. Test StartSession
+	// 3. Test StartSession — the requested media tuple must reach the engine,
+	// because DEC-020 makes the parameters part of the capture consent.
 	startResp, err := client.StartSession(ctx, &phonebridgelocalipcv1.StartSessionRequest{
 		DeviceId: "device-pixel-7",
+		Requested: &phonebridgev1.MediaParams{
+			Width: 1080, Height: 2400, Fps: 60, BitrateKbps: 8000,
+		},
 	})
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
+	}
+	orch.mu.Lock()
+	gotRequested := orch.lastRequested
+	orch.mu.Unlock()
+	wantRequested := engine.MediaParams{Width: 1080, Height: 2400, FPS: 60, BitrateKbps: 8000}
+	if !gotRequested.Equal(wantRequested) {
+		t.Errorf("requested tuple reached the engine as %s, want %s", gotRequested, wantRequested)
 	}
 	if startResp.GetSessionId() != "sess-prod-1" {
 		t.Errorf("sessionId = %s, want sess-prod-1", startResp.GetSessionId())
@@ -625,6 +665,16 @@ func TestRPC_SessionLifecycle_And_Events(t *testing.T) {
 	}
 	if stateResp.GetConnectedDurationMs() < 5000 {
 		t.Errorf("connected duration = %d ms, want >= 5000", stateResp.GetConnectedDurationMs())
+	}
+	// Negotiated media must be reported as requested-vs-actual, never collapsed.
+	if got := stateResp.GetRequested(); got.GetWidth() != 1080 || got.GetFps() != 60 {
+		t.Errorf("requested media = %v, want 1080x2400@60", got)
+	}
+	if got := stateResp.GetActual(); got.GetWidth() != 720 || got.GetFps() != 30 {
+		t.Errorf("actual media = %v, want the device-reported 720x1600@30", got)
+	}
+	if stateResp.GetReasonCode() != phonebridgelocalipcv1.SessionReason_SESSION_REASON_NONE {
+		t.Errorf("reason code = %v, want NONE", stateResp.GetReasonCode())
 	}
 
 	// 5. Test StopSession

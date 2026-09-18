@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/om051p/phonebridge/core/pkg/crypto"
@@ -13,6 +14,17 @@ import (
 	"github.com/om051p/phonebridge/core/pkg/rtpmedia"
 	pion "github.com/pion/webrtc/v4"
 )
+
+// defaultReconnectBackoff is the delay before each successive reconnect
+// attempt. The last entry repeats for further attempts, so the effective cap is
+// the last value (DEC-022: 500 ms, 1 s, 2 s, 4 s — cap 4 s, inside the 5 s
+// ceiling the decision records).
+var defaultReconnectBackoff = []time.Duration{
+	500 * time.Millisecond,
+	1 * time.Second,
+	2 * time.Second,
+	4 * time.Second,
+}
 
 // SessionState represents the operational phase of a device session.
 type SessionState int
@@ -51,28 +63,61 @@ func (s SessionState) String() string {
 	}
 }
 
+// transport is one media transport instance: a WebRTC peer connection with its
+// depacketizer and frame sink behind it. *receiver.Receiver satisfies it.
+//
+// The session depends on this interface rather than the concrete type so the
+// transport lifecycle rules can be proven with a fake — resources closed before
+// replacement, no leak when Stop races a reconnect — without a network.
+type transport interface {
+	SetRemoteOffer(offer pion.SessionDescription) (pion.SessionDescription, error)
+	WaitForTrack(timeout time.Duration) error
+	Stats() (rtpmedia.StreamStats, int64)
+	Close() error
+}
+
+// transportFactory builds one transport for one connection attempt. The session
+// supplies the receiver.Config (including its own callbacks) so the transport
+// reports state changes and typed device failures back to exactly the generation
+// that owns it.
+type transportFactory func(cfg receiver.Config) (transport, error)
+
+func defaultTransportFactory(cfg receiver.Config) (transport, error) {
+	return receiver.NewReceiver(cfg)
+}
+
 // SessionConfig configures a session request.
 type SessionConfig struct {
-	TargetDeviceID   string
-	PreferredWidth   int
-	PreferredHeight  int
-	PreferredFPS     int
-	DiscoveryTimeout time.Duration
-	ConnectTimeout   time.Duration
-	ReconnectTimeout time.Duration
-	Identity         *crypto.DeviceIdentity
-	TrustStore       *crypto.TrustStore
+	TargetDeviceID string
+	// Requested overrides the negotiated media tuple. Zero fields fall back to
+	// the Preferred* values below, so a caller can request a full tuple or just
+	// one field (for example only the fps).
+	Requested            MediaParams
+	PreferredWidth       int
+	PreferredHeight      int
+	PreferredFPS         int
+	PreferredBitrateKbps int
+	DiscoveryTimeout     time.Duration
+	ConnectTimeout       time.Duration
+	ReconnectTimeout     time.Duration
+	ReconnectBackoff     []time.Duration
+	Identity             *crypto.DeviceIdentity
+	TrustStore           *crypto.TrustStore
 }
 
 // DefaultSessionConfig returns production defaults for session configuration.
+// The media defaults match the DEC-021 measured operating point (720p30 against
+// a 4 Mbps shaper ceiling); they are a request, not an assumption — the capture
+// device answers with what it actually applies.
 func DefaultSessionConfig() SessionConfig {
 	return SessionConfig{
-		PreferredWidth:   720,
-		PreferredHeight:  1600,
-		PreferredFPS:     30,
-		DiscoveryTimeout: 10 * time.Second,
-		ConnectTimeout:   10 * time.Second,
-		ReconnectTimeout: 15 * time.Second,
+		PreferredWidth:       720,
+		PreferredHeight:      1600,
+		PreferredFPS:         30,
+		PreferredBitrateKbps: 4000,
+		DiscoveryTimeout:     10 * time.Second,
+		ConnectTimeout:       10 * time.Second,
+		ReconnectTimeout:     15 * time.Second,
 	}
 }
 
@@ -80,16 +125,27 @@ func DefaultSessionConfig() SessionConfig {
 type SessionSnapshot struct {
 	SessionID         string
 	State             SessionState
+	ReasonCode        SessionReason
 	TargetDevice      discovery.Device
 	StartTime         time.Time
 	ConnectedDuration time.Duration
 	ErrorMessage      string
 	Stats             rtpmedia.StreamStats
 	DroppedAUs        int64
+	// Requested is what this side asked for; Actual is what the capture device
+	// reported applying. ActualKnown is false when the peer did not report it —
+	// an unknown tuple is never back-filled from Requested, because assuming
+	// "probably the same" is the silent substitution DEC-022 forbids.
+	Requested   MediaParams
+	Actual      MediaParams
+	ActualKnown bool
+	// ReconnectAttempts counts attempts in the current recovery window.
+	ReconnectAttempts int
 }
 
-// StateChangeCallback receives state change events.
-type StateChangeCallback func(oldState, newState SessionState, reason string)
+// StateChangeCallback receives state change events. code classifies the
+// transition so callers never parse reason.
+type StateChangeCallback func(oldState, newState SessionState, reason string, code SessionReason)
 
 // Session manages a single device session lifecycle.
 type Session struct {
@@ -100,14 +156,37 @@ type Session struct {
 	targetDevice discovery.Device
 	startTime    time.Time
 	lastError    error
+	reasonCode   SessionReason
 
 	registry *discovery.DeviceRegistry
-	receiver *receiver.Receiver
+
+	// tr is the current transport; trGen identifies it. Callbacks from a
+	// previous generation are ignored, which is what makes replacing a
+	// transport mid-session safe: closing the old one fires its "closed"
+	// callback, and that must not be mistaken for the new one failing.
+	tr    transport
+	trGen uint64
+
+	requested   MediaParams
+	actual      MediaParams
+	actualKnown bool
+
+	reconnecting      bool
+	reconnectAttempts int
 
 	targetEndpoint string
 	signaling      *SignalingClient
 	trustStore     *crypto.TrustStore
-	sink           receiver.FrameSink
+
+	sink       receiver.FrameSink
+	sinkOwned  bool
+	sinkClosed bool
+
+	stopped  atomic.Bool
+	terminal atomic.Bool
+	stopOnce sync.Once
+
+	factory transportFactory
 
 	onStateChange StateChangeCallback
 	ctx           context.Context
@@ -133,12 +212,19 @@ func NewSession(sessionID string, cfg SessionConfig, reg *discovery.DeviceRegist
 
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Session{
-		sessionID:     sessionID,
-		state:         StateDisconnected,
-		cfg:           cfg,
-		registry:      reg,
+		sessionID: sessionID,
+		state:     StateDisconnected,
+		cfg:       cfg,
+		registry:  reg,
+		requested: cfg.Requested.WithDefaults(MediaParams{
+			Width:       cfg.PreferredWidth,
+			Height:      cfg.PreferredHeight,
+			FPS:         cfg.PreferredFPS,
+			BitrateKbps: cfg.PreferredBitrateKbps,
+		}),
 		trustStore:    cfg.TrustStore,
 		signaling:     sigClient,
+		factory:       defaultTransportFactory,
 		onStateChange: cb,
 		ctx:           ctx,
 		cancel:        cancel,
@@ -152,11 +238,53 @@ func (s *Session) SetTrustStore(ts *crypto.TrustStore) {
 	s.trustStore = ts
 }
 
-// Transition validates and applies a state transition.
-func (s *Session) Transition(next SessionState, reason string) error {
+// SetSignalingClient overrides the signaling client (e.g. for testing).
+func (s *Session) SetSignalingClient(sig *SignalingClient) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.signaling = sig
+}
 
+// SetTransportFactory overrides how media transports are built. Test seam: it
+// lets lifecycle rules be proven without a network.
+func (s *Session) SetTransportFactory(f transportFactory) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if f == nil {
+		f = defaultTransportFactory
+	}
+	s.factory = f
+}
+
+// RequestedParams returns the media tuple this session asks the device for.
+func (s *Session) RequestedParams() MediaParams {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.requested
+}
+
+// NegotiatedParams returns what the capture device reported applying, and
+// whether it reported anything at all.
+func (s *Session) NegotiatedParams() (MediaParams, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.actual, s.actualKnown
+}
+
+// Transition validates and applies a state transition, classifying it as
+// ReasonNone.
+func (s *Session) Transition(next SessionState, reason string) error {
+	return s.TransitionCode(next, reason, ReasonNone)
+}
+
+// TransitionCode validates and applies a state transition with a typed reason.
+func (s *Session) TransitionCode(next SessionState, reason string, code SessionReason) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.transitionLocked(next, reason, code)
+}
+
+func (s *Session) transitionLocked(next SessionState, reason string, code SessionReason) error {
 	if s.state == next {
 		return nil
 	}
@@ -187,17 +315,22 @@ func (s *Session) Transition(next SessionState, reason string) error {
 
 	old := s.state
 	s.state = next
+	if code != ReasonNone || next == StateFailed {
+		s.reasonCode = code
+	}
 	if next == StateConnected && s.startTime.IsZero() {
 		s.startTime = time.Now()
 	}
 
 	if s.onStateChange != nil {
-		s.onStateChange(old, next, reason)
+		s.onStateChange(old, next, reason, code)
 	}
 	return nil
 }
 
-// SessionID returns the unique session identifier.
+// SessionID returns the unique session identifier. It is stable for the whole
+// session, including across transport reconnects: a reconnect repairs the
+// transport, it does not start a new session.
 func (s *Session) SessionID() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -209,6 +342,20 @@ func (s *Session) State() SessionState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.state
+}
+
+// ReasonCode returns the typed classification of the current state.
+func (s *Session) ReasonCode() SessionReason {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.reasonCode
+}
+
+// ReconnectAttempts returns how many attempts the current recovery window made.
+func (s *Session) ReconnectAttempts() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.reconnectAttempts
 }
 
 // Snapshot returns the current status and metrics.
@@ -223,8 +370,8 @@ func (s *Session) Snapshot() SessionSnapshot {
 
 	var stats rtpmedia.StreamStats
 	var dropped int64
-	if s.receiver != nil {
-		stats, dropped = s.receiver.Stats()
+	if s.tr != nil {
+		stats, dropped = s.tr.Stats()
 	}
 
 	errMsg := ""
@@ -235,12 +382,17 @@ func (s *Session) Snapshot() SessionSnapshot {
 	return SessionSnapshot{
 		SessionID:         s.sessionID,
 		State:             s.state,
+		ReasonCode:        s.reasonCode,
 		TargetDevice:      s.targetDevice,
 		StartTime:         s.startTime,
 		ConnectedDuration: duration,
 		ErrorMessage:      errMsg,
 		Stats:             stats,
 		DroppedAUs:        dropped,
+		Requested:         s.requested,
+		Actual:            s.actual,
+		ActualKnown:       s.actualKnown,
+		ReconnectAttempts: s.reconnectAttempts,
 	}
 }
 
@@ -251,53 +403,89 @@ func (s *Session) SetTargetDevice(dev discovery.Device) {
 	s.targetDevice = dev
 }
 
-// SetReceiver attaches the active WebRTC receiver.
+// SetReceiver attaches the active transport. Retained for tests and for callers
+// that build a receiver themselves.
 func (s *Session) SetReceiver(r *receiver.Receiver) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.receiver = r
+	s.tr = r
 }
 
-// Fail transitions the session to StateFailed with an error cause.
-func (s *Session) Fail(err error) {
+// Fail transitions the session to StateFailed with a reason code, recording the
+// cause. A terminal failure stops recovery: the conditions that reach here
+// (consent withdrawn, capture failed, rejected parameters) cannot heal by
+// re-running the offer/answer exchange, so retrying would only delay the error
+// the user needs to see.
+func (s *Session) Fail(code SessionReason, err error) {
+	if err == nil {
+		err = errors.New(code.String())
+	}
 	s.mu.Lock()
 	s.lastError = err
 	s.mu.Unlock()
-	_ = s.Transition(StateFailed, err.Error())
+
+	// Mark terminal before transitioning so an in-flight reconnect loop stops.
+	s.terminal.Store(true)
+	_ = s.TransitionCode(StateFailed, err.Error(), code)
 }
 
-// SetSignalingClient overrides the signaling client (e.g. for testing).
-func (s *Session) SetSignalingClient(sig *SignalingClient) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.signaling = sig
-}
-
-// Stop cleanly terminates the session.
+// Stop cleanly terminates the session. It is idempotent: concurrent or repeated
+// calls perform teardown once and never leave a transport or sink behind.
 func (s *Session) Stop(reason string) error {
-	s.cancel()
+	var err error
+	s.stopOnce.Do(func() {
+		err = s.teardown(reason)
+	})
+	return err
+}
+
+func (s *Session) teardown(reason string) error {
+	s.stopped.Store(true)
+	s.terminal.Store(true)
+	s.cancel() // stops a reconnect loop and any in-flight backoff sleep
 
 	s.mu.Lock()
-	r := s.receiver
-	s.receiver = nil
+	// Bump the generation so the transport's own "closed" callback cannot be
+	// mistaken for a live transport failing while we are tearing down.
+	s.trGen++
+	tr := s.tr
+	s.tr = nil
 	ep := s.targetEndpoint
 	sig := s.signaling
+	sink := s.sink
+	ownSink := s.sinkOwned && !s.sinkClosed
+	if ownSink {
+		s.sinkClosed = true
+	}
 	s.mu.Unlock()
 
 	if ep != "" && sig != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_ = sig.StopSession(ctx, ep, reason)
+		_ = sig.StopSession(ctx, ep, reason, CodeOK)
 		cancel()
 	}
 
-	if r != nil {
-		_ = r.Close()
+	if tr != nil {
+		_ = tr.Close()
+	}
+	// A session owns its sink (the receiver borrows it so it can outlive an
+	// individual transport) and closes it exactly once, on final teardown.
+	if ownSink && sink != nil {
+		_ = sink.Close()
 	}
 
-	return s.Transition(StateStopped, reason)
+	if s.State() == StateStopped {
+		return nil
+	}
+	return s.TransitionCode(StateStopped, reason, ReasonUserStopped)
 }
 
 // Connect negotiates WebRTC via HTTP signaling with the device endpoint and binds the receiver.
+//
+// Parameters are settled before the offer is composed (DEC-022), and the
+// capture device's answer is recorded as the authoritative actual tuple. A
+// single attempt is made: an unmet request is reported typed rather than
+// retried, because the fix is a different request or user action.
 func (s *Session) Connect(ctx context.Context, endpoint string, sink receiver.FrameSink) error {
 	s.mu.RLock()
 	ts := s.trustStore
@@ -310,7 +498,7 @@ func (s *Session) Connect(ctx context.Context, endpoint string, sink receiver.Fr
 	// Enforce peer trust check (DEC-007 / MASTER_HANDOFF §7)
 	if ts != nil && targetID != "" && !ts.IsTrusted(targetID) {
 		err := fmt.Errorf("device %s is not trusted: pairing required", targetID)
-		s.Fail(err)
+		s.Fail(ReasonDeviceNotTrusted, err)
 		return err
 	}
 
@@ -324,6 +512,7 @@ func (s *Session) Connect(ctx context.Context, endpoint string, sink receiver.Fr
 		sink = receiver.NewNullSink()
 	}
 	s.sink = sink
+	s.sinkOwned = true
 	sig := s.signaling
 	if sig == nil {
 		sig = NewSignalingClient(s.cfg.ConnectTimeout)
@@ -331,59 +520,403 @@ func (s *Session) Connect(ctx context.Context, endpoint string, sink receiver.Fr
 	}
 	s.mu.Unlock()
 
-	recv, err := receiver.NewReceiver(receiver.Config{
-		Sink:            sink,
+	code, msg := s.attemptTransport(ctx)
+	if code != CodeOK {
+		err := fmt.Errorf("connect to %s failed: %s: %s", endpoint, code, msg)
+		s.closeCurrentTransport()
+		s.Fail(code.Reason(), err)
+		return err
+	}
+
+	// Recovery is judged by transport state, never by frame arrival: a phone
+	// whose screen is off legitimately produces 0 fps, and that must not look
+	// like a broken link.
+	if !s.waitForTransportUp(s.cfg.ConnectTimeout) {
+		s.closeCurrentTransport()
+		err := fmt.Errorf("connect to %s failed: transport did not come up within %v", endpoint, s.cfg.ConnectTimeout)
+		s.Fail(ReasonTransportFailed, err)
+		return err
+	}
+
+	return nil
+}
+
+// waitForTransportUp blocks until the transport reports connected (or media is
+// already flowing).
+func (s *Session) waitForTransportUp(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		switch s.State() {
+		case StateConnected, StateStreaming:
+			return true
+		case StateFailed, StateStopped:
+			return false
+		}
+		if s.ctx.Err() != nil {
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return false
+}
+
+// attemptTransport performs one full connection attempt: handshake + parameter
+// negotiation, SDP offer/answer, and transport construction.
+//
+// Invariant: on CodeOK the session holds exactly one live transport; on any
+// other outcome the transport created here is already closed and s.tr is nil.
+// That invariant is what makes "resources are closed before replacement" and
+// "no leaks under racing Stop" testable.
+func (s *Session) attemptTransport(ctx context.Context) (Code, string) {
+	old, gen := s.beginTransportReplacement()
+	if old != nil {
+		// Close the outgoing transport BEFORE its replacement exists, so two
+		// peer connections never overlap. This is transport-only: the capture
+		// pipeline on the device is untouched (DEC-020 forbids restarting it).
+		_ = old.Close()
+	}
+
+	s.mu.RLock()
+	ep := s.targetEndpoint
+	sig := s.signaling
+	sink := s.sink
+	requested := s.requested
+	ts := s.trustStore
+	targetID := s.cfg.TargetDeviceID
+	if s.targetDevice.ID != "" {
+		targetID = s.targetDevice.ID
+	}
+	s.mu.RUnlock()
+
+	// Re-check trust on every attempt: a device revoked mid-session must not be
+	// quietly reconnected.
+	if ts != nil && targetID != "" && !ts.IsTrusted(targetID) {
+		return CodePermissionDenied, fmt.Sprintf("device %s is not trusted: pairing required", targetID)
+	}
+
+	tr, err := s.newTransport(gen, sink)
+	if err != nil {
+		return CodeTransportFailed, err.Error()
+	}
+
+	fail := func(code Code, msg string) (Code, string) {
+		_ = tr.Close()
+		return code, msg
+	}
+
+	resp, err := sig.RequestOffer(ctx, ep, NegotiationRequest{Requested: requested})
+	if err != nil {
+		var sigErr *SignalError
+		if errors.As(err, &sigErr) {
+			return fail(CodeSignalingFailed, err.Error())
+		}
+		return fail(CodeSignalingFailed, err.Error())
+	}
+
+	s.mu.Lock()
+	s.actual = resp.Actual
+	s.actualKnown = resp.ActualKnown
+	s.mu.Unlock()
+
+	// Version and capability validation happen before the SDP is consumed: a
+	// peer we cannot talk to should not get as far as building ICE candidates.
+	// A mismatch is a hard failure (DEC-022): there is no negotiation fallback
+	// this milestone, because a half-negotiated session would have to guess at
+	// semantics neither side promised.
+	if resp.ProtocolVersion != 0 && resp.ProtocolVersion != signalingVersion {
+		return fail(CodeIncompatibleVersion, fmt.Sprintf(
+			"device speaks signaling version %d, this build speaks %d", resp.ProtocolVersion, signalingVersion))
+	}
+	// Only a peer that actually advertised capabilities can fail this check:
+	// an absent capability list means "not reported", not "no screen support".
+	if len(resp.Capabilities) > 0 {
+		supportsScreen := false
+		for _, c := range resp.Capabilities {
+			if c.SupportsScreen {
+				supportsScreen = true
+				break
+			}
+		}
+		if !supportsScreen {
+			return fail(CodeUnsupportedMediaParams, "device advertised no screen-capture capability")
+		}
+	}
+
+	if !resp.Accepted {
+		code := resp.Code
+		if code == CodeOK {
+			code = CodeUnsupportedMediaParams
+		}
+		msg := resp.RejectReason
+		if msg == "" {
+			msg = fmt.Sprintf("device rejected %s", requested)
+		}
+		return fail(code, msg)
+	}
+
+	answer, err := tr.SetRemoteOffer(pion.SessionDescription{
+		Type: pion.SDPTypeOffer,
+		SDP:  resp.Offer,
+	})
+	if err != nil {
+		return fail(CodeTransportFailed, fmt.Sprintf("set remote offer: %v", err))
+	}
+
+	if err := sig.SendAnswer(ctx, ep, answer); err != nil {
+		return fail(CodeSignalingFailed, err.Error())
+	}
+
+	// Promote to STREAMING when media actually starts. Started per transport and
+	// guarded by generation so a replaced transport cannot advance the state.
+	go s.awaitTrack(gen, tr)
+
+	return CodeOK, ""
+}
+
+// newTransport builds the transport for generation gen, wiring callbacks so
+// they are ignored if this transport is later replaced.
+func (s *Session) newTransport(gen uint64, sink receiver.FrameSink) (transport, error) {
+	s.mu.RLock()
+	factory := s.factory
+	s.mu.RUnlock()
+
+	tr, err := factory(receiver.Config{
+		Sink: sink,
+		// The session owns the sink: it must outlive an individual transport so
+		// a reconnect does not restart the display path, and is closed once on
+		// final teardown.
+		KeepSinkOpen:    true,
 		IncludeLoopback: true,
 		OnStateChange: func(st pion.PeerConnectionState) {
-			switch st {
-			case pion.PeerConnectionStateConnected:
-				_ = s.Transition(StateConnected, "WebRTC connected")
-			case pion.PeerConnectionStateDisconnected:
-				_ = s.Transition(StateReconnecting, "WebRTC disconnected")
-			case pion.PeerConnectionStateFailed:
-				s.Fail(fmt.Errorf("WebRTC connection failed"))
-			case pion.PeerConnectionStateClosed:
-				_ = s.Transition(StateStopped, "WebRTC closed")
-			}
+			s.handleTransportState(gen, st)
+		},
+		OnSessionError: func(code, message string) {
+			s.handleDeviceError(gen, code, message)
 		},
 	})
 	if err != nil {
-		s.Fail(err)
-		return fmt.Errorf("create receiver: %w", err)
-	}
-	s.SetReceiver(recv)
-
-	// 1. Request SDP offer from device
-	offer, err := sig.RequestOffer(ctx, endpoint)
-	if err != nil {
-		s.Fail(err)
-		_ = recv.Close()
-		return fmt.Errorf("request offer from %s: %w", endpoint, err)
+		return nil, err
 	}
 
-	// 2. Set remote offer & generate local answer
-	answer, err := recv.SetRemoteOffer(offer)
-	if err != nil {
-		s.Fail(err)
-		_ = recv.Close()
-		return fmt.Errorf("set remote offer: %w", err)
+	s.mu.Lock()
+	s.tr = tr
+	s.mu.Unlock()
+	return tr, nil
+}
+
+// beginTransportReplacement invalidates the outgoing transport's callbacks and
+// detaches it, returning it (to be closed) plus the generation the new
+// transport must use.
+func (s *Session) beginTransportReplacement() (transport, uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.trGen++
+	old := s.tr
+	s.tr = nil
+	return old, s.trGen
+}
+
+// closeCurrentTransport closes and detaches the live transport, invalidating its
+// callbacks first so the close is not mistaken for a link failure.
+func (s *Session) closeCurrentTransport() {
+	old, _ := s.beginTransportReplacement()
+	if old != nil {
+		_ = old.Close()
+	}
+}
+
+// handleTransportState reacts to a transport's connection state.
+func (s *Session) handleTransportState(gen uint64, st pion.PeerConnectionState) {
+	s.mu.RLock()
+	stale := gen != s.trGen
+	stopping := s.ctx.Err() != nil
+	s.mu.RUnlock()
+	if stale || stopping {
+		return
 	}
 
-	// 3. Send SDP answer back to device
-	if err := sig.SendAnswer(ctx, endpoint, answer); err != nil {
-		s.Fail(err)
-		_ = recv.Close()
-		return fmt.Errorf("send answer to %s: %w", endpoint, err)
+	switch st {
+	case pion.PeerConnectionStateConnected:
+		_ = s.TransitionCode(StateConnected, "WebRTC connected", ReasonNone)
+	case pion.PeerConnectionStateDisconnected:
+		s.RequestReconnect("WebRTC disconnected")
+	case pion.PeerConnectionStateFailed:
+		s.RequestReconnect("WebRTC connection failed")
+	case pion.PeerConnectionStateClosed:
+		// The live transport closed without us asking: treat it as a link loss
+		// that may still be recoverable.
+		s.RequestReconnect("WebRTC transport closed")
+	}
+}
+
+// handleDeviceError reacts to a typed failure reported by the device over the
+// transport's control channel. Sender-side conditions (consent withdrawal,
+// capture failure) are terminal and must NOT be turned into reconnect attempts:
+// reconnecting cannot restore a consent the user revoked, and misclassifying
+// them as transport failures would hide the real cause from the user.
+func (s *Session) handleDeviceError(gen uint64, code string, message string) {
+	s.mu.RLock()
+	stale := gen != s.trGen
+	stopping := s.ctx.Err() != nil
+	s.mu.RUnlock()
+	if stale || stopping {
+		return
 	}
 
-	// 4. Background monitor for remote track arrival -> StateStreaming
-	go func() {
-		if err := recv.WaitForTrack(s.cfg.ConnectTimeout); err == nil {
-			_ = s.Transition(StateStreaming, "media track active")
-		}
+	parsed, ok := ParseCode(code)
+	if !ok {
+		parsed = CodeCaptureFailed
+	}
+	if parsed == CodeOK {
+		return
+	}
+	if parsed.Retryable() {
+		s.RequestReconnect(fmt.Sprintf("device reported %s: %s", parsed, message))
+		return
+	}
+
+	reason := parsed.Reason()
+	if reason == ReasonUnspecified {
+		reason = ReasonCaptureFailed
+	}
+	err := fmt.Errorf("device reported %s: %s", parsed, message)
+	if message == "" {
+		err = fmt.Errorf("device reported %s", parsed)
+	}
+	s.closeCurrentTransport()
+	s.Fail(reason, err)
+}
+
+// RequestReconnect enters RECONNECTING and starts the bounded recovery loop.
+// It is a no-op when a recovery is already running, when the session is
+// stopping, or when the state machine does not allow recovery from the current
+// state (for example during the initial CONNECTING attempt, whose failure is
+// reported directly).
+func (s *Session) RequestReconnect(reason string) {
+	if s.IsTerminal() {
+		return
+	}
+	s.mu.Lock()
+	if s.reconnecting {
+		s.mu.Unlock()
+		return
+	}
+	s.reconnecting = true
+	s.mu.Unlock()
+
+	if err := s.TransitionCode(StateReconnecting, reason, ReasonTransportFailed); err != nil {
+		s.mu.Lock()
+		s.reconnecting = false
+		s.mu.Unlock()
+		return
+	}
+	go s.reconnectLoop()
+}
+
+// IsTerminal reports whether the session has reached a state from which
+// automatic recovery is not attempted.
+func (s *Session) IsTerminal() bool {
+	if s.stopped.Load() || s.terminal.Load() {
+		return true
+	}
+	switch s.State() {
+	case StateFailed, StateStopped:
+		return true
+	default:
+		return false
+	}
+}
+
+// reconnectLoop re-runs the offer/answer exchange with bounded backoff until the
+// transport is back, the budget is exhausted, or the session stops.
+//
+// Capture is never touched: the device keeps its MediaProjection, VirtualDisplay
+// and encoder alive, and DEC-020 records why restarting them would be wrong
+// (re-binding an encoder to a live VirtualDisplay does not resume delivery, and
+// a geometry change needs a fresh consent).
+func (s *Session) reconnectLoop() {
+	defer func() {
+		s.mu.Lock()
+		s.reconnecting = false
+		s.mu.Unlock()
 	}()
 
-	return nil
+	deadline := time.Now().Add(s.cfg.ReconnectTimeout)
+
+	for {
+		if s.ctx.Err() != nil || s.stopped.Load() {
+			return
+		}
+		switch s.State() {
+		case StateStreaming, StateConnected:
+			return // recovered
+		case StateFailed, StateStopped:
+			return // terminal
+		}
+		if !time.Now().Before(deadline) {
+			s.closeCurrentTransport()
+			s.Fail(ReasonReconnectTimeout, fmt.Errorf(
+				"reconnect budget %v exhausted after %d attempt(s)",
+				s.cfg.ReconnectTimeout, s.ReconnectAttempts()))
+			return
+		}
+
+		delay := s.reconnectBackoff(s.ReconnectAttempts())
+		if !sleepCtx(s.ctx, delay) {
+			return // stopped while waiting
+		}
+
+		s.mu.Lock()
+		s.reconnectAttempts++
+		attempts := s.reconnectAttempts
+		s.mu.Unlock()
+
+		code, msg := s.attemptTransport(s.ctx)
+		if code == CodeOK {
+			if s.waitForTransportUp(s.cfg.ConnectTimeout) {
+				_ = s.TransitionCode(StateConnected, "WebRTC reconnected", ReasonNone)
+				return
+			}
+			// The attempt completed but the transport never came up: keep
+			// trying while the budget lasts.
+			continue
+		}
+		if !code.Retryable() {
+			s.closeCurrentTransport()
+			s.Fail(code.Reason(), fmt.Errorf("reconnect aborted after %d attempt(s): %s: %s", attempts, code, msg))
+			return
+		}
+	}
+}
+
+// reconnectBackoff returns the delay before the given attempt index.
+func (s *Session) reconnectBackoff(attempt int) time.Duration {
+	s.mu.RLock()
+	sched := s.cfg.ReconnectBackoff
+	s.mu.RUnlock()
+	if len(sched) == 0 {
+		sched = defaultReconnectBackoff
+	}
+	if attempt < len(sched) {
+		return sched[attempt]
+	}
+	return sched[len(sched)-1]
+}
+
+// awaitTrack promotes the session to STREAMING once media actually arrives.
+// Media never arriving (screen off) is not a failure and does not trigger
+// recovery — only transport state does.
+func (s *Session) awaitTrack(gen uint64, tr transport) {
+	if err := tr.WaitForTrack(s.cfg.ConnectTimeout); err != nil {
+		return
+	}
+	s.mu.RLock()
+	stale := gen != s.trGen
+	s.mu.RUnlock()
+	if stale {
+		return
+	}
+	_ = s.TransitionCode(StateStreaming, "media track active", ReasonNone)
 }
 
 // LocateAndConnect resolves the target device and immediately establishes the media connection.
@@ -433,11 +966,15 @@ func (s *Session) LocateTarget(ctx context.Context) (discovery.Device, error) {
 		select {
 		case <-ctx.Done():
 			err := ctx.Err()
-			s.Fail(err)
+			if s.ctx.Err() == nil && !s.stopped.Load() {
+				s.Fail(ReasonSignalingFailed, err)
+			}
 			return discovery.Device{}, err
+		case <-s.ctx.Done():
+			return discovery.Device{}, context.Canceled
 		case <-timeout:
 			err := fmt.Errorf("device %s not discovered within %v", s.cfg.TargetDeviceID, s.cfg.DiscoveryTimeout)
-			s.Fail(err)
+			s.Fail(ReasonDeviceNotFound, err)
 			return discovery.Device{}, err
 		case <-ticker.C:
 			if dev, ok := s.registry.Get(s.cfg.TargetDeviceID); ok && !dev.IsStale {
@@ -445,5 +982,20 @@ func (s *Session) LocateTarget(ctx context.Context) (discovery.Device, error) {
 				return dev, nil
 			}
 		}
+	}
+}
+
+// sleepCtx sleeps for d, returning false if the context was cancelled first.
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	if d <= 0 {
+		return ctx.Err() == nil
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
 	}
 }

@@ -13,7 +13,7 @@ import (
 
 func TestSession_ValidLifecycleTransitions(t *testing.T) {
 	var transitions []string
-	cb := func(oldState, newState SessionState, reason string) {
+	cb := func(oldState, newState SessionState, reason string, code SessionReason) {
 		transitions = append(transitions, oldState.String()+"->"+newState.String())
 	}
 
@@ -101,7 +101,7 @@ func TestSession_InvalidTransitionsRejected(t *testing.T) {
 
 func TestSession_FailureTransition(t *testing.T) {
 	var lastErr string
-	cb := func(oldState, newState SessionState, reason string) {
+	cb := func(oldState, newState SessionState, reason string, code SessionReason) {
 		if newState == StateFailed {
 			lastErr = reason
 		}
@@ -111,13 +111,16 @@ func TestSession_FailureTransition(t *testing.T) {
 	sess := NewSession("sess-3", DefaultSessionConfig(), reg, cb)
 
 	_ = sess.Transition(StateConnecting, "signaling")
-	sess.Fail(errors.New("handshake timeout"))
+	sess.Fail(ReasonTransportFailed, errors.New("handshake timeout"))
 
 	if sess.State() != StateFailed {
 		t.Fatalf("expected StateFailed, got %v", sess.State())
 	}
 	if lastErr != "handshake timeout" {
 		t.Fatalf("expected 'handshake timeout' reason, got %q", lastErr)
+	}
+	if sess.ReasonCode() != ReasonTransportFailed {
+		t.Fatalf("expected typed ReasonTransportFailed, got %v", sess.ReasonCode())
 	}
 
 	snap := sess.Snapshot()

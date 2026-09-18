@@ -24,7 +24,14 @@ type SessionEvent struct {
 	SessionID    string
 	State        SessionState
 	Reason       string
+	ReasonCode   SessionReason
 	ErrorMessage string
+	// Requested/Actual carry the media negotiation when it is known, so the
+	// UI can show what was asked for versus what the device applied without a
+	// separate status call.
+	Requested   MediaParams
+	Actual      MediaParams
+	ActualKnown bool
 }
 
 type pendingPairing struct {
@@ -111,8 +118,9 @@ func (m *SessionManager) ListDevices() []discovery.Device {
 	return m.discovery.Registry().List()
 }
 
-// StartSession initiates a session targeting the given device ID.
-func (m *SessionManager) StartSession(ctx context.Context, deviceID string) (*Session, error) {
+// StartSession initiates a session targeting the given device ID, requesting
+// the given media tuple (zero fields fall back to the manager's defaults).
+func (m *SessionManager) StartSession(ctx context.Context, deviceID string, requested MediaParams) (*Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -128,19 +136,29 @@ func (m *SessionManager) StartSession(ctx context.Context, deviceID string) (*Se
 	cfg.TargetDeviceID = deviceID
 	cfg.Identity = m.identity
 	cfg.TrustStore = m.trustStore
+	cfg.Requested = requested
 
 	reg := m.discovery.Registry()
-	sess := NewSession(sessionID, cfg, reg, func(oldState, newState SessionState, reason string) {
+	// Declared first because the state callback reads the session's negotiated
+	// parameters; the callback only ever runs after StartSession returns.
+	var sess *Session
+	sess = NewSession(sessionID, cfg, reg, func(oldState, newState SessionState, reason string, code SessionReason) {
 		if m.onEvent != nil {
 			errMsg := ""
 			if newState == StateFailed {
 				errMsg = reason
 			}
+			requested := sess.RequestedParams()
+			actual, actualKnown := sess.NegotiatedParams()
 			m.onEvent(SessionEvent{
 				SessionID:    sessionID,
 				State:        newState,
 				Reason:       reason,
+				ReasonCode:   code,
 				ErrorMessage: errMsg,
+				Requested:    requested,
+				Actual:       actual,
+				ActualKnown:  actualKnown,
 			})
 		}
 	})
