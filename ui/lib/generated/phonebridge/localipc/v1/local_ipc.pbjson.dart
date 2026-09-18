@@ -40,6 +40,38 @@ final $typed_data.Uint8List sessionStateDescriptor = $convert.base64Decode(
     'VElORxAGEhkKFVNFU1NJT05fU1RBVEVfU1RPUFBFRBAHEhgKFFNFU1NJT05fU1RBVEVfRkFJTE'
     'VEEAg=');
 
+@$core.Deprecated('Use sessionReasonDescriptor instead')
+const SessionReason$json = {
+  '1': 'SessionReason',
+  '2': [
+    {'1': 'SESSION_REASON_UNSPECIFIED', '2': 0},
+    {'1': 'SESSION_REASON_NONE', '2': 1},
+    {'1': 'SESSION_REASON_PROTOCOL_VERSION_MISMATCH', '2': 2},
+    {'1': 'SESSION_REASON_UNSUPPORTED_MEDIA_PARAMS', '2': 3},
+    {'1': 'SESSION_REASON_DEVICE_NOT_TRUSTED', '2': 4},
+    {'1': 'SESSION_REASON_DEVICE_NOT_FOUND', '2': 5},
+    {'1': 'SESSION_REASON_SESSION_BUSY', '2': 6},
+    {'1': 'SESSION_REASON_CONSENT_REVOKED', '2': 7},
+    {'1': 'SESSION_REASON_CAPTURE_FAILED', '2': 8},
+    {'1': 'SESSION_REASON_TRANSPORT_FAILED', '2': 9},
+    {'1': 'SESSION_REASON_RECONNECT_TIMEOUT', '2': 10},
+    {'1': 'SESSION_REASON_SIGNALING_FAILED', '2': 11},
+    {'1': 'SESSION_REASON_USER_STOPPED', '2': 12},
+  ],
+};
+
+/// Descriptor for `SessionReason`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List sessionReasonDescriptor = $convert.base64Decode(
+    'Cg1TZXNzaW9uUmVhc29uEh4KGlNFU1NJT05fUkVBU09OX1VOU1BFQ0lGSUVEEAASFwoTU0VTU0'
+    'lPTl9SRUFTT05fTk9ORRABEiwKKFNFU1NJT05fUkVBU09OX1BST1RPQ09MX1ZFUlNJT05fTUlT'
+    'TUFUQ0gQAhIrCidTRVNTSU9OX1JFQVNPTl9VTlNVUFBPUlRFRF9NRURJQV9QQVJBTVMQAxIlCi'
+    'FTRVNTSU9OX1JFQVNPTl9ERVZJQ0VfTk9UX1RSVVNURUQQBBIjCh9TRVNTSU9OX1JFQVNPTl9E'
+    'RVZJQ0VfTk9UX0ZPVU5EEAUSHwobU0VTU0lPTl9SRUFTT05fU0VTU0lPTl9CVVNZEAYSIgoeU0'
+    'VTU0lPTl9SRUFTT05fQ09OU0VOVF9SRVZPS0VEEAcSIQodU0VTU0lPTl9SRUFTT05fQ0FQVFVS'
+    'RV9GQUlMRUQQCBIjCh9TRVNTSU9OX1JFQVNPTl9UUkFOU1BPUlRfRkFJTEVEEAkSJAogU0VTU0'
+    'lPTl9SRUFTT05fUkVDT05ORUNUX1RJTUVPVVQQChIjCh9TRVNTSU9OX1JFQVNPTl9TSUdOQUxJ'
+    'TkdfRkFJTEVEEAsSHwobU0VTU0lPTl9SRUFTT05fVVNFUl9TVE9QUEVEEAw=');
+
 @$core.Deprecated('Use handshakeRequestDescriptor instead')
 const HandshakeRequest$json = {
   '1': 'HandshakeRequest',
@@ -239,6 +271,14 @@ const SessionEvent$json = {
     },
     {'1': 'reason', '3': 3, '4': 1, '5': 9, '10': 'reason'},
     {'1': 'error_message', '3': 4, '4': 1, '5': 9, '10': 'errorMessage'},
+    {
+      '1': 'reason_code',
+      '3': 5,
+      '4': 1,
+      '5': 14,
+      '6': '.phonebridge.localipc.v1.SessionReason',
+      '10': 'reasonCode'
+    },
   ],
 };
 
@@ -247,20 +287,29 @@ final $typed_data.Uint8List sessionEventDescriptor = $convert.base64Decode(
     'CgxTZXNzaW9uRXZlbnQSHQoKc2Vzc2lvbl9pZBgBIAEoCVIJc2Vzc2lvbklkEjsKBXN0YXRlGA'
     'IgASgOMiUucGhvbmVicmlkZ2UubG9jYWxpcGMudjEuU2Vzc2lvblN0YXRlUgVzdGF0ZRIWCgZy'
     'ZWFzb24YAyABKAlSBnJlYXNvbhIjCg1lcnJvcl9tZXNzYWdlGAQgASgJUgxlcnJvck1lc3NhZ2'
-    'U=');
+    'USRwoLcmVhc29uX2NvZGUYBSABKA4yJi5waG9uZWJyaWRnZS5sb2NhbGlwYy52MS5TZXNzaW9u'
+    'UmVhc29uUgpyZWFzb25Db2Rl');
 
 @$core.Deprecated('Use startSessionRequestDescriptor instead')
 const StartSessionRequest$json = {
   '1': 'StartSessionRequest',
   '2': [
     {'1': 'device_id', '3': 1, '4': 1, '5': 9, '10': 'deviceId'},
+    {
+      '1': 'requested',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.MediaParams',
+      '10': 'requested'
+    },
   ],
 };
 
 /// Descriptor for `StartSessionRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List startSessionRequestDescriptor =
-    $convert.base64Decode(
-        'ChNTdGFydFNlc3Npb25SZXF1ZXN0EhsKCWRldmljZV9pZBgBIAEoCVIIZGV2aWNlSWQ=');
+final $typed_data.Uint8List startSessionRequestDescriptor = $convert.base64Decode(
+    'ChNTdGFydFNlc3Npb25SZXF1ZXN0EhsKCWRldmljZV9pZBgBIAEoCVIIZGV2aWNlSWQSOQoJcm'
+    'VxdWVzdGVkGAIgASgLMhsucGhvbmVicmlkZ2UudjEuTWVkaWFQYXJhbXNSCXJlcXVlc3RlZA==');
 
 @$core.Deprecated('Use startSessionResponseDescriptor instead')
 const StartSessionResponse$json = {
@@ -384,6 +433,37 @@ const GetSessionStateResponse$json = {
       '6': '.phonebridge.localipc.v1.StreamStats',
       '10': 'stats'
     },
+    {
+      '1': 'requested',
+      '3': 7,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.MediaParams',
+      '10': 'requested'
+    },
+    {
+      '1': 'actual',
+      '3': 8,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.MediaParams',
+      '10': 'actual'
+    },
+    {
+      '1': 'reason_code',
+      '3': 9,
+      '4': 1,
+      '5': 14,
+      '6': '.phonebridge.localipc.v1.SessionReason',
+      '10': 'reasonCode'
+    },
+    {
+      '1': 'reconnect_attempts',
+      '3': 10,
+      '4': 1,
+      '5': 13,
+      '10': 'reconnectAttempts'
+    },
   ],
 };
 
@@ -394,7 +474,11 @@ final $typed_data.Uint8List getSessionStateResponseDescriptor = $convert.base64D
     'BXN0YXRlEhsKCWRldmljZV9pZBgDIAEoCVIIZGV2aWNlSWQSMgoVY29ubmVjdGVkX2R1cmF0aW'
     '9uX21zGAQgASgEUhNjb25uZWN0ZWREdXJhdGlvbk1zEiMKDWVycm9yX21lc3NhZ2UYBSABKAlS'
     'DGVycm9yTWVzc2FnZRI6CgVzdGF0cxgGIAEoCzIkLnBob25lYnJpZGdlLmxvY2FsaXBjLnYxLl'
-    'N0cmVhbVN0YXRzUgVzdGF0cw==');
+    'N0cmVhbVN0YXRzUgVzdGF0cxI5CglyZXF1ZXN0ZWQYByABKAsyGy5waG9uZWJyaWRnZS52MS5N'
+    'ZWRpYVBhcmFtc1IJcmVxdWVzdGVkEjMKBmFjdHVhbBgIIAEoCzIbLnBob25lYnJpZGdlLnYxLk'
+    '1lZGlhUGFyYW1zUgZhY3R1YWwSRwoLcmVhc29uX2NvZGUYCSABKA4yJi5waG9uZWJyaWRnZS5s'
+    'b2NhbGlwYy52MS5TZXNzaW9uUmVhc29uUgpyZWFzb25Db2RlEi0KEnJlY29ubmVjdF9hdHRlbX'
+    'B0cxgKIAEoDVIRcmVjb25uZWN0QXR0ZW1wdHM=');
 
 @$core.Deprecated('Use discoveredDeviceDescriptor instead')
 const DiscoveredDevice$json = {

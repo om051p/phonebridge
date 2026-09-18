@@ -55,5 +55,94 @@ class SessionState extends $pb.ProtobufEnum {
   const SessionState._(super.value, super.name);
 }
 
+/// SessionReason is a typed classification of a session state change. It exists
+/// so the UI never parses prose: `reason` and `error_message` stay human-readable
+/// diagnostics, while `reason_code` is the machine-stable contract. The values
+/// are intentionally local to this contract even where they mirror
+/// phonebridge.v1.Code — the local session state machine has failure modes of
+/// its own (discovery, trust, reconnect budget) that the device protocol does
+/// not express.
+class SessionReason extends $pb.ProtobufEnum {
+  static const SessionReason SESSION_REASON_UNSPECIFIED =
+      SessionReason._(0, _omitEnumNames ? '' : 'SESSION_REASON_UNSPECIFIED');
+
+  /// Explicitly "no failure": a normal transition (connecting, streaming,
+  /// user stop). Distinguished from UNSPECIFIED, which means the server did
+  /// not classify the transition at all.
+  static const SessionReason SESSION_REASON_NONE =
+      SessionReason._(1, _omitEnumNames ? '' : 'SESSION_REASON_NONE');
+
+  /// The two devices have no protocol version in common (DEC-022 handshake).
+  static const SessionReason SESSION_REASON_PROTOCOL_VERSION_MISMATCH =
+      SessionReason._(
+          2, _omitEnumNames ? '' : 'SESSION_REASON_PROTOCOL_VERSION_MISMATCH');
+
+  /// The capture device could not satisfy the requested media parameters.
+  static const SessionReason SESSION_REASON_UNSUPPORTED_MEDIA_PARAMS =
+      SessionReason._(
+          3, _omitEnumNames ? '' : 'SESSION_REASON_UNSUPPORTED_MEDIA_PARAMS');
+
+  /// The peer is not in the trust store; pairing is required.
+  static const SessionReason SESSION_REASON_DEVICE_NOT_TRUSTED =
+      SessionReason._(
+          4, _omitEnumNames ? '' : 'SESSION_REASON_DEVICE_NOT_TRUSTED');
+
+  /// The target device was not found within the discovery timeout.
+  static const SessionReason SESSION_REASON_DEVICE_NOT_FOUND = SessionReason._(
+      5, _omitEnumNames ? '' : 'SESSION_REASON_DEVICE_NOT_FOUND');
+
+  /// The peer already has an active session.
+  static const SessionReason SESSION_REASON_SESSION_BUSY =
+      SessionReason._(6, _omitEnumNames ? '' : 'SESSION_REASON_SESSION_BUSY');
+
+  /// The user withdrew MediaProjection consent; the link is healthy but there
+  /// is no longer a screen to send (DEC-020).
+  static const SessionReason SESSION_REASON_CONSENT_REVOKED = SessionReason._(
+      7, _omitEnumNames ? '' : 'SESSION_REASON_CONSENT_REVOKED');
+
+  /// Capture or encode failed on the sending device.
+  static const SessionReason SESSION_REASON_CAPTURE_FAILED =
+      SessionReason._(8, _omitEnumNames ? '' : 'SESSION_REASON_CAPTURE_FAILED');
+
+  /// ICE/DTLS failed outside the reconnect budget.
+  static const SessionReason SESSION_REASON_TRANSPORT_FAILED = SessionReason._(
+      9, _omitEnumNames ? '' : 'SESSION_REASON_TRANSPORT_FAILED');
+
+  /// The bounded reconnect window elapsed without recovery.
+  static const SessionReason SESSION_REASON_RECONNECT_TIMEOUT = SessionReason._(
+      10, _omitEnumNames ? '' : 'SESSION_REASON_RECONNECT_TIMEOUT');
+
+  /// The LAN signaling exchange failed (HTTP/offer/answer).
+  static const SessionReason SESSION_REASON_SIGNALING_FAILED = SessionReason._(
+      11, _omitEnumNames ? '' : 'SESSION_REASON_SIGNALING_FAILED');
+
+  /// The local user stopped the session.
+  static const SessionReason SESSION_REASON_USER_STOPPED =
+      SessionReason._(12, _omitEnumNames ? '' : 'SESSION_REASON_USER_STOPPED');
+
+  static const $core.List<SessionReason> values = <SessionReason>[
+    SESSION_REASON_UNSPECIFIED,
+    SESSION_REASON_NONE,
+    SESSION_REASON_PROTOCOL_VERSION_MISMATCH,
+    SESSION_REASON_UNSUPPORTED_MEDIA_PARAMS,
+    SESSION_REASON_DEVICE_NOT_TRUSTED,
+    SESSION_REASON_DEVICE_NOT_FOUND,
+    SESSION_REASON_SESSION_BUSY,
+    SESSION_REASON_CONSENT_REVOKED,
+    SESSION_REASON_CAPTURE_FAILED,
+    SESSION_REASON_TRANSPORT_FAILED,
+    SESSION_REASON_RECONNECT_TIMEOUT,
+    SESSION_REASON_SIGNALING_FAILED,
+    SESSION_REASON_USER_STOPPED,
+  ];
+
+  static final $core.List<SessionReason?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 12);
+  static SessionReason? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const SessionReason._(super.value, super.name);
+}
+
 const $core.bool _omitEnumNames =
     $core.bool.fromEnvironment('protobuf.omit_enum_names');

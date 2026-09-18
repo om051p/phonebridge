@@ -1,6 +1,8 @@
 // PhoneBridge Local IPC — v1
 // Package: phonebridge.localipc.v1
 // Status: CONFIRMED (Phase 0) — contract ratified from Spike 01 (DEC-018).
+//         Session lifecycle extended in Phase 2 (DEC-022): requested/actual
+//         media parameters and typed session reason codes.
 // Source of truth for wire compatibility: this file + buf breaking checks.
 //
 // Scope and isolation rules (see docs/protocol.md):
@@ -226,18 +228,63 @@ enum SessionState {
   SESSION_STATE_FAILED = 8;
 }
 
+// SessionReason is a typed classification of a session state change. It exists
+// so the UI never parses prose: `reason` and `error_message` stay human-readable
+// diagnostics, while `reason_code` is the machine-stable contract. The values
+// are intentionally local to this contract even where they mirror
+// phonebridge.v1.Code — the local session state machine has failure modes of
+// its own (discovery, trust, reconnect budget) that the device protocol does
+// not express.
+enum SessionReason {
+  SESSION_REASON_UNSPECIFIED = 0;
+  // Explicitly "no failure": a normal transition (connecting, streaming,
+  // user stop). Distinguished from UNSPECIFIED, which means the server did
+  // not classify the transition at all.
+  SESSION_REASON_NONE = 1;
+  // The two devices have no protocol version in common (DEC-022 handshake).
+  SESSION_REASON_PROTOCOL_VERSION_MISMATCH = 2;
+  // The capture device could not satisfy the requested media parameters.
+  SESSION_REASON_UNSUPPORTED_MEDIA_PARAMS = 3;
+  // The peer is not in the trust store; pairing is required.
+  SESSION_REASON_DEVICE_NOT_TRUSTED = 4;
+  // The target device was not found within the discovery timeout.
+  SESSION_REASON_DEVICE_NOT_FOUND = 5;
+  // The peer already has an active session.
+  SESSION_REASON_SESSION_BUSY = 6;
+  // The user withdrew MediaProjection consent; the link is healthy but there
+  // is no longer a screen to send (DEC-020).
+  SESSION_REASON_CONSENT_REVOKED = 7;
+  // Capture or encode failed on the sending device.
+  SESSION_REASON_CAPTURE_FAILED = 8;
+  // ICE/DTLS failed outside the reconnect budget.
+  SESSION_REASON_TRANSPORT_FAILED = 9;
+  // The bounded reconnect window elapsed without recovery.
+  SESSION_REASON_RECONNECT_TIMEOUT = 10;
+  // The LAN signaling exchange failed (HTTP/offer/answer).
+  SESSION_REASON_SIGNALING_FAILED = 11;
+  // The local user stopped the session.
+  SESSION_REASON_USER_STOPPED = 12;
+}
+
 // SessionEvent represents a state transition pushed to StreamEvents subscribers.
 message SessionEvent {
   string session_id = 1;
   SessionState state = 2;
   string reason = 3;
   string error_message = 4;
+  // Typed classification of this transition (see SessionReason).
+  SessionReason reason_code = 5;
 }
 
 // StartSessionRequest initiates a session with the specified target device.
 message StartSessionRequest {
   // Unique target device ID (from mDNS discovery).
   string device_id = 1;
+  // Screen-stream parameters the caller wants. Unset (or all-zero) fields
+  // mean "use the daemon default". The capture device answers with the values
+  // it actually applied; a request it cannot meet exactly is either reported
+  // as a downgrade or rejected with SESSION_REASON_UNSUPPORTED_MEDIA_PARAMS.
+  phonebridge.v1.MediaParams requested = 2;
 }
 
 // StartSessionResponse returns the newly initiated session identity and state.
@@ -281,6 +328,18 @@ message GetSessionStateResponse {
   uint64 connected_duration_ms = 4;
   string error_message = 5;
   StreamStats stats = 6;
+  // What the caller asked for when the session was started.
+  phonebridge.v1.MediaParams requested = 7;
+  // What the capture device actually applied (authoritative, DEC-020). An
+  // `actual` that differs from `requested` is a reported downgrade, never a
+  // silent substitution. Both are unset until negotiation completes.
+  phonebridge.v1.MediaParams actual = 8;
+  // Typed classification of the current state (see SessionReason).
+  SessionReason reason_code = 9;
+  // Reconnect attempts made in the current recovery window (0 when healthy).
+  // Exposed so recovery is observable from the UI and from tests rather than
+  // inferred from a state label.
+  uint32 reconnect_attempts = 10;
 }
 
 // DiscoveredDevice models a LAN device discovered via mDNS.

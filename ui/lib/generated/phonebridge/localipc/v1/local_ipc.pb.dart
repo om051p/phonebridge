@@ -735,12 +735,14 @@ class SessionEvent extends $pb.GeneratedMessage {
     SessionState? state,
     $core.String? reason,
     $core.String? errorMessage,
+    SessionReason? reasonCode,
   }) {
     final result = SessionEvent._();
     if (sessionId != null) result.sessionId = sessionId;
     if (state != null) result.state = state;
     if (reason != null) result.reason = reason;
     if (errorMessage != null) result.errorMessage = errorMessage;
+    if (reasonCode != null) result.reasonCode = reasonCode;
     return result;
   }
 
@@ -763,6 +765,8 @@ class SessionEvent extends $pb.GeneratedMessage {
         enumValues: SessionState.values)
     ..aOS(3, _omitFieldNames ? '' : 'reason')
     ..aOS(4, _omitFieldNames ? '' : 'errorMessage')
+    ..aE<SessionReason>(5, _omitFieldNames ? '' : 'reasonCode',
+        enumValues: SessionReason.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -822,15 +826,27 @@ class SessionEvent extends $pb.GeneratedMessage {
   $core.bool hasErrorMessage() => $_has(3);
   @$pb.TagNumber(4)
   void clearErrorMessage() => $_clearField(4);
+
+  /// Typed classification of this transition (see SessionReason).
+  @$pb.TagNumber(5)
+  SessionReason get reasonCode => $_getN(4);
+  @$pb.TagNumber(5)
+  set reasonCode(SessionReason value) => $_setField(5, value);
+  @$pb.TagNumber(5)
+  $core.bool hasReasonCode() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearReasonCode() => $_clearField(5);
 }
 
 /// StartSessionRequest initiates a session with the specified target device.
 class StartSessionRequest extends $pb.GeneratedMessage {
   factory StartSessionRequest({
     $core.String? deviceId,
+    $1.MediaParams? requested,
   }) {
     final result = StartSessionRequest._();
     if (deviceId != null) result.deviceId = deviceId;
+    if (requested != null) result.requested = requested;
     return result;
   }
 
@@ -849,6 +865,8 @@ class StartSessionRequest extends $pb.GeneratedMessage {
           _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
       createEmptyInstance: StartSessionRequest.$_createMessage)
     ..aOS(1, _omitFieldNames ? '' : 'deviceId')
+    ..aOM<$1.MediaParams>(2, _omitFieldNames ? '' : 'requested',
+        subBuilder: $1.MediaParams.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -883,6 +901,21 @@ class StartSessionRequest extends $pb.GeneratedMessage {
   $core.bool hasDeviceId() => $_has(0);
   @$pb.TagNumber(1)
   void clearDeviceId() => $_clearField(1);
+
+  /// Screen-stream parameters the caller wants. Unset (or all-zero) fields
+  /// mean "use the daemon default". The capture device answers with the values
+  /// it actually applied; a request it cannot meet exactly is either reported
+  /// as a downgrade or rejected with SESSION_REASON_UNSUPPORTED_MEDIA_PARAMS.
+  @$pb.TagNumber(2)
+  $1.MediaParams get requested => $_getN(1);
+  @$pb.TagNumber(2)
+  set requested($1.MediaParams value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasRequested() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearRequested() => $_clearField(2);
+  @$pb.TagNumber(2)
+  $1.MediaParams ensureRequested() => $_ensure(1);
 }
 
 /// StartSessionResponse returns the newly initiated session identity and state.
@@ -1300,6 +1333,10 @@ class GetSessionStateResponse extends $pb.GeneratedMessage {
     $fixnum.Int64? connectedDurationMs,
     $core.String? errorMessage,
     StreamStats? stats,
+    $1.MediaParams? requested,
+    $1.MediaParams? actual,
+    SessionReason? reasonCode,
+    $core.int? reconnectAttempts,
   }) {
     final result = GetSessionStateResponse._();
     if (sessionId != null) result.sessionId = sessionId;
@@ -1309,6 +1346,10 @@ class GetSessionStateResponse extends $pb.GeneratedMessage {
       result.connectedDurationMs = connectedDurationMs;
     if (errorMessage != null) result.errorMessage = errorMessage;
     if (stats != null) result.stats = stats;
+    if (requested != null) result.requested = requested;
+    if (actual != null) result.actual = actual;
+    if (reasonCode != null) result.reasonCode = reasonCode;
+    if (reconnectAttempts != null) result.reconnectAttempts = reconnectAttempts;
     return result;
   }
 
@@ -1336,6 +1377,14 @@ class GetSessionStateResponse extends $pb.GeneratedMessage {
     ..aOS(5, _omitFieldNames ? '' : 'errorMessage')
     ..aOM<StreamStats>(6, _omitFieldNames ? '' : 'stats',
         subBuilder: StreamStats.$_createMessage)
+    ..aOM<$1.MediaParams>(7, _omitFieldNames ? '' : 'requested',
+        subBuilder: $1.MediaParams.$_createMessage)
+    ..aOM<$1.MediaParams>(8, _omitFieldNames ? '' : 'actual',
+        subBuilder: $1.MediaParams.$_createMessage)
+    ..aE<SessionReason>(9, _omitFieldNames ? '' : 'reasonCode',
+        enumValues: SessionReason.values)
+    ..aI(10, _omitFieldNames ? '' : 'reconnectAttempts',
+        fieldType: $pb.PbFieldType.OU3)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1417,6 +1466,54 @@ class GetSessionStateResponse extends $pb.GeneratedMessage {
   void clearStats() => $_clearField(6);
   @$pb.TagNumber(6)
   StreamStats ensureStats() => $_ensure(5);
+
+  /// What the caller asked for when the session was started.
+  @$pb.TagNumber(7)
+  $1.MediaParams get requested => $_getN(6);
+  @$pb.TagNumber(7)
+  set requested($1.MediaParams value) => $_setField(7, value);
+  @$pb.TagNumber(7)
+  $core.bool hasRequested() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearRequested() => $_clearField(7);
+  @$pb.TagNumber(7)
+  $1.MediaParams ensureRequested() => $_ensure(6);
+
+  /// What the capture device actually applied (authoritative, DEC-020). An
+  /// `actual` that differs from `requested` is a reported downgrade, never a
+  /// silent substitution. Both are unset until negotiation completes.
+  @$pb.TagNumber(8)
+  $1.MediaParams get actual => $_getN(7);
+  @$pb.TagNumber(8)
+  set actual($1.MediaParams value) => $_setField(8, value);
+  @$pb.TagNumber(8)
+  $core.bool hasActual() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearActual() => $_clearField(8);
+  @$pb.TagNumber(8)
+  $1.MediaParams ensureActual() => $_ensure(7);
+
+  /// Typed classification of the current state (see SessionReason).
+  @$pb.TagNumber(9)
+  SessionReason get reasonCode => $_getN(8);
+  @$pb.TagNumber(9)
+  set reasonCode(SessionReason value) => $_setField(9, value);
+  @$pb.TagNumber(9)
+  $core.bool hasReasonCode() => $_has(8);
+  @$pb.TagNumber(9)
+  void clearReasonCode() => $_clearField(9);
+
+  /// Reconnect attempts made in the current recovery window (0 when healthy).
+  /// Exposed so recovery is observable from the UI and from tests rather than
+  /// inferred from a state label.
+  @$pb.TagNumber(10)
+  $core.int get reconnectAttempts => $_getIZ(9);
+  @$pb.TagNumber(10)
+  set reconnectAttempts($core.int value) => $_setUnsignedInt32(9, value);
+  @$pb.TagNumber(10)
+  $core.bool hasReconnectAttempts() => $_has(9);
+  @$pb.TagNumber(10)
+  void clearReconnectAttempts() => $_clearField(10);
 }
 
 /// DiscoveredDevice models a LAN device discovered via mDNS.

@@ -103,6 +103,38 @@ Ratified transport: Kotlin AUs → bounded queue (key-protected drop policy) →
 
 Limitations: single device (SM7475/Android 15), absolute one-way latency unmeasured (RTP timestamps are sender-monotonic; no clock anchoring), signaling was spike-local HTTP.
 
+## LAN session contract (DEC-022, Phase 2)
+
+The phone's LAN HTTP signaling endpoint is the first ratified production signaling
+interface, and it carries parameter negotiation rather than only SDP:
+
+```
+Linux daemon ── DeviceHello (version + capabilities + MediaCapabilities) ──▶ phone
+             ── POST /session/offer   { requested: MediaParams }        ──▶ phone
+             ◀─ offer + { accepted, reject_reason, actual: MediaParams } ──
+             ── POST /session/answer  { answer }                       ──▶ phone
+             ◀────────────── RTP (DEC-021 transport obligations) ──────────
+             ── POST /session/stop    { reason_code }                  ──▶ phone
+```
+
+- **Parameters are settled before the offer** because Android needs a
+  MediaProjection consent before capture exists (DEC-020); the phone therefore
+  stays the SDP offerer.
+- **The capture device is authoritative** for the parameters it applies. A
+  reply that differs from the request is a reported downgrade, never a silent
+  substitution; an unsatisfiable request fails typed instead.
+- **Reconnect is transport-only.** A dropped ICE/DTLS connection re-runs the
+  same offer/answer exchange under the same session id while reusing the live
+  MediaProjection/VirtualDisplay/encoder — DEC-020 records that re-binding a
+  new encoder to a live VirtualDisplay does not resume delivery and that a
+  resolution change needs a new consent, so capture is never restarted.
+  SPS/PPS re-injection (DEC-021) makes the next IDR decodable immediately.
+  Recovery is bounded (500 ms → 1 s → 2 s → 4 s, cap 5 s, 15 s window) and
+  exhaustion is classified as `RECONNECT_TIMEOUT`, distinct from a transport
+  failure. Consent withdrawal is reported as `CONSENT_REVOKED`, not a stall.
+- **Scope:** LAN-only. Remote/NAT traversal (Spike 10) and server-based
+  rendezvous (Phase 4) are out of scope; the `server/` component stays a stub.
+
 ## Repository layout
 
 ```
@@ -122,5 +154,6 @@ third-party/            dependency ledger
 - Flutter ↔ Go on Android embedding — `EXPERIMENTAL`
 - Wayland clipboard/input (COSMIC portal/EIS) — `EXPERIMENTAL`
 - WebRTC media perf / codec choice — transport validated (DEC-021, Spike 04); HEVC path and cross-device behaviour — `EXPERIMENTAL`
+- LAN session negotiation + bounded reconnect — contract ratified (DEC-022, Phase 2); remote/TURN and server-based rendezvous — `PLANNED` (Spike 10 / Phase 4)
 - Kotlin capture throttling + Go-side pacing — measured & ratified (DEC-020 amendment + DEC-021, Spike 04)
 - TURN infra/cost — `PLANNED`, no commitment in Phase 0 (remote NAT/TURN remains Spike 10)

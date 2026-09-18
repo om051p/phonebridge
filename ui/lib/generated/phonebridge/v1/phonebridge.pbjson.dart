@@ -51,6 +51,12 @@ const Code$json = {
     {'1': 'CODE_RESOURCE_EXHAUSTED', '2': 8},
     {'1': 'CODE_INTERNAL', '2': 9},
     {'1': 'CODE_UNAVAILABLE', '2': 10},
+    {'1': 'CODE_UNSUPPORTED_MEDIA_PARAMS', '2': 11},
+    {'1': 'CODE_CONSENT_REVOKED', '2': 12},
+    {'1': 'CODE_CAPTURE_FAILED', '2': 13},
+    {'1': 'CODE_TRANSPORT_FAILED', '2': 14},
+    {'1': 'CODE_RECONNECT_TIMEOUT', '2': 15},
+    {'1': 'CODE_SESSION_BUSY', '2': 16},
   ],
 };
 
@@ -60,7 +66,10 @@ final $typed_data.Uint8List codeDescriptor = $convert.base64Decode(
     'lEX0FSR1VNRU5UEAISGAoUQ09ERV9VTkFVVEhFTlRJQ0FURUQQAxIaChZDT0RFX1BFUk1JU1NJ'
     'T05fREVOSUVEEAQSEgoOQ09ERV9OT1RfRk9VTkQQBRIXChNDT0RFX0FMUkVBRFlfRVhJU1RTEA'
     'YSHQoZQ09ERV9JTkNPTVBBVElCTEVfVkVSU0lPThAHEhsKF0NPREVfUkVTT1VSQ0VfRVhIQVVT'
-    'VEVEEAgSEQoNQ09ERV9JTlRFUk5BTBAJEhQKEENPREVfVU5BVkFJTEFCTEUQCg==');
+    'VEVEEAgSEQoNQ09ERV9JTlRFUk5BTBAJEhQKEENPREVfVU5BVkFJTEFCTEUQChIhCh1DT0RFX1'
+    'VOU1VQUE9SVEVEX01FRElBX1BBUkFNUxALEhgKFENPREVfQ09OU0VOVF9SRVZPS0VEEAwSFwoT'
+    'Q09ERV9DQVBUVVJFX0ZBSUxFRBANEhkKFUNPREVfVFJBTlNQT1JUX0ZBSUxFRBAOEhoKFkNPRE'
+    'VfUkVDT05ORUNUX1RJTUVPVVQQDxIVChFDT0RFX1NFU1NJT05fQlVTWRAQ');
 
 @$core.Deprecated('Use envelopeDescriptor instead')
 const Envelope$json = {
@@ -357,6 +366,43 @@ final $typed_data.Uint8List versionNegotiationDescriptor = $convert.base64Decode
     'ChJWZXJzaW9uTmVnb3RpYXRpb24SHwoLbWluX3ZlcnNpb24YASABKA1SCm1pblZlcnNpb24SHw'
     'oLbWF4X3ZlcnNpb24YAiABKA1SCm1heFZlcnNpb24=');
 
+@$core.Deprecated('Use mediaParamsDescriptor instead')
+const MediaParams$json = {
+  '1': 'MediaParams',
+  '2': [
+    {'1': 'width', '3': 1, '4': 1, '5': 13, '10': 'width'},
+    {'1': 'height', '3': 2, '4': 1, '5': 13, '10': 'height'},
+    {'1': 'fps', '3': 3, '4': 1, '5': 13, '10': 'fps'},
+    {'1': 'bitrate_kbps', '3': 4, '4': 1, '5': 13, '10': 'bitrateKbps'},
+    {'1': 'codec', '3': 5, '4': 1, '5': 9, '10': 'codec'},
+  ],
+};
+
+/// Descriptor for `MediaParams`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List mediaParamsDescriptor = $convert.base64Decode(
+    'CgtNZWRpYVBhcmFtcxIUCgV3aWR0aBgBIAEoDVIFd2lkdGgSFgoGaGVpZ2h0GAIgASgNUgZoZW'
+    'lnaHQSEAoDZnBzGAMgASgNUgNmcHMSIQoMYml0cmF0ZV9rYnBzGAQgASgNUgtiaXRyYXRlS2Jw'
+    'cxIUCgVjb2RlYxgFIAEoCVIFY29kZWM=');
+
+@$core.Deprecated('Use mediaCapabilitiesDescriptor instead')
+const MediaCapabilities$json = {
+  '1': 'MediaCapabilities',
+  '2': [
+    {'1': 'codecs', '3': 1, '4': 3, '5': 9, '10': 'codecs'},
+    {'1': 'max_width', '3': 2, '4': 1, '5': 13, '10': 'maxWidth'},
+    {'1': 'max_height', '3': 3, '4': 1, '5': 13, '10': 'maxHeight'},
+    {'1': 'max_fps', '3': 4, '4': 1, '5': 13, '10': 'maxFps'},
+    {'1': 'supports_screen', '3': 5, '4': 1, '5': 8, '10': 'supportsScreen'},
+  ],
+};
+
+/// Descriptor for `MediaCapabilities`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List mediaCapabilitiesDescriptor = $convert.base64Decode(
+    'ChFNZWRpYUNhcGFiaWxpdGllcxIWCgZjb2RlY3MYASADKAlSBmNvZGVjcxIbCgltYXhfd2lkdG'
+    'gYAiABKA1SCG1heFdpZHRoEh0KCm1heF9oZWlnaHQYAyABKA1SCW1heEhlaWdodBIXCgdtYXhf'
+    'ZnBzGAQgASgNUgZtYXhGcHMSJwoPc3VwcG9ydHNfc2NyZWVuGAUgASgIUg5zdXBwb3J0c1Njcm'
+    'Vlbg==');
+
 @$core.Deprecated('Use deviceHelloDescriptor instead')
 const DeviceHello$json = {
   '1': 'DeviceHello',
@@ -380,6 +426,14 @@ const DeviceHello$json = {
       '6': '.phonebridge.v1.CapabilitySet',
       '10': 'capabilities'
     },
+    {
+      '1': 'media',
+      '3': 6,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.MediaCapabilities',
+      '10': 'media'
+    },
   ],
 };
 
@@ -389,7 +443,8 @@ final $typed_data.Uint8List deviceHelloDescriptor = $convert.base64Decode(
     'Rmb3JtGAIgASgJUghwbGF0Zm9ybRInCg9pZGVudGl0eV9wdWJrZXkYAyABKAxSDmlkZW50aXR5'
     'UHVia2V5ElMKE3ZlcnNpb25fbmVnb3RpYXRpb24YBCABKAsyIi5waG9uZWJyaWRnZS52MS5WZX'
     'JzaW9uTmVnb3RpYXRpb25SEnZlcnNpb25OZWdvdGlhdGlvbhJBCgxjYXBhYmlsaXRpZXMYBSAB'
-    'KAsyHS5waG9uZWJyaWRnZS52MS5DYXBhYmlsaXR5U2V0UgxjYXBhYmlsaXRpZXM=');
+    'KAsyHS5waG9uZWJyaWRnZS52MS5DYXBhYmlsaXR5U2V0UgxjYXBhYmlsaXRpZXMSNwoFbWVkaW'
+    'EYBiABKAsyIS5waG9uZWJyaWRnZS52MS5NZWRpYUNhcGFiaWxpdGllc1IFbWVkaWE=');
 
 @$core.Deprecated('Use pairRequestDescriptor instead')
 const PairRequest$json = {
@@ -519,6 +574,38 @@ final $typed_data.Uint8List errorDescriptor = $convert.base64Decode(
     'cnJvci5EZXRhaWxzRW50cnlSB2RldGFpbHMaOgoMRGV0YWlsc0VudHJ5EhAKA2tleRgBIAEoCV'
     'IDa2V5EhQKBXZhbHVlGAIgASgJUgV2YWx1ZToCOAE=');
 
+@$core.Deprecated('Use screenStartDescriptor instead')
+const ScreenStart$json = {
+  '1': 'ScreenStart',
+  '2': [
+    {
+      '1': 'requested',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.MediaParams',
+      '10': 'requested'
+    },
+    {'1': 'accepted', '3': 2, '4': 1, '5': 8, '10': 'accepted'},
+    {'1': 'reject_reason', '3': 3, '4': 1, '5': 9, '10': 'rejectReason'},
+    {
+      '1': 'actual',
+      '3': 4,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.MediaParams',
+      '10': 'actual'
+    },
+  ],
+};
+
+/// Descriptor for `ScreenStart`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List screenStartDescriptor = $convert.base64Decode(
+    'CgtTY3JlZW5TdGFydBI5CglyZXF1ZXN0ZWQYASABKAsyGy5waG9uZWJyaWRnZS52MS5NZWRpYV'
+    'BhcmFtc1IJcmVxdWVzdGVkEhoKCGFjY2VwdGVkGAIgASgIUghhY2NlcHRlZBIjCg1yZWplY3Rf'
+    'cmVhc29uGAMgASgJUgxyZWplY3RSZWFzb24SMwoGYWN0dWFsGAQgASgLMhsucGhvbmVicmlkZ2'
+    'UudjEuTWVkaWFQYXJhbXNSBmFjdHVhbA==');
+
 @$core.Deprecated('Use clipboardUpdateDescriptor instead')
 const ClipboardUpdate$json = {
   '1': 'ClipboardUpdate',
@@ -600,23 +687,26 @@ const FileCancel$json = {
 final $typed_data.Uint8List fileCancelDescriptor =
     $convert.base64Decode('CgpGaWxlQ2FuY2Vs');
 
-@$core.Deprecated('Use screenStartDescriptor instead')
-const ScreenStart$json = {
-  '1': 'ScreenStart',
-};
-
-/// Descriptor for `ScreenStart`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List screenStartDescriptor =
-    $convert.base64Decode('CgtTY3JlZW5TdGFydA==');
-
 @$core.Deprecated('Use screenStopDescriptor instead')
 const ScreenStop$json = {
   '1': 'ScreenStop',
+  '2': [
+    {
+      '1': 'reason_code',
+      '3': 1,
+      '4': 1,
+      '5': 14,
+      '6': '.phonebridge.v1.Code',
+      '10': 'reasonCode'
+    },
+    {'1': 'reason', '3': 2, '4': 1, '5': 9, '10': 'reason'},
+  ],
 };
 
 /// Descriptor for `ScreenStop`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List screenStopDescriptor =
-    $convert.base64Decode('CgpTY3JlZW5TdG9w');
+final $typed_data.Uint8List screenStopDescriptor = $convert.base64Decode(
+    'CgpTY3JlZW5TdG9wEjUKC3JlYXNvbl9jb2RlGAEgASgOMhQucGhvbmVicmlkZ2UudjEuQ29kZV'
+    'IKcmVhc29uQ29kZRIWCgZyZWFzb24YAiABKAlSBnJlYXNvbg==');
 
 @$core.Deprecated('Use inputKeyboardDescriptor instead')
 const InputKeyboard$json = {

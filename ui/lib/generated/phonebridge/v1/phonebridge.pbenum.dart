@@ -77,6 +77,34 @@ class Code extends $pb.ProtobufEnum {
   static const Code CODE_UNAVAILABLE =
       Code._(10, _omitEnumNames ? '' : 'CODE_UNAVAILABLE');
 
+  /// Session negotiation failures (DEC-022). Appended, never renumbered:
+  /// existing values are wire contracts.
+  /// The requested MediaParams cannot be satisfied by the capture device.
+  static const Code CODE_UNSUPPORTED_MEDIA_PARAMS =
+      Code._(11, _omitEnumNames ? '' : 'CODE_UNSUPPORTED_MEDIA_PARAMS');
+
+  /// The user (or the platform) withdrew MediaProjection consent mid-session.
+  /// Distinct from a transport failure: the link is healthy and there is
+  /// simply no longer a screen to send.
+  static const Code CODE_CONSENT_REVOKED =
+      Code._(12, _omitEnumNames ? '' : 'CODE_CONSENT_REVOKED');
+
+  /// Capture or encode failed on the sending device.
+  static const Code CODE_CAPTURE_FAILED =
+      Code._(13, _omitEnumNames ? '' : 'CODE_CAPTURE_FAILED');
+
+  /// The transport (ICE/DTLS/signaling) failed.
+  static const Code CODE_TRANSPORT_FAILED =
+      Code._(14, _omitEnumNames ? '' : 'CODE_TRANSPORT_FAILED');
+
+  /// The bounded reconnect window elapsed without the session recovering.
+  static const Code CODE_RECONNECT_TIMEOUT =
+      Code._(15, _omitEnumNames ? '' : 'CODE_RECONNECT_TIMEOUT');
+
+  /// The device already has an active session.
+  static const Code CODE_SESSION_BUSY =
+      Code._(16, _omitEnumNames ? '' : 'CODE_SESSION_BUSY');
+
   static const $core.List<Code> values = <Code>[
     CODE_UNSPECIFIED,
     CODE_OK,
@@ -89,10 +117,16 @@ class Code extends $pb.ProtobufEnum {
     CODE_RESOURCE_EXHAUSTED,
     CODE_INTERNAL,
     CODE_UNAVAILABLE,
+    CODE_UNSUPPORTED_MEDIA_PARAMS,
+    CODE_CONSENT_REVOKED,
+    CODE_CAPTURE_FAILED,
+    CODE_TRANSPORT_FAILED,
+    CODE_RECONNECT_TIMEOUT,
+    CODE_SESSION_BUSY,
   ];
 
   static final $core.List<Code?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 10);
+      $pb.ProtobufEnum.$_initByValueList(values, 16);
   static Code? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

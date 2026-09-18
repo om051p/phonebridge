@@ -1,7 +1,9 @@
 # PhoneBridge Protocol
 
-> Packages: `phonebridge.v1` (device-to-device, `PLANNED` — Phase 0 envelope only) ·
-> `phonebridge.localipc.v1` (UI ↔ engine local IPC, `CONFIRMED` — DEC-018)
+> Packages: `phonebridge.v1` (device-to-device; `CONFIRMED` for the handshake and
+> screen-session negotiation — DEC-022; remaining feature payloads `PLANNED`) ·
+> `phonebridge.localipc.v1` (UI ↔ engine local IPC, `CONFIRMED` — DEC-018,
+> session lifecycle extended in Phase 2)
 > Schemas: `proto/phonebridge/v1/phonebridge.proto` ·
 > `proto/phonebridge/localipc/v1/local_ipc.proto`
 
@@ -26,13 +28,17 @@
 
 Unknown `payload` variants must be ignored gracefully (forward compat).
 
-## Capability & version negotiation (`PLANNED`)
+## Capability & version negotiation (`CONFIRMED` — Phase 2, DEC-022)
 
-- Handshake: `DeviceHello` advertises `min_version`/`max_version` + `CapabilitySet`.
+- Handshake: `DeviceHello` advertises `min_version`/`max_version`, `CapabilitySet`
+  and `MediaCapabilities` (codecs, max width/height/fps, `supports_screen`).
 - Intersection: receiver selects highest mutually supported `version` and capability subset.
-- Incompatible peer → `Error.Code.INCOMPATIBLE_VERSION`.
+- Incompatible peer → `Error.Code.INCOMPATIBLE_VERSION`, and **no partial session**
+  is created: the handshake completes before any media parameter is exchanged.
+- One active session per device pair; a second request fails typed (`SESSION_BUSY`).
 
-Feature capabilities (examples): `CLIPBOARD`, `FILES`, `NOTIFICATIONS`, `SCREEN`, `INPUT`, `DEVICE_STATUS`.
+Feature capabilities: `CLIPBOARD`, `FILES`, `NOTIFICATIONS`, `SCREEN`, `INPUT`, `DEVICE_STATUS`.
+Only `SCREEN` must be honoured in Phase 2; the rest are advertised ahead of their phases.
 
 ## Sequence / replay (`PLANNED`)
 
@@ -44,11 +50,36 @@ Feature capabilities (examples): `CLIPBOARD`, `FILES`, `NOTIFICATIONS`, `SCREEN`
 ```proto
 enum Code { OK, INVALID_ARGUMENT, UNAUTHENTICATED, PERMISSION_DENIED,
             NOT_FOUND, ALREADY_EXISTS, INCOMPATIBLE_VERSION, RESOURCE_EXHAUSTED,
-            INTERNAL, UNAVAILABLE }
+            INTERNAL, UNAVAILABLE,
+            UNSUPPORTED_MEDIA_PARAMS, CONSENT_REVOKED, CAPTURE_FAILED,
+            TRANSPORT_FAILED, RECONNECT_TIMEOUT, SESSION_BUSY }
 message Error { Code code = 1; string message = 2; map<string,string> details = 3; }
 ```
 
 Transport errors vs application errors are distinguished by `Code`; `details` is extensible.
+The Phase 2 additions (DEC-022) exist so callers never infer cause from prose:
+`CONSENT_REVOKED` and `CAPTURE_FAILED` are sender-side conditions on a healthy
+link, while `TRANSPORT_FAILED` and `RECONNECT_TIMEOUT` are link-side.
+
+## Screen session negotiation (`CONFIRMED` — Phase 2, DEC-022)
+
+One `MediaParams` tuple (`width`, `height`, `fps`, `bitrate_kbps`, `codec`) is
+shared by the device protocol (`ScreenStart`), the LAN signaling exchange and
+the local IPC session snapshot, so the same shape flows end to end.
+
+1. The initiator sends `ScreenStart.requested` **before** the offer is composed.
+   Android needs a MediaProjection consent before capture exists (DEC-020), so
+   parameters are settled up front and never mid-stream.
+2. The capture device always answers with `accepted` + `actual`. **It is
+   authoritative for `actual`** (DEC-020): a reply that differs from the request
+   is a *reported downgrade, never a silent substitution*.
+3. A request that cannot be met within the device's `MediaCapabilities` fails
+   typed (`CODE_UNSUPPORTED_MEDIA_PARAMS`) instead of substituting a stream.
+4. Resolution changes are never negotiated in-session: a new geometry needs a
+   new consent and a new session (DEC-020).
+
+Transport for this exchange is the ratified LAN signaling endpoint (DEC-022);
+`ScreenStop` carries the typed reason for teardown.
 
 ## Compatibility & extensibility
 
@@ -60,8 +91,15 @@ Transport errors vs application errors are distinguished by `Code`; `details` is
 
 ## Phase 0 scope vs later
 
-- Phase 0 locks envelope, `Capability`, `Error`, `VersionNegotiation`, `Ping`/`Pong`, and stubs for `DeviceHello`/`Pair*` — nothing more.
-- Feature payloads (clipboard, file chunk, notification, screen/input) are empty stubs marked `// PLANNED` and filled in their respective phases.
+- Phase 0 locked the envelope, `Capability`, `Error`, `VersionNegotiation`,
+  `Ping`/`Pong`, and stubs for `DeviceHello`/`Pair*`.
+- Phase 2 (DEC-022) promoted `DeviceHello` (now carrying `MediaCapabilities`),
+  `ScreenStart` and `ScreenStop` to real messages and added the typed session
+  failure codes. The handshake and screen negotiation are therefore implemented
+  contracts, not stubs.
+- Remaining feature payloads (clipboard, file chunk/offer, notification,
+  input, device status) are still empty stubs marked `// PLANNED` and are filled
+  in their respective phases; Spikes 05–10 gate those.
 
 ## Local IPC (`phonebridge.localipc.v1` — CONFIRMED, DEC-018)
 
@@ -77,6 +115,11 @@ was not modified for local IPC.
 - `StreamEventsResponse` relays one `phonebridge.v1.Envelope` **verbatim**
   (pass-through framing, DEC-018). The daemon is the only component that
   speaks both packages; `LocalEngineService` is never a device peer.
+- Session lifecycle (Phase 2, DEC-022): `StartSession` accepts the requested
+  `phonebridge.v1.MediaParams`, and `GetSessionState`/`SessionEvent` return the
+  **requested vs actual** parameters plus a typed `SessionReason`. Sharing the
+  parameter *type* across the two packages is deliberate (one definition of the
+  tuple); it does not make the local contract a transport for `phonebridge.v1`.
 - Isolation rules: the local contract MUST NOT be exposed on a network
   listener and MUST NOT gain device-peer semantics; new device payloads go in
   `phonebridge.v1` and are relayed through `StreamEventsResponse.envelope`.

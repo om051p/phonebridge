@@ -1,6 +1,8 @@
 // PhoneBridge Local IPC — v1
 // Package: phonebridge.localipc.v1
 // Status: CONFIRMED (Phase 0) — contract ratified from Spike 01 (DEC-018).
+//         Session lifecycle extended in Phase 2 (DEC-022): requested/actual
+//         media parameters and typed session reason codes.
 // Source of truth for wire compatibility: this file + buf breaking checks.
 //
 // Scope and isolation rules (see docs/protocol.md):

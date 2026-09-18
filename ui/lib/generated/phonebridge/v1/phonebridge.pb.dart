@@ -557,6 +557,7 @@ class Envelope extends $pb.GeneratedMessage {
   @$pb.TagNumber(28)
   FileCancel ensureFileCancel() => $_ensure(22);
 
+  /// Screen session negotiation — ratified by DEC-022 (Phase 2).
   @$pb.TagNumber(29)
   ScreenStart get screenStart => $_getN(23);
   @$pb.TagNumber(29)
@@ -748,9 +749,239 @@ class VersionNegotiation extends $pb.GeneratedMessage {
   void clearMaxVersion() => $_clearField(2);
 }
 
+/// MediaParams is the single definition of a screen-stream parameter tuple.
+/// It is used in three places so that one shape flows end to end:
+///   1. ScreenStart (device protocol) — canonical request/answer form;
+///   2. the LAN signaling exchange (DEC-022) — the same fields as JSON;
+///   3. the local IPC session snapshot, so the UI renders exactly what was
+///      requested and what the capture device actually applied.
+/// An unset field means "no preference / not reported" — proto3 has no explicit
+/// null, so callers must treat zero values as "unspecified", not as a request
+/// for a 0-pixel stream.
+class MediaParams extends $pb.GeneratedMessage {
+  factory MediaParams({
+    $core.int? width,
+    $core.int? height,
+    $core.int? fps,
+    $core.int? bitrateKbps,
+    $core.String? codec,
+  }) {
+    final result = MediaParams._();
+    if (width != null) result.width = width;
+    if (height != null) result.height = height;
+    if (fps != null) result.fps = fps;
+    if (bitrateKbps != null) result.bitrateKbps = bitrateKbps;
+    if (codec != null) result.codec = codec;
+    return result;
+  }
+
+  MediaParams._();
+
+  factory MediaParams.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      MediaParams()..mergeFromBuffer(data, registry);
+  factory MediaParams.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      MediaParams()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'MediaParams',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
+      createEmptyInstance: MediaParams.$_createMessage)
+    ..aI(1, _omitFieldNames ? '' : 'width', fieldType: $pb.PbFieldType.OU3)
+    ..aI(2, _omitFieldNames ? '' : 'height', fieldType: $pb.PbFieldType.OU3)
+    ..aI(3, _omitFieldNames ? '' : 'fps', fieldType: $pb.PbFieldType.OU3)
+    ..aI(4, _omitFieldNames ? '' : 'bitrateKbps',
+        fieldType: $pb.PbFieldType.OU3)
+    ..aOS(5, _omitFieldNames ? '' : 'codec')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  MediaParams clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  MediaParams copyWith(void Function(MediaParams) updates) =>
+      super.copyWith((message) => updates(message as MediaParams))
+          as MediaParams;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use MediaParams() / MediaParams.new instead')
+  static MediaParams create() => MediaParams._();
+  static $pb.GeneratedMessage $_createMessage() => MediaParams._();
+  @$core.override
+  MediaParams createEmptyInstance() => MediaParams._();
+  @$core.pragma('dart2js:noInline')
+  static MediaParams getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<MediaParams>(
+          MediaParams.$_createMessage);
+  static MediaParams? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.int get width => $_getIZ(0);
+  @$pb.TagNumber(1)
+  set width($core.int value) => $_setUnsignedInt32(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasWidth() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearWidth() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.int get height => $_getIZ(1);
+  @$pb.TagNumber(2)
+  set height($core.int value) => $_setUnsignedInt32(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasHeight() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearHeight() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.int get fps => $_getIZ(2);
+  @$pb.TagNumber(3)
+  set fps($core.int value) => $_setUnsignedInt32(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasFps() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearFps() => $_clearField(3);
+
+  /// Advisory on Android: DEC-020 records that the platform bitrate control is
+  /// loose (a 6000 -> 2000 kbps request settled near 1.8x the target). It is
+  /// carried so both sides can state intent, not as an enforceable limit.
+  @$pb.TagNumber(4)
+  $core.int get bitrateKbps => $_getIZ(3);
+  @$pb.TagNumber(4)
+  set bitrateKbps($core.int value) => $_setUnsignedInt32(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasBitrateKbps() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearBitrateKbps() => $_clearField(4);
+
+  /// Codec identifier, e.g. "h264". Empty means "device default".
+  @$pb.TagNumber(5)
+  $core.String get codec => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set codec($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasCodec() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearCodec() => $_clearField(5);
+}
+
+/// MediaCapabilities advertises what a device can actually capture for screen
+/// streaming, so the initiator can request something achievable instead of
+/// discovering limits through failure. The capture device is authoritative for
+/// the values it applies (DEC-020).
+class MediaCapabilities extends $pb.GeneratedMessage {
+  factory MediaCapabilities({
+    $core.Iterable<$core.String>? codecs,
+    $core.int? maxWidth,
+    $core.int? maxHeight,
+    $core.int? maxFps,
+    $core.bool? supportsScreen,
+  }) {
+    final result = MediaCapabilities._();
+    if (codecs != null) result.codecs.addAll(codecs);
+    if (maxWidth != null) result.maxWidth = maxWidth;
+    if (maxHeight != null) result.maxHeight = maxHeight;
+    if (maxFps != null) result.maxFps = maxFps;
+    if (supportsScreen != null) result.supportsScreen = supportsScreen;
+    return result;
+  }
+
+  MediaCapabilities._();
+
+  factory MediaCapabilities.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      MediaCapabilities()..mergeFromBuffer(data, registry);
+  factory MediaCapabilities.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      MediaCapabilities()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'MediaCapabilities',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
+      createEmptyInstance: MediaCapabilities.$_createMessage)
+    ..pPS(1, _omitFieldNames ? '' : 'codecs')
+    ..aI(2, _omitFieldNames ? '' : 'maxWidth', fieldType: $pb.PbFieldType.OU3)
+    ..aI(3, _omitFieldNames ? '' : 'maxHeight', fieldType: $pb.PbFieldType.OU3)
+    ..aI(4, _omitFieldNames ? '' : 'maxFps', fieldType: $pb.PbFieldType.OU3)
+    ..aOB(5, _omitFieldNames ? '' : 'supportsScreen')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  MediaCapabilities clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  MediaCapabilities copyWith(void Function(MediaCapabilities) updates) =>
+      super.copyWith((message) => updates(message as MediaCapabilities))
+          as MediaCapabilities;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use MediaCapabilities() / MediaCapabilities.new instead')
+  static MediaCapabilities create() => MediaCapabilities._();
+  static $pb.GeneratedMessage $_createMessage() => MediaCapabilities._();
+  @$core.override
+  MediaCapabilities createEmptyInstance() => MediaCapabilities._();
+  @$core.pragma('dart2js:noInline')
+  static MediaCapabilities getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<MediaCapabilities>(
+          MediaCapabilities.$_createMessage);
+  static MediaCapabilities? _defaultInstance;
+
+  /// Codec identifiers in preference order (e.g. "h264"). Empty means the
+  /// device cannot capture a screen stream at all.
+  @$pb.TagNumber(1)
+  $pb.PbList<$core.String> get codecs => $_getList(0);
+
+  @$pb.TagNumber(2)
+  $core.int get maxWidth => $_getIZ(1);
+  @$pb.TagNumber(2)
+  set maxWidth($core.int value) => $_setUnsignedInt32(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasMaxWidth() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearMaxWidth() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.int get maxHeight => $_getIZ(2);
+  @$pb.TagNumber(3)
+  set maxHeight($core.int value) => $_setUnsignedInt32(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasMaxHeight() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearMaxHeight() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.int get maxFps => $_getIZ(3);
+  @$pb.TagNumber(4)
+  set maxFps($core.int value) => $_setUnsignedInt32(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasMaxFps() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearMaxFps() => $_clearField(4);
+
+  /// True when the platform can service a screen capture request (Android
+  /// MediaProjection is consent-gated per session, so this advertises
+  /// capability, never an existing grant).
+  @$pb.TagNumber(5)
+  $core.bool get supportsScreen => $_getBF(4);
+  @$pb.TagNumber(5)
+  set supportsScreen($core.bool value) => $_setBool(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasSupportsScreen() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearSupportsScreen() => $_clearField(5);
+}
+
 /// ---------------------------------------------------------------------------
-/// Control / handshake — minimal stubs for Phase 0.
-/// Full pairing/SAS flow is EXPERIMENTAL until validated.
+/// Control / handshake.
+/// DeviceHello's version/capability/media advertising is CONFIRMED (Phase 2,
+/// DEC-022) and exchanged before any media. The PairRequest/PairAccept payloads
+/// remain EXPERIMENTAL: the validated pairing flow runs through the
+/// authenticated LAN exchange (DEC-022) and does not yet carry these payloads.
 /// ---------------------------------------------------------------------------
 class DeviceHello extends $pb.GeneratedMessage {
   factory DeviceHello({
@@ -759,6 +990,7 @@ class DeviceHello extends $pb.GeneratedMessage {
     $core.List<$core.int>? identityPubkey,
     VersionNegotiation? versionNegotiation,
     CapabilitySet? capabilities,
+    MediaCapabilities? media,
   }) {
     final result = DeviceHello._();
     if (displayName != null) result.displayName = displayName;
@@ -767,6 +999,7 @@ class DeviceHello extends $pb.GeneratedMessage {
     if (versionNegotiation != null)
       result.versionNegotiation = versionNegotiation;
     if (capabilities != null) result.capabilities = capabilities;
+    if (media != null) result.media = media;
     return result;
   }
 
@@ -791,6 +1024,8 @@ class DeviceHello extends $pb.GeneratedMessage {
         subBuilder: VersionNegotiation.$_createMessage)
     ..aOM<CapabilitySet>(5, _omitFieldNames ? '' : 'capabilities',
         subBuilder: CapabilitySet.$_createMessage)
+    ..aOM<MediaCapabilities>(6, _omitFieldNames ? '' : 'media',
+        subBuilder: MediaCapabilities.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -866,6 +1101,18 @@ class DeviceHello extends $pb.GeneratedMessage {
   void clearCapabilities() => $_clearField(5);
   @$pb.TagNumber(5)
   CapabilitySet ensureCapabilities() => $_ensure(4);
+
+  /// Screen-streaming limits, present when CAPABILITY_SCREEN is advertised.
+  @$pb.TagNumber(6)
+  MediaCapabilities get media => $_getN(5);
+  @$pb.TagNumber(6)
+  set media(MediaCapabilities value) => $_setField(6, value);
+  @$pb.TagNumber(6)
+  $core.bool hasMedia() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearMedia() => $_clearField(6);
+  @$pb.TagNumber(6)
+  MediaCapabilities ensureMedia() => $_ensure(5);
 }
 
 class PairRequest extends $pb.GeneratedMessage {
@@ -1260,6 +1507,131 @@ class Error extends $pb.GeneratedMessage {
 }
 
 /// ---------------------------------------------------------------------------
+/// Screen session negotiation (DEC-022, Phase 2)
+/// ---------------------------------------------------------------------------
+/// ScreenStart carries the capture request and the capture device's answer.
+/// The parameter tuple is MediaParams (below), so the request, the LAN
+/// signaling exchange (DEC-022) and the local IPC session snapshot all speak
+/// one shape.
+///
+/// Contract, in order:
+///   1. The initiator sends ScreenStart with `requested` populated and no
+///      answer fields. Android requires a MediaProjection consent before any
+///      capture exists (DEC-020), so parameters must be settled BEFORE the
+///      offer is composed and never mid-stream.
+///   2. The capture device replies with `accepted` + `actual` — always. A
+///      reply that differs from `requested` is a reported downgrade, never a
+///      silent substitution: the initiator can compare the two tuples and
+///      tell the user what is really being sent.
+///   3. If nothing within the device's MediaCapabilities can satisfy the
+///      request, `accepted` is false and `reject_reason` says why.
+/// Resolution changes are never negotiated in-session: DEC-020 records that a
+/// new geometry needs a new consent and a new session.
+class ScreenStart extends $pb.GeneratedMessage {
+  factory ScreenStart({
+    MediaParams? requested,
+    $core.bool? accepted,
+    $core.String? rejectReason,
+    MediaParams? actual,
+  }) {
+    final result = ScreenStart._();
+    if (requested != null) result.requested = requested;
+    if (accepted != null) result.accepted = accepted;
+    if (rejectReason != null) result.rejectReason = rejectReason;
+    if (actual != null) result.actual = actual;
+    return result;
+  }
+
+  ScreenStart._();
+
+  factory ScreenStart.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ScreenStart()..mergeFromBuffer(data, registry);
+  factory ScreenStart.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ScreenStart()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ScreenStart',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
+      createEmptyInstance: ScreenStart.$_createMessage)
+    ..aOM<MediaParams>(1, _omitFieldNames ? '' : 'requested',
+        subBuilder: MediaParams.$_createMessage)
+    ..aOB(2, _omitFieldNames ? '' : 'accepted')
+    ..aOS(3, _omitFieldNames ? '' : 'rejectReason')
+    ..aOM<MediaParams>(4, _omitFieldNames ? '' : 'actual',
+        subBuilder: MediaParams.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ScreenStart clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ScreenStart copyWith(void Function(ScreenStart) updates) =>
+      super.copyWith((message) => updates(message as ScreenStart))
+          as ScreenStart;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use ScreenStart() / ScreenStart.new instead')
+  static ScreenStart create() => ScreenStart._();
+  static $pb.GeneratedMessage $_createMessage() => ScreenStart._();
+  @$core.override
+  ScreenStart createEmptyInstance() => ScreenStart._();
+  @$core.pragma('dart2js:noInline')
+  static ScreenStart getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<ScreenStart>(
+          ScreenStart.$_createMessage);
+  static ScreenStart? _defaultInstance;
+
+  /// What the initiator asked for. Zero fields mean "no preference".
+  @$pb.TagNumber(1)
+  MediaParams get requested => $_getN(0);
+  @$pb.TagNumber(1)
+  set requested(MediaParams value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasRequested() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearRequested() => $_clearField(1);
+  @$pb.TagNumber(1)
+  MediaParams ensureRequested() => $_ensure(0);
+
+  /// True when `actual` equals `requested` exactly.
+  @$pb.TagNumber(2)
+  $core.bool get accepted => $_getBF(1);
+  @$pb.TagNumber(2)
+  set accepted($core.bool value) => $_setBool(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasAccepted() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearAccepted() => $_clearField(2);
+
+  /// Set when `accepted` is false: why the request could not be met.
+  @$pb.TagNumber(3)
+  $core.String get rejectReason => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set rejectReason($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasRejectReason() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearRejectReason() => $_clearField(3);
+
+  /// What the capture device actually applied. Authoritative (DEC-020); the
+  /// initiator must treat this as the truth for display and diagnostics.
+  @$pb.TagNumber(4)
+  MediaParams get actual => $_getN(3);
+  @$pb.TagNumber(4)
+  set actual(MediaParams value) => $_setField(4, value);
+  @$pb.TagNumber(4)
+  $core.bool hasActual() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearActual() => $_clearField(4);
+  @$pb.TagNumber(4)
+  MediaParams ensureActual() => $_ensure(3);
+}
+
+/// ---------------------------------------------------------------------------
 /// Feature payloads — PLANNED stubs. No fields populated in Phase 0.
 /// Each will be expanded in its feature phase with reserved ranges preserved.
 /// ---------------------------------------------------------------------------
@@ -1626,49 +1998,16 @@ class FileCancel extends $pb.GeneratedMessage {
   static FileCancel? _defaultInstance;
 }
 
-class ScreenStart extends $pb.GeneratedMessage {
-  factory ScreenStart() => ScreenStart._();
-
-  ScreenStart._();
-
-  factory ScreenStart.fromBuffer($core.List<$core.int> data,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      ScreenStart()..mergeFromBuffer(data, registry);
-  factory ScreenStart.fromJson($core.String json,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      ScreenStart()..mergeFromJson(json, registry);
-
-  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'ScreenStart',
-      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
-      createEmptyInstance: ScreenStart.$_createMessage)
-    ..hasRequiredFields = false;
-
-  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  ScreenStart clone() => deepCopy();
-  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  ScreenStart copyWith(void Function(ScreenStart) updates) =>
-      super.copyWith((message) => updates(message as ScreenStart))
-          as ScreenStart;
-
-  @$core.override
-  $pb.BuilderInfo get info_ => _i;
-
-  @$core.pragma('dart2js:noInline')
-  @$core.Deprecated('Use ScreenStart() / ScreenStart.new instead')
-  static ScreenStart create() => ScreenStart._();
-  static $pb.GeneratedMessage $_createMessage() => ScreenStart._();
-  @$core.override
-  ScreenStart createEmptyInstance() => ScreenStart._();
-  @$core.pragma('dart2js:noInline')
-  static ScreenStart getDefault() =>
-      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<ScreenStart>(
-          ScreenStart.$_createMessage);
-  static ScreenStart? _defaultInstance;
-}
-
 class ScreenStop extends $pb.GeneratedMessage {
-  factory ScreenStop() => ScreenStop._();
+  factory ScreenStop({
+    Code? reasonCode,
+    $core.String? reason,
+  }) {
+    final result = ScreenStop._();
+    if (reasonCode != null) result.reasonCode = reasonCode;
+    if (reason != null) result.reason = reason;
+    return result;
+  }
 
   ScreenStop._();
 
@@ -1683,6 +2022,8 @@ class ScreenStop extends $pb.GeneratedMessage {
       _omitMessageNames ? '' : 'ScreenStop',
       package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
       createEmptyInstance: ScreenStop.$_createMessage)
+    ..aE<Code>(1, _omitFieldNames ? '' : 'reasonCode', enumValues: Code.values)
+    ..aOS(2, _omitFieldNames ? '' : 'reason')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1704,6 +2045,26 @@ class ScreenStop extends $pb.GeneratedMessage {
   static ScreenStop getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<ScreenStop>(ScreenStop.$_createMessage);
   static ScreenStop? _defaultInstance;
+
+  /// Why the stream stopped (typed where the sender knows the cause).
+  @$pb.TagNumber(1)
+  Code get reasonCode => $_getN(0);
+  @$pb.TagNumber(1)
+  set reasonCode(Code value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasReasonCode() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearReasonCode() => $_clearField(1);
+
+  /// Human-readable detail for logs and diagnostics; never parsed by code.
+  @$pb.TagNumber(2)
+  $core.String get reason => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set reason($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasReason() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearReason() => $_clearField(2);
 }
 
 class InputKeyboard extends $pb.GeneratedMessage {

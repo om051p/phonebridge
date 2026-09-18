@@ -1,6 +1,9 @@
 // PhoneBridge Protocol — v1
 // Package: phonebridge.v1
-// Status: PLANNED — Phase 0 envelope only. Feature payloads are stubs.
+// Status: CONFIRMED (Phase 2, DEC-022) for the device handshake (DeviceHello
+// version/capability exchange) and screen-session parameter negotiation
+// (ScreenStart/ScreenStop). All other feature payloads remain stubs until
+// their own phases.
 // Source of truth for wire compatibility: this file + buf breaking checks.
 //
 // Conventions (see docs/protocol.md):
@@ -63,8 +66,9 @@ message Envelope {
     FileChunk file_chunk = 26; // PLANNED
     FileComplete file_complete = 27; // PLANNED
     FileCancel file_cancel = 28; // PLANNED
-    ScreenStart screen_start = 29; // PLANNED
-    ScreenStop screen_stop = 30; // PLANNED
+    // Screen session negotiation — ratified by DEC-022 (Phase 2).
+    ScreenStart screen_start = 29;
+    ScreenStop screen_stop = 30;
     InputKeyboard input_keyboard = 31; // PLANNED
     InputMouse input_mouse = 32; // PLANNED
     InputTouch input_touch = 33; // PLANNED
@@ -96,9 +100,50 @@ message VersionNegotiation {
   uint32 max_version = 2;
 }
 
+// MediaParams is the single definition of a screen-stream parameter tuple.
+// It is used in three places so that one shape flows end to end:
+//   1. ScreenStart (device protocol) — canonical request/answer form;
+//   2. the LAN signaling exchange (DEC-022) — the same fields as JSON;
+//   3. the local IPC session snapshot, so the UI renders exactly what was
+//      requested and what the capture device actually applied.
+// An unset field means "no preference / not reported" — proto3 has no explicit
+// null, so callers must treat zero values as "unspecified", not as a request
+// for a 0-pixel stream.
+message MediaParams {
+  uint32 width = 1;
+  uint32 height = 2;
+  uint32 fps = 3;
+  // Advisory on Android: DEC-020 records that the platform bitrate control is
+  // loose (a 6000 -> 2000 kbps request settled near 1.8x the target). It is
+  // carried so both sides can state intent, not as an enforceable limit.
+  uint32 bitrate_kbps = 4;
+  // Codec identifier, e.g. "h264". Empty means "device default".
+  string codec = 5;
+}
+
+// MediaCapabilities advertises what a device can actually capture for screen
+// streaming, so the initiator can request something achievable instead of
+// discovering limits through failure. The capture device is authoritative for
+// the values it applies (DEC-020).
+message MediaCapabilities {
+  // Codec identifiers in preference order (e.g. "h264"). Empty means the
+  // device cannot capture a screen stream at all.
+  repeated string codecs = 1;
+  uint32 max_width = 2;
+  uint32 max_height = 3;
+  uint32 max_fps = 4;
+  // True when the platform can service a screen capture request (Android
+  // MediaProjection is consent-gated per session, so this advertises
+  // capability, never an existing grant).
+  bool supports_screen = 5;
+}
+
 // ---------------------------------------------------------------------------
-// Control / handshake — minimal stubs for Phase 0.
-// Full pairing/SAS flow is EXPERIMENTAL until validated.
+// Control / handshake.
+// DeviceHello's version/capability/media advertising is CONFIRMED (Phase 2,
+// DEC-022) and exchanged before any media. The PairRequest/PairAccept payloads
+// remain EXPERIMENTAL: the validated pairing flow runs through the
+// authenticated LAN exchange (DEC-022) and does not yet carry these payloads.
 // ---------------------------------------------------------------------------
 message DeviceHello {
   // Human-readable device name.
@@ -109,6 +154,8 @@ message DeviceHello {
   bytes identity_pubkey = 3;
   VersionNegotiation version_negotiation = 4;
   CapabilitySet capabilities = 5;
+  // Screen-streaming limits, present when CAPABILITY_SCREEN is advertised.
+  MediaCapabilities media = 6;
 }
 
 message PairRequest {
@@ -150,12 +197,61 @@ enum Code {
   CODE_RESOURCE_EXHAUSTED = 8;
   CODE_INTERNAL = 9;
   CODE_UNAVAILABLE = 10;
+  // Session negotiation failures (DEC-022). Appended, never renumbered:
+  // existing values are wire contracts.
+  // The requested MediaParams cannot be satisfied by the capture device.
+  CODE_UNSUPPORTED_MEDIA_PARAMS = 11;
+  // The user (or the platform) withdrew MediaProjection consent mid-session.
+  // Distinct from a transport failure: the link is healthy and there is
+  // simply no longer a screen to send.
+  CODE_CONSENT_REVOKED = 12;
+  // Capture or encode failed on the sending device.
+  CODE_CAPTURE_FAILED = 13;
+  // The transport (ICE/DTLS/signaling) failed.
+  CODE_TRANSPORT_FAILED = 14;
+  // The bounded reconnect window elapsed without the session recovering.
+  CODE_RECONNECT_TIMEOUT = 15;
+  // The device already has an active session.
+  CODE_SESSION_BUSY = 16;
 }
 
 message Error {
   Code code = 1;
   string message = 2;
   map<string, string> details = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Screen session negotiation (DEC-022, Phase 2)
+// ---------------------------------------------------------------------------
+// ScreenStart carries the capture request and the capture device's answer.
+// The parameter tuple is MediaParams (below), so the request, the LAN
+// signaling exchange (DEC-022) and the local IPC session snapshot all speak
+// one shape.
+//
+// Contract, in order:
+//   1. The initiator sends ScreenStart with `requested` populated and no
+//      answer fields. Android requires a MediaProjection consent before any
+//      capture exists (DEC-020), so parameters must be settled BEFORE the
+//      offer is composed and never mid-stream.
+//   2. The capture device replies with `accepted` + `actual` — always. A
+//      reply that differs from `requested` is a reported downgrade, never a
+//      silent substitution: the initiator can compare the two tuples and
+//      tell the user what is really being sent.
+//   3. If nothing within the device's MediaCapabilities can satisfy the
+//      request, `accepted` is false and `reject_reason` says why.
+// Resolution changes are never negotiated in-session: DEC-020 records that a
+// new geometry needs a new consent and a new session.
+message ScreenStart {
+  // What the initiator asked for. Zero fields mean "no preference".
+  MediaParams requested = 1;
+  // True when `actual` equals `requested` exactly.
+  bool accepted = 2;
+  // Set when `accepted` is false: why the request could not be met.
+  string reject_reason = 3;
+  // What the capture device actually applied. Authoritative (DEC-020); the
+  // initiator must treat this as the truth for display and diagnostics.
+  MediaParams actual = 4;
 }
 
 // ---------------------------------------------------------------------------
@@ -171,8 +267,12 @@ message FileAccept {} // PLANNED
 message FileChunk {} // PLANNED
 message FileComplete {} // PLANNED
 message FileCancel {} // PLANNED
-message ScreenStart {} // PLANNED
-message ScreenStop {} // PLANNED
+message ScreenStop {
+  // Why the stream stopped (typed where the sender knows the cause).
+  Code reason_code = 1;
+  // Human-readable detail for logs and diagnostics; never parsed by code.
+  string reason = 2;
+}
 message InputKeyboard {} // PLANNED
 message InputMouse {} // PLANNED
 message InputTouch {} // PLANNED
