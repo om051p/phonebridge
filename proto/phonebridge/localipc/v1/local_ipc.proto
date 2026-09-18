@@ -83,6 +83,30 @@ service LocalEngineService {
 
   // Health reports daemon readiness without opening an event stream.
   rpc Health(HealthRequest) returns (HealthResponse);
+
+  // StartSession initiates a new connection session with a discovered phone.
+  rpc StartSession(StartSessionRequest) returns (StartSessionResponse);
+
+  // StopSession cleanly terminates an active session.
+  rpc StopSession(StopSessionRequest) returns (StopSessionResponse);
+
+  // GetSessionState queries the current phase, device, and metrics of a session.
+  rpc GetSessionState(GetSessionStateRequest) returns (GetSessionStateResponse);
+
+  // ListDevices returns all currently discovered LAN devices from mDNS.
+  rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse);
+
+  // PairDevice initiates pairing with a discovered LAN device.
+  rpc PairDevice(PairDeviceRequest) returns (PairDeviceResponse);
+
+  // ConfirmPairing completes pairing by confirming the SAS.
+  rpc ConfirmPairing(ConfirmPairingRequest) returns (ConfirmPairingResponse);
+
+  // ListTrustedDevices returns all trusted/paired devices.
+  rpc ListTrustedDevices(ListTrustedDevicesRequest) returns (ListTrustedDevicesResponse);
+
+  // RevokeDevice revokes trust for a previously paired device.
+  rpc RevokeDevice(RevokeDeviceRequest) returns (RevokeDeviceResponse);
 }
 
 // HandshakeRequest advertises the client's local-IPC protocol support.
@@ -145,6 +169,9 @@ message StreamEventsResponse {
   // NOT a new transport for phonebridge.v1, and LocalEngine is never a
   // device peer.
   phonebridge.v1.Envelope envelope = 3;
+
+  // Local session state transitions (connecting, streaming, reconnecting, etc.).
+  SessionEvent session_event = 4;
 }
 
 // LocalEvent represents a pushed local event containing the relayed device envelope.
@@ -159,6 +186,9 @@ message LocalEvent {
 
   // Opaque relayed device-protocol message (phonebridge.v1).
   phonebridge.v1.Envelope envelope = 3;
+
+  // Local session state transitions.
+  SessionEvent session_event = 4;
 }
 
 // HealthRequest is empty.
@@ -178,3 +208,157 @@ message HealthResponse {
   // Milliseconds since daemon start (informational).
   uint64 uptime_ms = 4;
 }
+
+// ---------------------------------------------------------------------------
+// Session state machine & RPCs (production LAN session lifecycle)
+// ---------------------------------------------------------------------------
+
+// SessionState models the 8 operational phases of a device session.
+enum SessionState {
+  SESSION_STATE_UNSPECIFIED = 0;
+  SESSION_STATE_DISCONNECTED = 1;
+  SESSION_STATE_DISCOVERING = 2;
+  SESSION_STATE_CONNECTING = 3;
+  SESSION_STATE_CONNECTED = 4;
+  SESSION_STATE_STREAMING = 5;
+  SESSION_STATE_RECONNECTING = 6;
+  SESSION_STATE_STOPPED = 7;
+  SESSION_STATE_FAILED = 8;
+}
+
+// SessionEvent represents a state transition pushed to StreamEvents subscribers.
+message SessionEvent {
+  string session_id = 1;
+  SessionState state = 2;
+  string reason = 3;
+  string error_message = 4;
+}
+
+// StartSessionRequest initiates a session with the specified target device.
+message StartSessionRequest {
+  // Unique target device ID (from mDNS discovery).
+  string device_id = 1;
+}
+
+// StartSessionResponse returns the newly initiated session identity and state.
+message StartSessionResponse {
+  string session_id = 1;
+  SessionState state = 2;
+}
+
+// StopSessionRequest halts an active or in-progress session.
+message StopSessionRequest {
+  string session_id = 1;
+  string reason = 2;
+}
+
+// StopSessionResponse confirms session termination.
+message StopSessionResponse {
+  string session_id = 1;
+  SessionState state = 2;
+}
+
+// GetSessionStateRequest queries current session status.
+message GetSessionStateRequest {
+  string session_id = 1;
+}
+
+// StreamStats reports point-in-time WebRTC media and network counters.
+message StreamStats {
+  uint64 packets = 1;
+  uint64 bytes_rtp = 2;
+  uint64 bytes_h264 = 3;
+  uint64 access_units = 4;
+  uint64 keyframes = 5;
+  int64 dropped_aus = 6;
+}
+
+// GetSessionStateResponse contains a full point-in-time snapshot.
+message GetSessionStateResponse {
+  string session_id = 1;
+  SessionState state = 2;
+  string device_id = 3;
+  uint64 connected_duration_ms = 4;
+  string error_message = 5;
+  StreamStats stats = 6;
+}
+
+// DiscoveredDevice models a LAN device discovered via mDNS.
+message DiscoveredDevice {
+  string id = 1;
+  string name = 2;
+  string model = 3;
+  string version = 4;
+  repeated string capabilities = 5;
+  string state = 6;
+  string address = 7;
+  uint32 port = 8;
+  bool is_stale = 9;
+}
+
+// ListDevicesRequest is empty.
+message ListDevicesRequest {}
+
+// ListDevicesResponse returns currently known LAN devices.
+message ListDevicesResponse {
+  repeated DiscoveredDevice devices = 1;
+}
+
+// PairDeviceRequest initiates pairing with a device.
+message PairDeviceRequest {
+  string device_id = 1;
+}
+
+// PairDeviceResponse returns the pairing status and SAS for user verification.
+message PairDeviceResponse {
+  string device_id = 1;
+  string display_name = 2;
+  string sas = 3;
+  bool pending_confirmation = 4;
+}
+
+// ConfirmPairingRequest conveys user confirmation of the SAS.
+message ConfirmPairingRequest {
+  string device_id = 1;
+  bool user_confirmed = 2;
+}
+
+// ConfirmPairingResponse returns the result of the pairing confirmation.
+message ConfirmPairingResponse {
+  string device_id = 1;
+  bool success = 2;
+  string error_message = 3;
+}
+
+// TrustedDevice represents a paired device in the persistent trust store.
+message TrustedDevice {
+  string device_id = 1;
+  string display_name = 2;
+  string platform = 3;
+  bytes public_key = 4;
+  int64 paired_at_ms = 5;
+  int64 last_seen_ms = 6;
+  bool revoked = 7;
+}
+
+// ListTrustedDevicesRequest is empty.
+message ListTrustedDevicesRequest {}
+
+// ListTrustedDevicesResponse lists all paired devices.
+message ListTrustedDevicesResponse {
+  repeated TrustedDevice devices = 1;
+}
+
+// RevokeDeviceRequest requests revocation of a paired device.
+message RevokeDeviceRequest {
+  string device_id = 1;
+}
+
+// RevokeDeviceResponse confirms revocation.
+message RevokeDeviceResponse {
+  string device_id = 1;
+  bool success = 2;
+}
+
+
+

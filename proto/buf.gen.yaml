@@ -26,7 +26,7 @@ plugins:
   - remote: buf.build/grpc/go:v1.5.1
     out: ../core/pkg/protocol
     opt: paths=import,module=github.com/om051p/phonebridge/core/pkg/protocol,require_unimplemented_servers=false
-  # Dart generation is enabled once spike 01 fixes the local IPC transport
-  # (gRPC over UDS vs FFI) and therefore the local IPC contract itself.
-  # - remote: buf.build/protocolbuffers/dart:v<version>
-  #   out: ../ui/lib/generated
+  # Dart generation enabled for local IPC transport (DEC-018)
+  - remote: buf.build/protocolbuffers/dart:v25.1.0
+    out: ../ui/lib/generated
+    opt: grpc

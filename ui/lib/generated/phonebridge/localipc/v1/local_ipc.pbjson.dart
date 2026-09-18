@@ -1,0 +1,594 @@
+// This is a generated file - do not edit.
+//
+// Generated from phonebridge/localipc/v1/local_ipc.proto.
+
+// @dart = 3.3
+
+// ignore_for_file: annotate_overrides, camel_case_types, comment_references
+// ignore_for_file: constant_identifier_names
+// ignore_for_file: curly_braces_in_flow_control_structures
+// ignore_for_file: deprecated_member_use_from_same_package, library_prefixes
+// ignore_for_file: non_constant_identifier_names, prefer_relative_imports
+// ignore_for_file: unused_import
+
+import 'dart:convert' as $convert;
+import 'dart:core' as $core;
+import 'dart:typed_data' as $typed_data;
+
+@$core.Deprecated('Use sessionStateDescriptor instead')
+const SessionState$json = {
+  '1': 'SessionState',
+  '2': [
+    {'1': 'SESSION_STATE_UNSPECIFIED', '2': 0},
+    {'1': 'SESSION_STATE_DISCONNECTED', '2': 1},
+    {'1': 'SESSION_STATE_DISCOVERING', '2': 2},
+    {'1': 'SESSION_STATE_CONNECTING', '2': 3},
+    {'1': 'SESSION_STATE_CONNECTED', '2': 4},
+    {'1': 'SESSION_STATE_STREAMING', '2': 5},
+    {'1': 'SESSION_STATE_RECONNECTING', '2': 6},
+    {'1': 'SESSION_STATE_STOPPED', '2': 7},
+    {'1': 'SESSION_STATE_FAILED', '2': 8},
+  ],
+};
+
+/// Descriptor for `SessionState`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List sessionStateDescriptor = $convert.base64Decode(
+    'CgxTZXNzaW9uU3RhdGUSHQoZU0VTU0lPTl9TVEFURV9VTlNQRUNJRklFRBAAEh4KGlNFU1NJT0'
+    '5fU1RBVEVfRElTQ09OTkVDVEVEEAESHQoZU0VTU0lPTl9TVEFURV9ESVNDT1ZFUklORxACEhwK'
+    'GFNFU1NJT05fU1RBVEVfQ09OTkVDVElORxADEhsKF1NFU1NJT05fU1RBVEVfQ09OTkVDVEVEEA'
+    'QSGwoXU0VTU0lPTl9TVEFURV9TVFJFQU1JTkcQBRIeChpTRVNTSU9OX1NUQVRFX1JFQ09OTkVD'
+    'VElORxAGEhkKFVNFU1NJT05fU1RBVEVfU1RPUFBFRBAHEhgKFFNFU1NJT05fU1RBVEVfRkFJTE'
+    'VEEAg=');
+
+@$core.Deprecated('Use handshakeRequestDescriptor instead')
+const HandshakeRequest$json = {
+  '1': 'HandshakeRequest',
+  '2': [
+    {'1': 'client_version', '3': 1, '4': 1, '5': 13, '10': 'clientVersion'},
+  ],
+};
+
+/// Descriptor for `HandshakeRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List handshakeRequestDescriptor = $convert.base64Decode(
+    'ChBIYW5kc2hha2VSZXF1ZXN0EiUKDmNsaWVudF92ZXJzaW9uGAEgASgNUg1jbGllbnRWZXJzaW'
+    '9u');
+
+@$core.Deprecated('Use handshakeResponseDescriptor instead')
+const HandshakeResponse$json = {
+  '1': 'HandshakeResponse',
+  '2': [
+    {
+      '1': 'negotiated_version',
+      '3': 1,
+      '4': 1,
+      '5': 13,
+      '10': 'negotiatedVersion'
+    },
+    {'1': 'server_version', '3': 2, '4': 1, '5': 9, '10': 'serverVersion'},
+    {
+      '1': 'daemon_generation',
+      '3': 3,
+      '4': 1,
+      '5': 4,
+      '10': 'daemonGeneration'
+    },
+  ],
+};
+
+/// Descriptor for `HandshakeResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List handshakeResponseDescriptor = $convert.base64Decode(
+    'ChFIYW5kc2hha2VSZXNwb25zZRItChJuZWdvdGlhdGVkX3ZlcnNpb24YASABKA1SEW5lZ290aW'
+    'F0ZWRWZXJzaW9uEiUKDnNlcnZlcl92ZXJzaW9uGAIgASgJUg1zZXJ2ZXJWZXJzaW9uEisKEWRh'
+    'ZW1vbl9nZW5lcmF0aW9uGAMgASgEUhBkYWVtb25HZW5lcmF0aW9u');
+
+@$core.Deprecated('Use pingRequestDescriptor instead')
+const PingRequest$json = {
+  '1': 'PingRequest',
+  '2': [
+    {'1': 'nonce', '3': 1, '4': 1, '5': 4, '10': 'nonce'},
+  ],
+};
+
+/// Descriptor for `PingRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List pingRequestDescriptor =
+    $convert.base64Decode('CgtQaW5nUmVxdWVzdBIUCgVub25jZRgBIAEoBFIFbm9uY2U=');
+
+@$core.Deprecated('Use pingResponseDescriptor instead')
+const PingResponse$json = {
+  '1': 'PingResponse',
+  '2': [
+    {'1': 'nonce', '3': 1, '4': 1, '5': 4, '10': 'nonce'},
+    {'1': 'server_version', '3': 2, '4': 1, '5': 9, '10': 'serverVersion'},
+  ],
+};
+
+/// Descriptor for `PingResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List pingResponseDescriptor = $convert.base64Decode(
+    'CgxQaW5nUmVzcG9uc2USFAoFbm9uY2UYASABKARSBW5vbmNlEiUKDnNlcnZlcl92ZXJzaW9uGA'
+    'IgASgJUg1zZXJ2ZXJWZXJzaW9u');
+
+@$core.Deprecated('Use streamEventsRequestDescriptor instead')
+const StreamEventsRequest$json = {
+  '1': 'StreamEventsRequest',
+};
+
+/// Descriptor for `StreamEventsRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List streamEventsRequestDescriptor =
+    $convert.base64Decode('ChNTdHJlYW1FdmVudHNSZXF1ZXN0');
+
+@$core.Deprecated('Use streamEventsResponseDescriptor instead')
+const StreamEventsResponse$json = {
+  '1': 'StreamEventsResponse',
+  '2': [
+    {'1': 'seq', '3': 1, '4': 1, '5': 4, '10': 'seq'},
+    {
+      '1': 'daemon_generation',
+      '3': 2,
+      '4': 1,
+      '5': 4,
+      '10': 'daemonGeneration'
+    },
+    {
+      '1': 'envelope',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.Envelope',
+      '10': 'envelope'
+    },
+    {
+      '1': 'session_event',
+      '3': 4,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.localipc.v1.SessionEvent',
+      '10': 'sessionEvent'
+    },
+  ],
+};
+
+/// Descriptor for `StreamEventsResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List streamEventsResponseDescriptor = $convert.base64Decode(
+    'ChRTdHJlYW1FdmVudHNSZXNwb25zZRIQCgNzZXEYASABKARSA3NlcRIrChFkYWVtb25fZ2VuZX'
+    'JhdGlvbhgCIAEoBFIQZGFlbW9uR2VuZXJhdGlvbhI0CghlbnZlbG9wZRgDIAEoCzIYLnBob25l'
+    'YnJpZGdlLnYxLkVudmVsb3BlUghlbnZlbG9wZRJKCg1zZXNzaW9uX2V2ZW50GAQgASgLMiUucG'
+    'hvbmVicmlkZ2UubG9jYWxpcGMudjEuU2Vzc2lvbkV2ZW50UgxzZXNzaW9uRXZlbnQ=');
+
+@$core.Deprecated('Use localEventDescriptor instead')
+const LocalEvent$json = {
+  '1': 'LocalEvent',
+  '2': [
+    {'1': 'seq', '3': 1, '4': 1, '5': 4, '10': 'seq'},
+    {
+      '1': 'daemon_generation',
+      '3': 2,
+      '4': 1,
+      '5': 4,
+      '10': 'daemonGeneration'
+    },
+    {
+      '1': 'envelope',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.Envelope',
+      '10': 'envelope'
+    },
+    {
+      '1': 'session_event',
+      '3': 4,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.localipc.v1.SessionEvent',
+      '10': 'sessionEvent'
+    },
+  ],
+};
+
+/// Descriptor for `LocalEvent`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List localEventDescriptor = $convert.base64Decode(
+    'CgpMb2NhbEV2ZW50EhAKA3NlcRgBIAEoBFIDc2VxEisKEWRhZW1vbl9nZW5lcmF0aW9uGAIgAS'
+    'gEUhBkYWVtb25HZW5lcmF0aW9uEjQKCGVudmVsb3BlGAMgASgLMhgucGhvbmVicmlkZ2UudjEu'
+    'RW52ZWxvcGVSCGVudmVsb3BlEkoKDXNlc3Npb25fZXZlbnQYBCABKAsyJS5waG9uZWJyaWRnZS'
+    '5sb2NhbGlwYy52MS5TZXNzaW9uRXZlbnRSDHNlc3Npb25FdmVudA==');
+
+@$core.Deprecated('Use healthRequestDescriptor instead')
+const HealthRequest$json = {
+  '1': 'HealthRequest',
+};
+
+/// Descriptor for `HealthRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List healthRequestDescriptor =
+    $convert.base64Decode('Cg1IZWFsdGhSZXF1ZXN0');
+
+@$core.Deprecated('Use healthResponseDescriptor instead')
+const HealthResponse$json = {
+  '1': 'HealthResponse',
+  '2': [
+    {'1': 'ready', '3': 1, '4': 1, '5': 8, '10': 'ready'},
+    {
+      '1': 'daemon_generation',
+      '3': 2,
+      '4': 1,
+      '5': 4,
+      '10': 'daemonGeneration'
+    },
+    {'1': 'server_version', '3': 3, '4': 1, '5': 9, '10': 'serverVersion'},
+    {'1': 'uptime_ms', '3': 4, '4': 1, '5': 4, '10': 'uptimeMs'},
+  ],
+};
+
+/// Descriptor for `HealthResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List healthResponseDescriptor = $convert.base64Decode(
+    'Cg5IZWFsdGhSZXNwb25zZRIUCgVyZWFkeRgBIAEoCFIFcmVhZHkSKwoRZGFlbW9uX2dlbmVyYX'
+    'Rpb24YAiABKARSEGRhZW1vbkdlbmVyYXRpb24SJQoOc2VydmVyX3ZlcnNpb24YAyABKAlSDXNl'
+    'cnZlclZlcnNpb24SGwoJdXB0aW1lX21zGAQgASgEUgh1cHRpbWVNcw==');
+
+@$core.Deprecated('Use sessionEventDescriptor instead')
+const SessionEvent$json = {
+  '1': 'SessionEvent',
+  '2': [
+    {'1': 'session_id', '3': 1, '4': 1, '5': 9, '10': 'sessionId'},
+    {
+      '1': 'state',
+      '3': 2,
+      '4': 1,
+      '5': 14,
+      '6': '.phonebridge.localipc.v1.SessionState',
+      '10': 'state'
+    },
+    {'1': 'reason', '3': 3, '4': 1, '5': 9, '10': 'reason'},
+    {'1': 'error_message', '3': 4, '4': 1, '5': 9, '10': 'errorMessage'},
+  ],
+};
+
+/// Descriptor for `SessionEvent`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List sessionEventDescriptor = $convert.base64Decode(
+    'CgxTZXNzaW9uRXZlbnQSHQoKc2Vzc2lvbl9pZBgBIAEoCVIJc2Vzc2lvbklkEjsKBXN0YXRlGA'
+    'IgASgOMiUucGhvbmVicmlkZ2UubG9jYWxpcGMudjEuU2Vzc2lvblN0YXRlUgVzdGF0ZRIWCgZy'
+    'ZWFzb24YAyABKAlSBnJlYXNvbhIjCg1lcnJvcl9tZXNzYWdlGAQgASgJUgxlcnJvck1lc3NhZ2'
+    'U=');
+
+@$core.Deprecated('Use startSessionRequestDescriptor instead')
+const StartSessionRequest$json = {
+  '1': 'StartSessionRequest',
+  '2': [
+    {'1': 'device_id', '3': 1, '4': 1, '5': 9, '10': 'deviceId'},
+  ],
+};
+
+/// Descriptor for `StartSessionRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List startSessionRequestDescriptor =
+    $convert.base64Decode(
+        'ChNTdGFydFNlc3Npb25SZXF1ZXN0EhsKCWRldmljZV9pZBgBIAEoCVIIZGV2aWNlSWQ=');
+
+@$core.Deprecated('Use startSessionResponseDescriptor instead')
+const StartSessionResponse$json = {
+  '1': 'StartSessionResponse',
+  '2': [
+    {'1': 'session_id', '3': 1, '4': 1, '5': 9, '10': 'sessionId'},
+    {
+      '1': 'state',
+      '3': 2,
+      '4': 1,
+      '5': 14,
+      '6': '.phonebridge.localipc.v1.SessionState',
+      '10': 'state'
+    },
+  ],
+};
+
+/// Descriptor for `StartSessionResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List startSessionResponseDescriptor = $convert.base64Decode(
+    'ChRTdGFydFNlc3Npb25SZXNwb25zZRIdCgpzZXNzaW9uX2lkGAEgASgJUglzZXNzaW9uSWQSOw'
+    'oFc3RhdGUYAiABKA4yJS5waG9uZWJyaWRnZS5sb2NhbGlwYy52MS5TZXNzaW9uU3RhdGVSBXN0'
+    'YXRl');
+
+@$core.Deprecated('Use stopSessionRequestDescriptor instead')
+const StopSessionRequest$json = {
+  '1': 'StopSessionRequest',
+  '2': [
+    {'1': 'session_id', '3': 1, '4': 1, '5': 9, '10': 'sessionId'},
+    {'1': 'reason', '3': 2, '4': 1, '5': 9, '10': 'reason'},
+  ],
+};
+
+/// Descriptor for `StopSessionRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List stopSessionRequestDescriptor = $convert.base64Decode(
+    'ChJTdG9wU2Vzc2lvblJlcXVlc3QSHQoKc2Vzc2lvbl9pZBgBIAEoCVIJc2Vzc2lvbklkEhYKBn'
+    'JlYXNvbhgCIAEoCVIGcmVhc29u');
+
+@$core.Deprecated('Use stopSessionResponseDescriptor instead')
+const StopSessionResponse$json = {
+  '1': 'StopSessionResponse',
+  '2': [
+    {'1': 'session_id', '3': 1, '4': 1, '5': 9, '10': 'sessionId'},
+    {
+      '1': 'state',
+      '3': 2,
+      '4': 1,
+      '5': 14,
+      '6': '.phonebridge.localipc.v1.SessionState',
+      '10': 'state'
+    },
+  ],
+};
+
+/// Descriptor for `StopSessionResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List stopSessionResponseDescriptor = $convert.base64Decode(
+    'ChNTdG9wU2Vzc2lvblJlc3BvbnNlEh0KCnNlc3Npb25faWQYASABKAlSCXNlc3Npb25JZBI7Cg'
+    'VzdGF0ZRgCIAEoDjIlLnBob25lYnJpZGdlLmxvY2FsaXBjLnYxLlNlc3Npb25TdGF0ZVIFc3Rh'
+    'dGU=');
+
+@$core.Deprecated('Use getSessionStateRequestDescriptor instead')
+const GetSessionStateRequest$json = {
+  '1': 'GetSessionStateRequest',
+  '2': [
+    {'1': 'session_id', '3': 1, '4': 1, '5': 9, '10': 'sessionId'},
+  ],
+};
+
+/// Descriptor for `GetSessionStateRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List getSessionStateRequestDescriptor =
+    $convert.base64Decode(
+        'ChZHZXRTZXNzaW9uU3RhdGVSZXF1ZXN0Eh0KCnNlc3Npb25faWQYASABKAlSCXNlc3Npb25JZA'
+        '==');
+
+@$core.Deprecated('Use streamStatsDescriptor instead')
+const StreamStats$json = {
+  '1': 'StreamStats',
+  '2': [
+    {'1': 'packets', '3': 1, '4': 1, '5': 4, '10': 'packets'},
+    {'1': 'bytes_rtp', '3': 2, '4': 1, '5': 4, '10': 'bytesRtp'},
+    {'1': 'bytes_h264', '3': 3, '4': 1, '5': 4, '10': 'bytesH264'},
+    {'1': 'access_units', '3': 4, '4': 1, '5': 4, '10': 'accessUnits'},
+    {'1': 'keyframes', '3': 5, '4': 1, '5': 4, '10': 'keyframes'},
+    {'1': 'dropped_aus', '3': 6, '4': 1, '5': 3, '10': 'droppedAus'},
+  ],
+};
+
+/// Descriptor for `StreamStats`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List streamStatsDescriptor = $convert.base64Decode(
+    'CgtTdHJlYW1TdGF0cxIYCgdwYWNrZXRzGAEgASgEUgdwYWNrZXRzEhsKCWJ5dGVzX3J0cBgCIA'
+    'EoBFIIYnl0ZXNSdHASHQoKYnl0ZXNfaDI2NBgDIAEoBFIJYnl0ZXNIMjY0EiEKDGFjY2Vzc191'
+    'bml0cxgEIAEoBFILYWNjZXNzVW5pdHMSHAoJa2V5ZnJhbWVzGAUgASgEUglrZXlmcmFtZXMSHw'
+    'oLZHJvcHBlZF9hdXMYBiABKANSCmRyb3BwZWRBdXM=');
+
+@$core.Deprecated('Use getSessionStateResponseDescriptor instead')
+const GetSessionStateResponse$json = {
+  '1': 'GetSessionStateResponse',
+  '2': [
+    {'1': 'session_id', '3': 1, '4': 1, '5': 9, '10': 'sessionId'},
+    {
+      '1': 'state',
+      '3': 2,
+      '4': 1,
+      '5': 14,
+      '6': '.phonebridge.localipc.v1.SessionState',
+      '10': 'state'
+    },
+    {'1': 'device_id', '3': 3, '4': 1, '5': 9, '10': 'deviceId'},
+    {
+      '1': 'connected_duration_ms',
+      '3': 4,
+      '4': 1,
+      '5': 4,
+      '10': 'connectedDurationMs'
+    },
+    {'1': 'error_message', '3': 5, '4': 1, '5': 9, '10': 'errorMessage'},
+    {
+      '1': 'stats',
+      '3': 6,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.localipc.v1.StreamStats',
+      '10': 'stats'
+    },
+  ],
+};
+
+/// Descriptor for `GetSessionStateResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List getSessionStateResponseDescriptor = $convert.base64Decode(
+    'ChdHZXRTZXNzaW9uU3RhdGVSZXNwb25zZRIdCgpzZXNzaW9uX2lkGAEgASgJUglzZXNzaW9uSW'
+    'QSOwoFc3RhdGUYAiABKA4yJS5waG9uZWJyaWRnZS5sb2NhbGlwYy52MS5TZXNzaW9uU3RhdGVS'
+    'BXN0YXRlEhsKCWRldmljZV9pZBgDIAEoCVIIZGV2aWNlSWQSMgoVY29ubmVjdGVkX2R1cmF0aW'
+    '9uX21zGAQgASgEUhNjb25uZWN0ZWREdXJhdGlvbk1zEiMKDWVycm9yX21lc3NhZ2UYBSABKAlS'
+    'DGVycm9yTWVzc2FnZRI6CgVzdGF0cxgGIAEoCzIkLnBob25lYnJpZGdlLmxvY2FsaXBjLnYxLl'
+    'N0cmVhbVN0YXRzUgVzdGF0cw==');
+
+@$core.Deprecated('Use discoveredDeviceDescriptor instead')
+const DiscoveredDevice$json = {
+  '1': 'DiscoveredDevice',
+  '2': [
+    {'1': 'id', '3': 1, '4': 1, '5': 9, '10': 'id'},
+    {'1': 'name', '3': 2, '4': 1, '5': 9, '10': 'name'},
+    {'1': 'model', '3': 3, '4': 1, '5': 9, '10': 'model'},
+    {'1': 'version', '3': 4, '4': 1, '5': 9, '10': 'version'},
+    {'1': 'capabilities', '3': 5, '4': 3, '5': 9, '10': 'capabilities'},
+    {'1': 'state', '3': 6, '4': 1, '5': 9, '10': 'state'},
+    {'1': 'address', '3': 7, '4': 1, '5': 9, '10': 'address'},
+    {'1': 'port', '3': 8, '4': 1, '5': 13, '10': 'port'},
+    {'1': 'is_stale', '3': 9, '4': 1, '5': 8, '10': 'isStale'},
+  ],
+};
+
+/// Descriptor for `DiscoveredDevice`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List discoveredDeviceDescriptor = $convert.base64Decode(
+    'ChBEaXNjb3ZlcmVkRGV2aWNlEg4KAmlkGAEgASgJUgJpZBISCgRuYW1lGAIgASgJUgRuYW1lEh'
+    'QKBW1vZGVsGAMgASgJUgVtb2RlbBIYCgd2ZXJzaW9uGAQgASgJUgd2ZXJzaW9uEiIKDGNhcGFi'
+    'aWxpdGllcxgFIAMoCVIMY2FwYWJpbGl0aWVzEhQKBXN0YXRlGAYgASgJUgVzdGF0ZRIYCgdhZG'
+    'RyZXNzGAcgASgJUgdhZGRyZXNzEhIKBHBvcnQYCCABKA1SBHBvcnQSGQoIaXNfc3RhbGUYCSAB'
+    'KAhSB2lzU3RhbGU=');
+
+@$core.Deprecated('Use listDevicesRequestDescriptor instead')
+const ListDevicesRequest$json = {
+  '1': 'ListDevicesRequest',
+};
+
+/// Descriptor for `ListDevicesRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listDevicesRequestDescriptor =
+    $convert.base64Decode('ChJMaXN0RGV2aWNlc1JlcXVlc3Q=');
+
+@$core.Deprecated('Use listDevicesResponseDescriptor instead')
+const ListDevicesResponse$json = {
+  '1': 'ListDevicesResponse',
+  '2': [
+    {
+      '1': 'devices',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.phonebridge.localipc.v1.DiscoveredDevice',
+      '10': 'devices'
+    },
+  ],
+};
+
+/// Descriptor for `ListDevicesResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listDevicesResponseDescriptor = $convert.base64Decode(
+    'ChNMaXN0RGV2aWNlc1Jlc3BvbnNlEkMKB2RldmljZXMYASADKAsyKS5waG9uZWJyaWRnZS5sb2'
+    'NhbGlwYy52MS5EaXNjb3ZlcmVkRGV2aWNlUgdkZXZpY2Vz');
+
+@$core.Deprecated('Use pairDeviceRequestDescriptor instead')
+const PairDeviceRequest$json = {
+  '1': 'PairDeviceRequest',
+  '2': [
+    {'1': 'device_id', '3': 1, '4': 1, '5': 9, '10': 'deviceId'},
+  ],
+};
+
+/// Descriptor for `PairDeviceRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List pairDeviceRequestDescriptor = $convert.base64Decode(
+    'ChFQYWlyRGV2aWNlUmVxdWVzdBIbCglkZXZpY2VfaWQYASABKAlSCGRldmljZUlk');
+
+@$core.Deprecated('Use pairDeviceResponseDescriptor instead')
+const PairDeviceResponse$json = {
+  '1': 'PairDeviceResponse',
+  '2': [
+    {'1': 'device_id', '3': 1, '4': 1, '5': 9, '10': 'deviceId'},
+    {'1': 'display_name', '3': 2, '4': 1, '5': 9, '10': 'displayName'},
+    {'1': 'sas', '3': 3, '4': 1, '5': 9, '10': 'sas'},
+    {
+      '1': 'pending_confirmation',
+      '3': 4,
+      '4': 1,
+      '5': 8,
+      '10': 'pendingConfirmation'
+    },
+  ],
+};
+
+/// Descriptor for `PairDeviceResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List pairDeviceResponseDescriptor = $convert.base64Decode(
+    'ChJQYWlyRGV2aWNlUmVzcG9uc2USGwoJZGV2aWNlX2lkGAEgASgJUghkZXZpY2VJZBIhCgxkaX'
+    'NwbGF5X25hbWUYAiABKAlSC2Rpc3BsYXlOYW1lEhAKA3NhcxgDIAEoCVIDc2FzEjEKFHBlbmRp'
+    'bmdfY29uZmlybWF0aW9uGAQgASgIUhNwZW5kaW5nQ29uZmlybWF0aW9u');
+
+@$core.Deprecated('Use confirmPairingRequestDescriptor instead')
+const ConfirmPairingRequest$json = {
+  '1': 'ConfirmPairingRequest',
+  '2': [
+    {'1': 'device_id', '3': 1, '4': 1, '5': 9, '10': 'deviceId'},
+    {'1': 'user_confirmed', '3': 2, '4': 1, '5': 8, '10': 'userConfirmed'},
+  ],
+};
+
+/// Descriptor for `ConfirmPairingRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List confirmPairingRequestDescriptor = $convert.base64Decode(
+    'ChVDb25maXJtUGFpcmluZ1JlcXVlc3QSGwoJZGV2aWNlX2lkGAEgASgJUghkZXZpY2VJZBIlCg'
+    '51c2VyX2NvbmZpcm1lZBgCIAEoCFINdXNlckNvbmZpcm1lZA==');
+
+@$core.Deprecated('Use confirmPairingResponseDescriptor instead')
+const ConfirmPairingResponse$json = {
+  '1': 'ConfirmPairingResponse',
+  '2': [
+    {'1': 'device_id', '3': 1, '4': 1, '5': 9, '10': 'deviceId'},
+    {'1': 'success', '3': 2, '4': 1, '5': 8, '10': 'success'},
+    {'1': 'error_message', '3': 3, '4': 1, '5': 9, '10': 'errorMessage'},
+  ],
+};
+
+/// Descriptor for `ConfirmPairingResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List confirmPairingResponseDescriptor = $convert.base64Decode(
+    'ChZDb25maXJtUGFpcmluZ1Jlc3BvbnNlEhsKCWRldmljZV9pZBgBIAEoCVIIZGV2aWNlSWQSGA'
+    'oHc3VjY2VzcxgCIAEoCFIHc3VjY2VzcxIjCg1lcnJvcl9tZXNzYWdlGAMgASgJUgxlcnJvck1l'
+    'c3NhZ2U=');
+
+@$core.Deprecated('Use trustedDeviceDescriptor instead')
+const TrustedDevice$json = {
+  '1': 'TrustedDevice',
+  '2': [
+    {'1': 'device_id', '3': 1, '4': 1, '5': 9, '10': 'deviceId'},
+    {'1': 'display_name', '3': 2, '4': 1, '5': 9, '10': 'displayName'},
+    {'1': 'platform', '3': 3, '4': 1, '5': 9, '10': 'platform'},
+    {'1': 'public_key', '3': 4, '4': 1, '5': 12, '10': 'publicKey'},
+    {'1': 'paired_at_ms', '3': 5, '4': 1, '5': 3, '10': 'pairedAtMs'},
+    {'1': 'last_seen_ms', '3': 6, '4': 1, '5': 3, '10': 'lastSeenMs'},
+    {'1': 'revoked', '3': 7, '4': 1, '5': 8, '10': 'revoked'},
+  ],
+};
+
+/// Descriptor for `TrustedDevice`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List trustedDeviceDescriptor = $convert.base64Decode(
+    'Cg1UcnVzdGVkRGV2aWNlEhsKCWRldmljZV9pZBgBIAEoCVIIZGV2aWNlSWQSIQoMZGlzcGxheV'
+    '9uYW1lGAIgASgJUgtkaXNwbGF5TmFtZRIaCghwbGF0Zm9ybRgDIAEoCVIIcGxhdGZvcm0SHQoK'
+    'cHVibGljX2tleRgEIAEoDFIJcHVibGljS2V5EiAKDHBhaXJlZF9hdF9tcxgFIAEoA1IKcGFpcm'
+    'VkQXRNcxIgCgxsYXN0X3NlZW5fbXMYBiABKANSCmxhc3RTZWVuTXMSGAoHcmV2b2tlZBgHIAEo'
+    'CFIHcmV2b2tlZA==');
+
+@$core.Deprecated('Use listTrustedDevicesRequestDescriptor instead')
+const ListTrustedDevicesRequest$json = {
+  '1': 'ListTrustedDevicesRequest',
+};
+
+/// Descriptor for `ListTrustedDevicesRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listTrustedDevicesRequestDescriptor =
+    $convert.base64Decode('ChlMaXN0VHJ1c3RlZERldmljZXNSZXF1ZXN0');
+
+@$core.Deprecated('Use listTrustedDevicesResponseDescriptor instead')
+const ListTrustedDevicesResponse$json = {
+  '1': 'ListTrustedDevicesResponse',
+  '2': [
+    {
+      '1': 'devices',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.phonebridge.localipc.v1.TrustedDevice',
+      '10': 'devices'
+    },
+  ],
+};
+
+/// Descriptor for `ListTrustedDevicesResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listTrustedDevicesResponseDescriptor =
+    $convert.base64Decode(
+        'ChpMaXN0VHJ1c3RlZERldmljZXNSZXNwb25zZRJACgdkZXZpY2VzGAEgAygLMiYucGhvbmVicm'
+        'lkZ2UubG9jYWxpcGMudjEuVHJ1c3RlZERldmljZVIHZGV2aWNlcw==');
+
+@$core.Deprecated('Use revokeDeviceRequestDescriptor instead')
+const RevokeDeviceRequest$json = {
+  '1': 'RevokeDeviceRequest',
+  '2': [
+    {'1': 'device_id', '3': 1, '4': 1, '5': 9, '10': 'deviceId'},
+  ],
+};
+
+/// Descriptor for `RevokeDeviceRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List revokeDeviceRequestDescriptor =
+    $convert.base64Decode(
+        'ChNSZXZva2VEZXZpY2VSZXF1ZXN0EhsKCWRldmljZV9pZBgBIAEoCVIIZGV2aWNlSWQ=');
+
+@$core.Deprecated('Use revokeDeviceResponseDescriptor instead')
+const RevokeDeviceResponse$json = {
+  '1': 'RevokeDeviceResponse',
+  '2': [
+    {'1': 'device_id', '3': 1, '4': 1, '5': 9, '10': 'deviceId'},
+    {'1': 'success', '3': 2, '4': 1, '5': 8, '10': 'success'},
+  ],
+};
+
+/// Descriptor for `RevokeDeviceResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List revokeDeviceResponseDescriptor = $convert.base64Decode(
+    'ChRSZXZva2VEZXZpY2VSZXNwb25zZRIbCglkZXZpY2VfaWQYASABKAlSCGRldmljZUlkEhgKB3'
+    'N1Y2Nlc3MYAiABKAhSB3N1Y2Nlc3M=');

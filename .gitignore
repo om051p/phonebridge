@@ -22,6 +22,16 @@ android/local.properties
 *.keystore
 *.jks
 
+# Android native artifacts — DEC-019 c-shared JNI library (built by
+# `make -C core android-lib` into the AGP source set, 14–15 MB per ABI)
+# plus cgo's generated header. Regenerate from core/cmd/android; never commit.
+android/app/src/main/jniLibs/**/*.so
+android/app/src/main/jniLibs/**/*.h
+# AGP/CMake native build cache
+android/app/.cxx/
+# Flutter-generated plugin registrant (regenerated on pub get / build)
+android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+
 # Buf / protoc
 proto/.buf/
 
@@ -34,6 +44,10 @@ Thumbs.db
 .vscode/
 *.swp
 *~
+
+# Local agent tooling state (machine-local, not product sources)
+.agents/
+.freebuff/
 
 # Spikes — build outputs and regenerable per-run evidence.
 # Spike trees are self-contained; rebuild with the spike Makefile

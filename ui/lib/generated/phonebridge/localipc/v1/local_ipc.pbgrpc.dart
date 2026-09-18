@@ -1,0 +1,410 @@
+// This is a generated file - do not edit.
+//
+// Generated from phonebridge/localipc/v1/local_ipc.proto.
+
+// @dart = 3.3
+
+// ignore_for_file: annotate_overrides, camel_case_types, comment_references
+// ignore_for_file: constant_identifier_names
+// ignore_for_file: curly_braces_in_flow_control_structures
+// ignore_for_file: deprecated_member_use_from_same_package, library_prefixes
+// ignore_for_file: non_constant_identifier_names, prefer_relative_imports
+
+import 'dart:async' as $async;
+import 'dart:core' as $core;
+
+import 'package:grpc/service_api.dart' as $grpc;
+import 'package:protobuf/protobuf.dart' as $pb;
+
+import 'local_ipc.pb.dart' as $0;
+
+export 'local_ipc.pb.dart';
+
+/// ---------------------------------------------------------------------------
+/// LocalEngineService — the UI-facing engine service on the local Unix socket.
+/// ---------------------------------------------------------------------------
+@$pb.GrpcServiceName('phonebridge.localipc.v1.LocalEngineService')
+class LocalEngineServiceClient extends $grpc.Client {
+  /// The hostname for this service.
+  static const $core.String defaultHost = '';
+
+  /// OAuth scopes needed for the client.
+  static const $core.List<$core.String> oauthScopes = [
+    '',
+  ];
+
+  LocalEngineServiceClient(super.channel, {super.options, super.interceptors});
+
+  /// Handshake negotiates the local protocol version and returns daemon
+  /// identity. Must be the first call on a new connection.
+  $grpc.ResponseFuture<$0.HandshakeResponse> handshake(
+    $0.HandshakeRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$handshake, request, options: options);
+  }
+
+  /// Ping is a cheap liveness/reconnect probe.
+  $grpc.ResponseFuture<$0.PingResponse> ping(
+    $0.PingRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$ping, request, options: options);
+  }
+
+  /// StreamEvents pushes relayed device-protocol messages to the UI.
+  /// Server-streaming; the daemon ends the stream cleanly on shutdown, and
+  /// the client re-subscribes with backoff after any stream end.
+  $grpc.ResponseStream<$0.StreamEventsResponse> streamEvents(
+    $0.StreamEventsRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createStreamingCall(
+        _$streamEvents, $async.Stream.fromIterable([request]),
+        options: options);
+  }
+
+  /// Health reports daemon readiness without opening an event stream.
+  $grpc.ResponseFuture<$0.HealthResponse> health(
+    $0.HealthRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$health, request, options: options);
+  }
+
+  /// StartSession initiates a new connection session with a discovered phone.
+  $grpc.ResponseFuture<$0.StartSessionResponse> startSession(
+    $0.StartSessionRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$startSession, request, options: options);
+  }
+
+  /// StopSession cleanly terminates an active session.
+  $grpc.ResponseFuture<$0.StopSessionResponse> stopSession(
+    $0.StopSessionRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$stopSession, request, options: options);
+  }
+
+  /// GetSessionState queries the current phase, device, and metrics of a session.
+  $grpc.ResponseFuture<$0.GetSessionStateResponse> getSessionState(
+    $0.GetSessionStateRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$getSessionState, request, options: options);
+  }
+
+  /// ListDevices returns all currently discovered LAN devices from mDNS.
+  $grpc.ResponseFuture<$0.ListDevicesResponse> listDevices(
+    $0.ListDevicesRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$listDevices, request, options: options);
+  }
+
+  /// PairDevice initiates pairing with a discovered LAN device.
+  $grpc.ResponseFuture<$0.PairDeviceResponse> pairDevice(
+    $0.PairDeviceRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$pairDevice, request, options: options);
+  }
+
+  /// ConfirmPairing completes pairing by confirming the SAS.
+  $grpc.ResponseFuture<$0.ConfirmPairingResponse> confirmPairing(
+    $0.ConfirmPairingRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$confirmPairing, request, options: options);
+  }
+
+  /// ListTrustedDevices returns all trusted/paired devices.
+  $grpc.ResponseFuture<$0.ListTrustedDevicesResponse> listTrustedDevices(
+    $0.ListTrustedDevicesRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$listTrustedDevices, request, options: options);
+  }
+
+  /// RevokeDevice revokes trust for a previously paired device.
+  $grpc.ResponseFuture<$0.RevokeDeviceResponse> revokeDevice(
+    $0.RevokeDeviceRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$revokeDevice, request, options: options);
+  }
+
+  // method descriptors
+
+  static final _$handshake =
+      $grpc.ClientMethod<$0.HandshakeRequest, $0.HandshakeResponse>(
+          '/phonebridge.localipc.v1.LocalEngineService/Handshake',
+          ($0.HandshakeRequest value) => value.writeToBuffer(),
+          $0.HandshakeResponse.fromBuffer);
+  static final _$ping = $grpc.ClientMethod<$0.PingRequest, $0.PingResponse>(
+      '/phonebridge.localipc.v1.LocalEngineService/Ping',
+      ($0.PingRequest value) => value.writeToBuffer(),
+      $0.PingResponse.fromBuffer);
+  static final _$streamEvents =
+      $grpc.ClientMethod<$0.StreamEventsRequest, $0.StreamEventsResponse>(
+          '/phonebridge.localipc.v1.LocalEngineService/StreamEvents',
+          ($0.StreamEventsRequest value) => value.writeToBuffer(),
+          $0.StreamEventsResponse.fromBuffer);
+  static final _$health =
+      $grpc.ClientMethod<$0.HealthRequest, $0.HealthResponse>(
+          '/phonebridge.localipc.v1.LocalEngineService/Health',
+          ($0.HealthRequest value) => value.writeToBuffer(),
+          $0.HealthResponse.fromBuffer);
+  static final _$startSession =
+      $grpc.ClientMethod<$0.StartSessionRequest, $0.StartSessionResponse>(
+          '/phonebridge.localipc.v1.LocalEngineService/StartSession',
+          ($0.StartSessionRequest value) => value.writeToBuffer(),
+          $0.StartSessionResponse.fromBuffer);
+  static final _$stopSession =
+      $grpc.ClientMethod<$0.StopSessionRequest, $0.StopSessionResponse>(
+          '/phonebridge.localipc.v1.LocalEngineService/StopSession',
+          ($0.StopSessionRequest value) => value.writeToBuffer(),
+          $0.StopSessionResponse.fromBuffer);
+  static final _$getSessionState =
+      $grpc.ClientMethod<$0.GetSessionStateRequest, $0.GetSessionStateResponse>(
+          '/phonebridge.localipc.v1.LocalEngineService/GetSessionState',
+          ($0.GetSessionStateRequest value) => value.writeToBuffer(),
+          $0.GetSessionStateResponse.fromBuffer);
+  static final _$listDevices =
+      $grpc.ClientMethod<$0.ListDevicesRequest, $0.ListDevicesResponse>(
+          '/phonebridge.localipc.v1.LocalEngineService/ListDevices',
+          ($0.ListDevicesRequest value) => value.writeToBuffer(),
+          $0.ListDevicesResponse.fromBuffer);
+  static final _$pairDevice =
+      $grpc.ClientMethod<$0.PairDeviceRequest, $0.PairDeviceResponse>(
+          '/phonebridge.localipc.v1.LocalEngineService/PairDevice',
+          ($0.PairDeviceRequest value) => value.writeToBuffer(),
+          $0.PairDeviceResponse.fromBuffer);
+  static final _$confirmPairing =
+      $grpc.ClientMethod<$0.ConfirmPairingRequest, $0.ConfirmPairingResponse>(
+          '/phonebridge.localipc.v1.LocalEngineService/ConfirmPairing',
+          ($0.ConfirmPairingRequest value) => value.writeToBuffer(),
+          $0.ConfirmPairingResponse.fromBuffer);
+  static final _$listTrustedDevices = $grpc.ClientMethod<
+          $0.ListTrustedDevicesRequest, $0.ListTrustedDevicesResponse>(
+      '/phonebridge.localipc.v1.LocalEngineService/ListTrustedDevices',
+      ($0.ListTrustedDevicesRequest value) => value.writeToBuffer(),
+      $0.ListTrustedDevicesResponse.fromBuffer);
+  static final _$revokeDevice =
+      $grpc.ClientMethod<$0.RevokeDeviceRequest, $0.RevokeDeviceResponse>(
+          '/phonebridge.localipc.v1.LocalEngineService/RevokeDevice',
+          ($0.RevokeDeviceRequest value) => value.writeToBuffer(),
+          $0.RevokeDeviceResponse.fromBuffer);
+}
+
+@$pb.GrpcServiceName('phonebridge.localipc.v1.LocalEngineService')
+abstract class LocalEngineServiceBase extends $grpc.Service {
+  $core.String get $name => 'phonebridge.localipc.v1.LocalEngineService';
+
+  LocalEngineServiceBase() {
+    $addMethod($grpc.ServiceMethod<$0.HandshakeRequest, $0.HandshakeResponse>(
+        'Handshake',
+        handshake_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) => $0.HandshakeRequest.fromBuffer(value),
+        ($0.HandshakeResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.PingRequest, $0.PingResponse>(
+        'Ping',
+        ping_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) => $0.PingRequest.fromBuffer(value),
+        ($0.PingResponse value) => value.writeToBuffer()));
+    $addMethod(
+        $grpc.ServiceMethod<$0.StreamEventsRequest, $0.StreamEventsResponse>(
+            'StreamEvents',
+            streamEvents_Pre,
+            false,
+            true,
+            ($core.List<$core.int> value) =>
+                $0.StreamEventsRequest.fromBuffer(value),
+            ($0.StreamEventsResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.HealthRequest, $0.HealthResponse>(
+        'Health',
+        health_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) => $0.HealthRequest.fromBuffer(value),
+        ($0.HealthResponse value) => value.writeToBuffer()));
+    $addMethod(
+        $grpc.ServiceMethod<$0.StartSessionRequest, $0.StartSessionResponse>(
+            'StartSession',
+            startSession_Pre,
+            false,
+            false,
+            ($core.List<$core.int> value) =>
+                $0.StartSessionRequest.fromBuffer(value),
+            ($0.StartSessionResponse value) => value.writeToBuffer()));
+    $addMethod(
+        $grpc.ServiceMethod<$0.StopSessionRequest, $0.StopSessionResponse>(
+            'StopSession',
+            stopSession_Pre,
+            false,
+            false,
+            ($core.List<$core.int> value) =>
+                $0.StopSessionRequest.fromBuffer(value),
+            ($0.StopSessionResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.GetSessionStateRequest,
+            $0.GetSessionStateResponse>(
+        'GetSessionState',
+        getSessionState_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) =>
+            $0.GetSessionStateRequest.fromBuffer(value),
+        ($0.GetSessionStateResponse value) => value.writeToBuffer()));
+    $addMethod(
+        $grpc.ServiceMethod<$0.ListDevicesRequest, $0.ListDevicesResponse>(
+            'ListDevices',
+            listDevices_Pre,
+            false,
+            false,
+            ($core.List<$core.int> value) =>
+                $0.ListDevicesRequest.fromBuffer(value),
+            ($0.ListDevicesResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.PairDeviceRequest, $0.PairDeviceResponse>(
+        'PairDevice',
+        pairDevice_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) => $0.PairDeviceRequest.fromBuffer(value),
+        ($0.PairDeviceResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.ConfirmPairingRequest,
+            $0.ConfirmPairingResponse>(
+        'ConfirmPairing',
+        confirmPairing_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) =>
+            $0.ConfirmPairingRequest.fromBuffer(value),
+        ($0.ConfirmPairingResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.ListTrustedDevicesRequest,
+            $0.ListTrustedDevicesResponse>(
+        'ListTrustedDevices',
+        listTrustedDevices_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) =>
+            $0.ListTrustedDevicesRequest.fromBuffer(value),
+        ($0.ListTrustedDevicesResponse value) => value.writeToBuffer()));
+    $addMethod(
+        $grpc.ServiceMethod<$0.RevokeDeviceRequest, $0.RevokeDeviceResponse>(
+            'RevokeDevice',
+            revokeDevice_Pre,
+            false,
+            false,
+            ($core.List<$core.int> value) =>
+                $0.RevokeDeviceRequest.fromBuffer(value),
+            ($0.RevokeDeviceResponse value) => value.writeToBuffer()));
+  }
+
+  $async.Future<$0.HandshakeResponse> handshake_Pre($grpc.ServiceCall $call,
+      $async.Future<$0.HandshakeRequest> $request) async {
+    return handshake($call, await $request);
+  }
+
+  $async.Future<$0.HandshakeResponse> handshake(
+      $grpc.ServiceCall call, $0.HandshakeRequest request);
+
+  $async.Future<$0.PingResponse> ping_Pre(
+      $grpc.ServiceCall $call, $async.Future<$0.PingRequest> $request) async {
+    return ping($call, await $request);
+  }
+
+  $async.Future<$0.PingResponse> ping(
+      $grpc.ServiceCall call, $0.PingRequest request);
+
+  $async.Stream<$0.StreamEventsResponse> streamEvents_Pre(
+      $grpc.ServiceCall $call,
+      $async.Future<$0.StreamEventsRequest> $request) async* {
+    yield* streamEvents($call, await $request);
+  }
+
+  $async.Stream<$0.StreamEventsResponse> streamEvents(
+      $grpc.ServiceCall call, $0.StreamEventsRequest request);
+
+  $async.Future<$0.HealthResponse> health_Pre(
+      $grpc.ServiceCall $call, $async.Future<$0.HealthRequest> $request) async {
+    return health($call, await $request);
+  }
+
+  $async.Future<$0.HealthResponse> health(
+      $grpc.ServiceCall call, $0.HealthRequest request);
+
+  $async.Future<$0.StartSessionResponse> startSession_Pre(
+      $grpc.ServiceCall $call,
+      $async.Future<$0.StartSessionRequest> $request) async {
+    return startSession($call, await $request);
+  }
+
+  $async.Future<$0.StartSessionResponse> startSession(
+      $grpc.ServiceCall call, $0.StartSessionRequest request);
+
+  $async.Future<$0.StopSessionResponse> stopSession_Pre($grpc.ServiceCall $call,
+      $async.Future<$0.StopSessionRequest> $request) async {
+    return stopSession($call, await $request);
+  }
+
+  $async.Future<$0.StopSessionResponse> stopSession(
+      $grpc.ServiceCall call, $0.StopSessionRequest request);
+
+  $async.Future<$0.GetSessionStateResponse> getSessionState_Pre(
+      $grpc.ServiceCall $call,
+      $async.Future<$0.GetSessionStateRequest> $request) async {
+    return getSessionState($call, await $request);
+  }
+
+  $async.Future<$0.GetSessionStateResponse> getSessionState(
+      $grpc.ServiceCall call, $0.GetSessionStateRequest request);
+
+  $async.Future<$0.ListDevicesResponse> listDevices_Pre($grpc.ServiceCall $call,
+      $async.Future<$0.ListDevicesRequest> $request) async {
+    return listDevices($call, await $request);
+  }
+
+  $async.Future<$0.ListDevicesResponse> listDevices(
+      $grpc.ServiceCall call, $0.ListDevicesRequest request);
+
+  $async.Future<$0.PairDeviceResponse> pairDevice_Pre($grpc.ServiceCall $call,
+      $async.Future<$0.PairDeviceRequest> $request) async {
+    return pairDevice($call, await $request);
+  }
+
+  $async.Future<$0.PairDeviceResponse> pairDevice(
+      $grpc.ServiceCall call, $0.PairDeviceRequest request);
+
+  $async.Future<$0.ConfirmPairingResponse> confirmPairing_Pre(
+      $grpc.ServiceCall $call,
+      $async.Future<$0.ConfirmPairingRequest> $request) async {
+    return confirmPairing($call, await $request);
+  }
+
+  $async.Future<$0.ConfirmPairingResponse> confirmPairing(
+      $grpc.ServiceCall call, $0.ConfirmPairingRequest request);
+
+  $async.Future<$0.ListTrustedDevicesResponse> listTrustedDevices_Pre(
+      $grpc.ServiceCall $call,
+      $async.Future<$0.ListTrustedDevicesRequest> $request) async {
+    return listTrustedDevices($call, await $request);
+  }
+
+  $async.Future<$0.ListTrustedDevicesResponse> listTrustedDevices(
+      $grpc.ServiceCall call, $0.ListTrustedDevicesRequest request);
+
+  $async.Future<$0.RevokeDeviceResponse> revokeDevice_Pre(
+      $grpc.ServiceCall $call,
+      $async.Future<$0.RevokeDeviceRequest> $request) async {
+    return revokeDevice($call, await $request);
+  }
+
+  $async.Future<$0.RevokeDeviceResponse> revokeDevice(
+      $grpc.ServiceCall call, $0.RevokeDeviceRequest request);
+}

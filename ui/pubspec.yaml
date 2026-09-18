@@ -10,8 +10,9 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.6
-  # protobuf: ^3.1.0  # added when Dart generation is wired (see proto/README.md)
-  # grpc: ^3.2.4      # added when local IPC uses gRPC
+  protobuf: ^6.1.0
+  grpc: ^5.1.0
+  fixnum: ^1.1.1
 
 dev_dependencies:
   flutter_test:

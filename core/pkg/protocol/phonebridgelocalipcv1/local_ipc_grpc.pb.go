@@ -76,10 +76,18 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	LocalEngineService_Handshake_FullMethodName    = "/phonebridge.localipc.v1.LocalEngineService/Handshake"
-	LocalEngineService_Ping_FullMethodName         = "/phonebridge.localipc.v1.LocalEngineService/Ping"
-	LocalEngineService_StreamEvents_FullMethodName = "/phonebridge.localipc.v1.LocalEngineService/StreamEvents"
-	LocalEngineService_Health_FullMethodName       = "/phonebridge.localipc.v1.LocalEngineService/Health"
+	LocalEngineService_Handshake_FullMethodName          = "/phonebridge.localipc.v1.LocalEngineService/Handshake"
+	LocalEngineService_Ping_FullMethodName               = "/phonebridge.localipc.v1.LocalEngineService/Ping"
+	LocalEngineService_StreamEvents_FullMethodName       = "/phonebridge.localipc.v1.LocalEngineService/StreamEvents"
+	LocalEngineService_Health_FullMethodName             = "/phonebridge.localipc.v1.LocalEngineService/Health"
+	LocalEngineService_StartSession_FullMethodName       = "/phonebridge.localipc.v1.LocalEngineService/StartSession"
+	LocalEngineService_StopSession_FullMethodName        = "/phonebridge.localipc.v1.LocalEngineService/StopSession"
+	LocalEngineService_GetSessionState_FullMethodName    = "/phonebridge.localipc.v1.LocalEngineService/GetSessionState"
+	LocalEngineService_ListDevices_FullMethodName        = "/phonebridge.localipc.v1.LocalEngineService/ListDevices"
+	LocalEngineService_PairDevice_FullMethodName         = "/phonebridge.localipc.v1.LocalEngineService/PairDevice"
+	LocalEngineService_ConfirmPairing_FullMethodName     = "/phonebridge.localipc.v1.LocalEngineService/ConfirmPairing"
+	LocalEngineService_ListTrustedDevices_FullMethodName = "/phonebridge.localipc.v1.LocalEngineService/ListTrustedDevices"
+	LocalEngineService_RevokeDevice_FullMethodName       = "/phonebridge.localipc.v1.LocalEngineService/RevokeDevice"
 )
 
 // LocalEngineServiceClient is the client API for LocalEngineService service.
@@ -101,6 +109,22 @@ type LocalEngineServiceClient interface {
 	StreamEvents(ctx context.Context, in *StreamEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamEventsResponse], error)
 	// Health reports daemon readiness without opening an event stream.
 	Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*HealthResponse, error)
+	// StartSession initiates a new connection session with a discovered phone.
+	StartSession(ctx context.Context, in *StartSessionRequest, opts ...grpc.CallOption) (*StartSessionResponse, error)
+	// StopSession cleanly terminates an active session.
+	StopSession(ctx context.Context, in *StopSessionRequest, opts ...grpc.CallOption) (*StopSessionResponse, error)
+	// GetSessionState queries the current phase, device, and metrics of a session.
+	GetSessionState(ctx context.Context, in *GetSessionStateRequest, opts ...grpc.CallOption) (*GetSessionStateResponse, error)
+	// ListDevices returns all currently discovered LAN devices from mDNS.
+	ListDevices(ctx context.Context, in *ListDevicesRequest, opts ...grpc.CallOption) (*ListDevicesResponse, error)
+	// PairDevice initiates pairing with a discovered LAN device.
+	PairDevice(ctx context.Context, in *PairDeviceRequest, opts ...grpc.CallOption) (*PairDeviceResponse, error)
+	// ConfirmPairing completes pairing by confirming the SAS.
+	ConfirmPairing(ctx context.Context, in *ConfirmPairingRequest, opts ...grpc.CallOption) (*ConfirmPairingResponse, error)
+	// ListTrustedDevices returns all trusted/paired devices.
+	ListTrustedDevices(ctx context.Context, in *ListTrustedDevicesRequest, opts ...grpc.CallOption) (*ListTrustedDevicesResponse, error)
+	// RevokeDevice revokes trust for a previously paired device.
+	RevokeDevice(ctx context.Context, in *RevokeDeviceRequest, opts ...grpc.CallOption) (*RevokeDeviceResponse, error)
 }
 
 type localEngineServiceClient struct {
@@ -160,6 +184,86 @@ func (c *localEngineServiceClient) Health(ctx context.Context, in *HealthRequest
 	return out, nil
 }
 
+func (c *localEngineServiceClient) StartSession(ctx context.Context, in *StartSessionRequest, opts ...grpc.CallOption) (*StartSessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StartSessionResponse)
+	err := c.cc.Invoke(ctx, LocalEngineService_StartSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *localEngineServiceClient) StopSession(ctx context.Context, in *StopSessionRequest, opts ...grpc.CallOption) (*StopSessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StopSessionResponse)
+	err := c.cc.Invoke(ctx, LocalEngineService_StopSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *localEngineServiceClient) GetSessionState(ctx context.Context, in *GetSessionStateRequest, opts ...grpc.CallOption) (*GetSessionStateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetSessionStateResponse)
+	err := c.cc.Invoke(ctx, LocalEngineService_GetSessionState_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *localEngineServiceClient) ListDevices(ctx context.Context, in *ListDevicesRequest, opts ...grpc.CallOption) (*ListDevicesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListDevicesResponse)
+	err := c.cc.Invoke(ctx, LocalEngineService_ListDevices_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *localEngineServiceClient) PairDevice(ctx context.Context, in *PairDeviceRequest, opts ...grpc.CallOption) (*PairDeviceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PairDeviceResponse)
+	err := c.cc.Invoke(ctx, LocalEngineService_PairDevice_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *localEngineServiceClient) ConfirmPairing(ctx context.Context, in *ConfirmPairingRequest, opts ...grpc.CallOption) (*ConfirmPairingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ConfirmPairingResponse)
+	err := c.cc.Invoke(ctx, LocalEngineService_ConfirmPairing_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *localEngineServiceClient) ListTrustedDevices(ctx context.Context, in *ListTrustedDevicesRequest, opts ...grpc.CallOption) (*ListTrustedDevicesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListTrustedDevicesResponse)
+	err := c.cc.Invoke(ctx, LocalEngineService_ListTrustedDevices_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *localEngineServiceClient) RevokeDevice(ctx context.Context, in *RevokeDeviceRequest, opts ...grpc.CallOption) (*RevokeDeviceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RevokeDeviceResponse)
+	err := c.cc.Invoke(ctx, LocalEngineService_RevokeDevice_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LocalEngineServiceServer is the server API for LocalEngineService service.
 // All implementations should embed UnimplementedLocalEngineServiceServer
 // for forward compatibility.
@@ -179,6 +283,22 @@ type LocalEngineServiceServer interface {
 	StreamEvents(*StreamEventsRequest, grpc.ServerStreamingServer[StreamEventsResponse]) error
 	// Health reports daemon readiness without opening an event stream.
 	Health(context.Context, *HealthRequest) (*HealthResponse, error)
+	// StartSession initiates a new connection session with a discovered phone.
+	StartSession(context.Context, *StartSessionRequest) (*StartSessionResponse, error)
+	// StopSession cleanly terminates an active session.
+	StopSession(context.Context, *StopSessionRequest) (*StopSessionResponse, error)
+	// GetSessionState queries the current phase, device, and metrics of a session.
+	GetSessionState(context.Context, *GetSessionStateRequest) (*GetSessionStateResponse, error)
+	// ListDevices returns all currently discovered LAN devices from mDNS.
+	ListDevices(context.Context, *ListDevicesRequest) (*ListDevicesResponse, error)
+	// PairDevice initiates pairing with a discovered LAN device.
+	PairDevice(context.Context, *PairDeviceRequest) (*PairDeviceResponse, error)
+	// ConfirmPairing completes pairing by confirming the SAS.
+	ConfirmPairing(context.Context, *ConfirmPairingRequest) (*ConfirmPairingResponse, error)
+	// ListTrustedDevices returns all trusted/paired devices.
+	ListTrustedDevices(context.Context, *ListTrustedDevicesRequest) (*ListTrustedDevicesResponse, error)
+	// RevokeDevice revokes trust for a previously paired device.
+	RevokeDevice(context.Context, *RevokeDeviceRequest) (*RevokeDeviceResponse, error)
 }
 
 // UnimplementedLocalEngineServiceServer should be embedded to have
@@ -199,6 +319,30 @@ func (UnimplementedLocalEngineServiceServer) StreamEvents(*StreamEventsRequest, 
 }
 func (UnimplementedLocalEngineServiceServer) Health(context.Context, *HealthRequest) (*HealthResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Health not implemented")
+}
+func (UnimplementedLocalEngineServiceServer) StartSession(context.Context, *StartSessionRequest) (*StartSessionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StartSession not implemented")
+}
+func (UnimplementedLocalEngineServiceServer) StopSession(context.Context, *StopSessionRequest) (*StopSessionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StopSession not implemented")
+}
+func (UnimplementedLocalEngineServiceServer) GetSessionState(context.Context, *GetSessionStateRequest) (*GetSessionStateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetSessionState not implemented")
+}
+func (UnimplementedLocalEngineServiceServer) ListDevices(context.Context, *ListDevicesRequest) (*ListDevicesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListDevices not implemented")
+}
+func (UnimplementedLocalEngineServiceServer) PairDevice(context.Context, *PairDeviceRequest) (*PairDeviceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PairDevice not implemented")
+}
+func (UnimplementedLocalEngineServiceServer) ConfirmPairing(context.Context, *ConfirmPairingRequest) (*ConfirmPairingResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ConfirmPairing not implemented")
+}
+func (UnimplementedLocalEngineServiceServer) ListTrustedDevices(context.Context, *ListTrustedDevicesRequest) (*ListTrustedDevicesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListTrustedDevices not implemented")
+}
+func (UnimplementedLocalEngineServiceServer) RevokeDevice(context.Context, *RevokeDeviceRequest) (*RevokeDeviceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RevokeDevice not implemented")
 }
 func (UnimplementedLocalEngineServiceServer) testEmbeddedByValue() {}
 
@@ -285,6 +429,150 @@ func _LocalEngineService_Health_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LocalEngineService_StartSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalEngineServiceServer).StartSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalEngineService_StartSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalEngineServiceServer).StartSession(ctx, req.(*StartSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LocalEngineService_StopSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StopSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalEngineServiceServer).StopSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalEngineService_StopSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalEngineServiceServer).StopSession(ctx, req.(*StopSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LocalEngineService_GetSessionState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSessionStateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalEngineServiceServer).GetSessionState(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalEngineService_GetSessionState_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalEngineServiceServer).GetSessionState(ctx, req.(*GetSessionStateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LocalEngineService_ListDevices_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListDevicesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalEngineServiceServer).ListDevices(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalEngineService_ListDevices_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalEngineServiceServer).ListDevices(ctx, req.(*ListDevicesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LocalEngineService_PairDevice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PairDeviceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalEngineServiceServer).PairDevice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalEngineService_PairDevice_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalEngineServiceServer).PairDevice(ctx, req.(*PairDeviceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LocalEngineService_ConfirmPairing_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ConfirmPairingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalEngineServiceServer).ConfirmPairing(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalEngineService_ConfirmPairing_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalEngineServiceServer).ConfirmPairing(ctx, req.(*ConfirmPairingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LocalEngineService_ListTrustedDevices_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListTrustedDevicesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalEngineServiceServer).ListTrustedDevices(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalEngineService_ListTrustedDevices_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalEngineServiceServer).ListTrustedDevices(ctx, req.(*ListTrustedDevicesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LocalEngineService_RevokeDevice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokeDeviceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalEngineServiceServer).RevokeDevice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalEngineService_RevokeDevice_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalEngineServiceServer).RevokeDevice(ctx, req.(*RevokeDeviceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // LocalEngineService_ServiceDesc is the grpc.ServiceDesc for LocalEngineService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -303,6 +591,38 @@ var LocalEngineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Health",
 			Handler:    _LocalEngineService_Health_Handler,
+		},
+		{
+			MethodName: "StartSession",
+			Handler:    _LocalEngineService_StartSession_Handler,
+		},
+		{
+			MethodName: "StopSession",
+			Handler:    _LocalEngineService_StopSession_Handler,
+		},
+		{
+			MethodName: "GetSessionState",
+			Handler:    _LocalEngineService_GetSessionState_Handler,
+		},
+		{
+			MethodName: "ListDevices",
+			Handler:    _LocalEngineService_ListDevices_Handler,
+		},
+		{
+			MethodName: "PairDevice",
+			Handler:    _LocalEngineService_PairDevice_Handler,
+		},
+		{
+			MethodName: "ConfirmPairing",
+			Handler:    _LocalEngineService_ConfirmPairing_Handler,
+		},
+		{
+			MethodName: "ListTrustedDevices",
+			Handler:    _LocalEngineService_ListTrustedDevices_Handler,
+		},
+		{
+			MethodName: "RevokeDevice",
+			Handler:    _LocalEngineService_RevokeDevice_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

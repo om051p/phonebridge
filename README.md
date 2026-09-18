@@ -37,7 +37,7 @@ cd proto && buf lint && buf generate && cd ..
 buf breaking proto --against '.git#branch=main,subdir=proto'   # from repo root
 git status --porcelain -- core/pkg/protocol ui/lib/generated         # drift check: must be empty
 
-# Go core (requires Go >= 1.23 — see docs/decisions.md DEC-017)
+# Go core (requires Go >= 1.24 — see docs/decisions.md DEC-017)
 cd core && go vet ./... && go build ./... && go test ./... -count=1 -race
 
 # Flutter

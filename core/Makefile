@@ -2,6 +2,18 @@ BUF ?= buf
 GO ?= go
 PROTO_DIR ?= ../proto
 
+# JNI library build (Step 3, DEC-019 c-shared boundary).
+# host-lib:      builds the jni-tagged c-shared library for the HOST JVM —
+#                loaded by android/app/src/test GoBridgeMediaTest to prove AUs
+#                cross JNI into the production transport without an emulator.
+# android-lib:   cross-compiles libphonebridge_core.so for the ABIs the app
+#                ships (arm64-v8a, x86_64) into android jniLibs.
+JAVA_HOME ?= /usr/lib/jvm/java-17-openjdk-amd64
+NDK ?= /opt/android-sdk/ndk/27.0.12077973
+JNI_CFLAGS := -I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/linux
+BUILD_DIR := build
+NDK_TC := $(NDK)/toolchains/llvm/prebuilt/linux-x86_64/bin
+
 # Run from repo root:  make -C core gen
 # Run from core/:      make gen
 #
@@ -9,7 +21,7 @@ PROTO_DIR ?= ../proto
 # in proto/buf.gen.yaml is resolved relative to the working directory, so running buf
 # from core/ or from the repo root fails or writes to the wrong place.
 
-.PHONY: gen lint breaking check-generated vet test build fmt
+.PHONY: gen lint breaking check-generated vet test build fmt daemon receiver host-lib android-arm64 android-x86_64 android-lib
 
 gen:
 	cd $(PROTO_DIR) && $(BUF) generate
@@ -19,7 +31,7 @@ lint:
 
 # Must run from the repo root so the baseline module root matches the input.
 breaking:
-	cd .. && $(BUF) breaking --config proto/buf.yaml --against '.git#branch=main'
+	cd .. && $(BUF) breaking proto --against '.git#branch=main,subdir=proto'
 
 # Fails on modified *and* newly generated (untracked) files: `git diff --exit-code`
 # alone cannot see untracked output.
@@ -41,4 +53,30 @@ build:
 
 fmt:
 	@test -z "$$($(GO) fmt ./... 2>&1)" || (echo "unformatted files"; $(GO) fmt ./...; exit 1)
+
+receiver:
+	mkdir -p $(BUILD_DIR)
+	$(GO) build -o $(BUILD_DIR)/phonebridge-receiver ./cmd/receiver
+
+daemon:
+	mkdir -p $(BUILD_DIR)
+	$(GO) build -o $(BUILD_DIR)/phonebridge-daemon ./cmd/daemon
+
+host-lib:
+	mkdir -p $(BUILD_DIR)
+	CGO_CFLAGS="$(JNI_CFLAGS)" $(GO) build -tags jni -buildmode=c-shared -o $(BUILD_DIR)/libphonebridge_core.so ./cmd/android
+
+android-arm64:
+	mkdir -p ../android/app/src/main/jniLibs/arm64-v8a
+	CC=$(NDK_TC)/aarch64-linux-android34-clang CGO_ENABLED=1 GOOS=android GOARCH=arm64 \
+		$(GO) build -buildmode=c-shared -ldflags="-checklinkname=0" \
+		-o ../android/app/src/main/jniLibs/arm64-v8a/libphonebridge_core.so ./cmd/android
+
+android-x86_64:
+	mkdir -p ../android/app/src/main/jniLibs/x86_64
+	CC=$(NDK_TC)/x86_64-linux-android34-clang CGO_ENABLED=1 GOOS=android GOARCH=amd64 \
+		$(GO) build -buildmode=c-shared -ldflags="-checklinkname=0" \
+		-o ../android/app/src/main/jniLibs/x86_64/libphonebridge_core.so ./cmd/android
+
+android-lib: android-arm64 android-x86_64
 

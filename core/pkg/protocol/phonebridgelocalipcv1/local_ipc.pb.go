@@ -79,6 +79,74 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// SessionState models the 8 operational phases of a device session.
+type SessionState int32
+
+const (
+	SessionState_SESSION_STATE_UNSPECIFIED  SessionState = 0
+	SessionState_SESSION_STATE_DISCONNECTED SessionState = 1
+	SessionState_SESSION_STATE_DISCOVERING  SessionState = 2
+	SessionState_SESSION_STATE_CONNECTING   SessionState = 3
+	SessionState_SESSION_STATE_CONNECTED    SessionState = 4
+	SessionState_SESSION_STATE_STREAMING    SessionState = 5
+	SessionState_SESSION_STATE_RECONNECTING SessionState = 6
+	SessionState_SESSION_STATE_STOPPED      SessionState = 7
+	SessionState_SESSION_STATE_FAILED       SessionState = 8
+)
+
+// Enum value maps for SessionState.
+var (
+	SessionState_name = map[int32]string{
+		0: "SESSION_STATE_UNSPECIFIED",
+		1: "SESSION_STATE_DISCONNECTED",
+		2: "SESSION_STATE_DISCOVERING",
+		3: "SESSION_STATE_CONNECTING",
+		4: "SESSION_STATE_CONNECTED",
+		5: "SESSION_STATE_STREAMING",
+		6: "SESSION_STATE_RECONNECTING",
+		7: "SESSION_STATE_STOPPED",
+		8: "SESSION_STATE_FAILED",
+	}
+	SessionState_value = map[string]int32{
+		"SESSION_STATE_UNSPECIFIED":  0,
+		"SESSION_STATE_DISCONNECTED": 1,
+		"SESSION_STATE_DISCOVERING":  2,
+		"SESSION_STATE_CONNECTING":   3,
+		"SESSION_STATE_CONNECTED":    4,
+		"SESSION_STATE_STREAMING":    5,
+		"SESSION_STATE_RECONNECTING": 6,
+		"SESSION_STATE_STOPPED":      7,
+		"SESSION_STATE_FAILED":       8,
+	}
+)
+
+func (x SessionState) Enum() *SessionState {
+	p := new(SessionState)
+	*p = x
+	return p
+}
+
+func (x SessionState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SessionState) Descriptor() protoreflect.EnumDescriptor {
+	return file_phonebridge_localipc_v1_local_ipc_proto_enumTypes[0].Descriptor()
+}
+
+func (SessionState) Type() protoreflect.EnumType {
+	return &file_phonebridge_localipc_v1_local_ipc_proto_enumTypes[0]
+}
+
+func (x SessionState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SessionState.Descriptor instead.
+func (SessionState) EnumDescriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{0}
+}
+
 // HandshakeRequest advertises the client's local-IPC protocol support.
 type HandshakeRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -349,7 +417,9 @@ type StreamEventsResponse struct {
 	// directly. Pass-through framing per DEC-018: this is payload relay,
 	// NOT a new transport for phonebridge.v1, and LocalEngine is never a
 	// device peer.
-	Envelope      *phonebridgev1.Envelope `protobuf:"bytes,3,opt,name=envelope,proto3" json:"envelope,omitempty"`
+	Envelope *phonebridgev1.Envelope `protobuf:"bytes,3,opt,name=envelope,proto3" json:"envelope,omitempty"`
+	// Local session state transitions (connecting, streaming, reconnecting, etc.).
+	SessionEvent  *SessionEvent `protobuf:"bytes,4,opt,name=session_event,json=sessionEvent,proto3" json:"session_event,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -405,6 +475,13 @@ func (x *StreamEventsResponse) GetEnvelope() *phonebridgev1.Envelope {
 	return nil
 }
 
+func (x *StreamEventsResponse) GetSessionEvent() *SessionEvent {
+	if x != nil {
+		return x.SessionEvent
+	}
+	return nil
+}
+
 // LocalEvent represents a pushed local event containing the relayed device envelope.
 // On the wire, StreamEvents yields StreamEventsResponse (whose fields match LocalEvent)
 // to satisfy standard gRPC request/response naming conventions.
@@ -415,7 +492,9 @@ type LocalEvent struct {
 	// Daemon instance identifier; equals HandshakeResponse.daemon_generation.
 	DaemonGeneration uint64 `protobuf:"varint,2,opt,name=daemon_generation,json=daemonGeneration,proto3" json:"daemon_generation,omitempty"`
 	// Opaque relayed device-protocol message (phonebridge.v1).
-	Envelope      *phonebridgev1.Envelope `protobuf:"bytes,3,opt,name=envelope,proto3" json:"envelope,omitempty"`
+	Envelope *phonebridgev1.Envelope `protobuf:"bytes,3,opt,name=envelope,proto3" json:"envelope,omitempty"`
+	// Local session state transitions.
+	SessionEvent  *SessionEvent `protobuf:"bytes,4,opt,name=session_event,json=sessionEvent,proto3" json:"session_event,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -467,6 +546,13 @@ func (x *LocalEvent) GetDaemonGeneration() uint64 {
 func (x *LocalEvent) GetEnvelope() *phonebridgev1.Envelope {
 	if x != nil {
 		return x.Envelope
+	}
+	return nil
+}
+
+func (x *LocalEvent) GetSessionEvent() *SessionEvent {
+	if x != nil {
+		return x.SessionEvent
 	}
 	return nil
 }
@@ -581,6 +667,1187 @@ func (x *HealthResponse) GetUptimeMs() uint64 {
 	return 0
 }
 
+// SessionEvent represents a state transition pushed to StreamEvents subscribers.
+type SessionEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	State         SessionState           `protobuf:"varint,2,opt,name=state,proto3,enum=phonebridge.localipc.v1.SessionState" json:"state,omitempty"`
+	Reason        string                 `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
+	ErrorMessage  string                 `protobuf:"bytes,4,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SessionEvent) Reset() {
+	*x = SessionEvent{}
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionEvent) ProtoMessage() {}
+
+func (x *SessionEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionEvent.ProtoReflect.Descriptor instead.
+func (*SessionEvent) Descriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *SessionEvent) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *SessionEvent) GetState() SessionState {
+	if x != nil {
+		return x.State
+	}
+	return SessionState_SESSION_STATE_UNSPECIFIED
+}
+
+func (x *SessionEvent) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *SessionEvent) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+// StartSessionRequest initiates a session with the specified target device.
+type StartSessionRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Unique target device ID (from mDNS discovery).
+	DeviceId      string `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartSessionRequest) Reset() {
+	*x = StartSessionRequest{}
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartSessionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartSessionRequest) ProtoMessage() {}
+
+func (x *StartSessionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartSessionRequest.ProtoReflect.Descriptor instead.
+func (*StartSessionRequest) Descriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *StartSessionRequest) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+// StartSessionResponse returns the newly initiated session identity and state.
+type StartSessionResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	State         SessionState           `protobuf:"varint,2,opt,name=state,proto3,enum=phonebridge.localipc.v1.SessionState" json:"state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartSessionResponse) Reset() {
+	*x = StartSessionResponse{}
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartSessionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartSessionResponse) ProtoMessage() {}
+
+func (x *StartSessionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartSessionResponse.ProtoReflect.Descriptor instead.
+func (*StartSessionResponse) Descriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *StartSessionResponse) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *StartSessionResponse) GetState() SessionState {
+	if x != nil {
+		return x.State
+	}
+	return SessionState_SESSION_STATE_UNSPECIFIED
+}
+
+// StopSessionRequest halts an active or in-progress session.
+type StopSessionRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StopSessionRequest) Reset() {
+	*x = StopSessionRequest{}
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StopSessionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StopSessionRequest) ProtoMessage() {}
+
+func (x *StopSessionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StopSessionRequest.ProtoReflect.Descriptor instead.
+func (*StopSessionRequest) Descriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *StopSessionRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *StopSessionRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+// StopSessionResponse confirms session termination.
+type StopSessionResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	State         SessionState           `protobuf:"varint,2,opt,name=state,proto3,enum=phonebridge.localipc.v1.SessionState" json:"state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StopSessionResponse) Reset() {
+	*x = StopSessionResponse{}
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StopSessionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StopSessionResponse) ProtoMessage() {}
+
+func (x *StopSessionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StopSessionResponse.ProtoReflect.Descriptor instead.
+func (*StopSessionResponse) Descriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *StopSessionResponse) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *StopSessionResponse) GetState() SessionState {
+	if x != nil {
+		return x.State
+	}
+	return SessionState_SESSION_STATE_UNSPECIFIED
+}
+
+// GetSessionStateRequest queries current session status.
+type GetSessionStateRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSessionStateRequest) Reset() {
+	*x = GetSessionStateRequest{}
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSessionStateRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSessionStateRequest) ProtoMessage() {}
+
+func (x *GetSessionStateRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSessionStateRequest.ProtoReflect.Descriptor instead.
+func (*GetSessionStateRequest) Descriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *GetSessionStateRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+// StreamStats reports point-in-time WebRTC media and network counters.
+type StreamStats struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Packets       uint64                 `protobuf:"varint,1,opt,name=packets,proto3" json:"packets,omitempty"`
+	BytesRtp      uint64                 `protobuf:"varint,2,opt,name=bytes_rtp,json=bytesRtp,proto3" json:"bytes_rtp,omitempty"`
+	BytesH264     uint64                 `protobuf:"varint,3,opt,name=bytes_h264,json=bytesH264,proto3" json:"bytes_h264,omitempty"`
+	AccessUnits   uint64                 `protobuf:"varint,4,opt,name=access_units,json=accessUnits,proto3" json:"access_units,omitempty"`
+	Keyframes     uint64                 `protobuf:"varint,5,opt,name=keyframes,proto3" json:"keyframes,omitempty"`
+	DroppedAus    int64                  `protobuf:"varint,6,opt,name=dropped_aus,json=droppedAus,proto3" json:"dropped_aus,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StreamStats) Reset() {
+	*x = StreamStats{}
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamStats) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamStats) ProtoMessage() {}
+
+func (x *StreamStats) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamStats.ProtoReflect.Descriptor instead.
+func (*StreamStats) Descriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *StreamStats) GetPackets() uint64 {
+	if x != nil {
+		return x.Packets
+	}
+	return 0
+}
+
+func (x *StreamStats) GetBytesRtp() uint64 {
+	if x != nil {
+		return x.BytesRtp
+	}
+	return 0
+}
+
+func (x *StreamStats) GetBytesH264() uint64 {
+	if x != nil {
+		return x.BytesH264
+	}
+	return 0
+}
+
+func (x *StreamStats) GetAccessUnits() uint64 {
+	if x != nil {
+		return x.AccessUnits
+	}
+	return 0
+}
+
+func (x *StreamStats) GetKeyframes() uint64 {
+	if x != nil {
+		return x.Keyframes
+	}
+	return 0
+}
+
+func (x *StreamStats) GetDroppedAus() int64 {
+	if x != nil {
+		return x.DroppedAus
+	}
+	return 0
+}
+
+// GetSessionStateResponse contains a full point-in-time snapshot.
+type GetSessionStateResponse struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	SessionId           string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	State               SessionState           `protobuf:"varint,2,opt,name=state,proto3,enum=phonebridge.localipc.v1.SessionState" json:"state,omitempty"`
+	DeviceId            string                 `protobuf:"bytes,3,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	ConnectedDurationMs uint64                 `protobuf:"varint,4,opt,name=connected_duration_ms,json=connectedDurationMs,proto3" json:"connected_duration_ms,omitempty"`
+	ErrorMessage        string                 `protobuf:"bytes,5,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	Stats               *StreamStats           `protobuf:"bytes,6,opt,name=stats,proto3" json:"stats,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *GetSessionStateResponse) Reset() {
+	*x = GetSessionStateResponse{}
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSessionStateResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSessionStateResponse) ProtoMessage() {}
+
+func (x *GetSessionStateResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSessionStateResponse.ProtoReflect.Descriptor instead.
+func (*GetSessionStateResponse) Descriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *GetSessionStateResponse) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *GetSessionStateResponse) GetState() SessionState {
+	if x != nil {
+		return x.State
+	}
+	return SessionState_SESSION_STATE_UNSPECIFIED
+}
+
+func (x *GetSessionStateResponse) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *GetSessionStateResponse) GetConnectedDurationMs() uint64 {
+	if x != nil {
+		return x.ConnectedDurationMs
+	}
+	return 0
+}
+
+func (x *GetSessionStateResponse) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *GetSessionStateResponse) GetStats() *StreamStats {
+	if x != nil {
+		return x.Stats
+	}
+	return nil
+}
+
+// DiscoveredDevice models a LAN device discovered via mDNS.
+type DiscoveredDevice struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Model         string                 `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
+	Version       string                 `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
+	Capabilities  []string               `protobuf:"bytes,5,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	State         string                 `protobuf:"bytes,6,opt,name=state,proto3" json:"state,omitempty"`
+	Address       string                 `protobuf:"bytes,7,opt,name=address,proto3" json:"address,omitempty"`
+	Port          uint32                 `protobuf:"varint,8,opt,name=port,proto3" json:"port,omitempty"`
+	IsStale       bool                   `protobuf:"varint,9,opt,name=is_stale,json=isStale,proto3" json:"is_stale,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DiscoveredDevice) Reset() {
+	*x = DiscoveredDevice{}
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DiscoveredDevice) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DiscoveredDevice) ProtoMessage() {}
+
+func (x *DiscoveredDevice) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DiscoveredDevice.ProtoReflect.Descriptor instead.
+func (*DiscoveredDevice) Descriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *DiscoveredDevice) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *DiscoveredDevice) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *DiscoveredDevice) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *DiscoveredDevice) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *DiscoveredDevice) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
+}
+
+func (x *DiscoveredDevice) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *DiscoveredDevice) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *DiscoveredDevice) GetPort() uint32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *DiscoveredDevice) GetIsStale() bool {
+	if x != nil {
+		return x.IsStale
+	}
+	return false
+}
+
+// ListDevicesRequest is empty.
+type ListDevicesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListDevicesRequest) Reset() {
+	*x = ListDevicesRequest{}
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListDevicesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListDevicesRequest) ProtoMessage() {}
+
+func (x *ListDevicesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListDevicesRequest.ProtoReflect.Descriptor instead.
+func (*ListDevicesRequest) Descriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{18}
+}
+
+// ListDevicesResponse returns currently known LAN devices.
+type ListDevicesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Devices       []*DiscoveredDevice    `protobuf:"bytes,1,rep,name=devices,proto3" json:"devices,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListDevicesResponse) Reset() {
+	*x = ListDevicesResponse{}
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListDevicesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListDevicesResponse) ProtoMessage() {}
+
+func (x *ListDevicesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListDevicesResponse.ProtoReflect.Descriptor instead.
+func (*ListDevicesResponse) Descriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *ListDevicesResponse) GetDevices() []*DiscoveredDevice {
+	if x != nil {
+		return x.Devices
+	}
+	return nil
+}
+
+// PairDeviceRequest initiates pairing with a device.
+type PairDeviceRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DeviceId      string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PairDeviceRequest) Reset() {
+	*x = PairDeviceRequest{}
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PairDeviceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PairDeviceRequest) ProtoMessage() {}
+
+func (x *PairDeviceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PairDeviceRequest.ProtoReflect.Descriptor instead.
+func (*PairDeviceRequest) Descriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *PairDeviceRequest) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+// PairDeviceResponse returns the pairing status and SAS for user verification.
+type PairDeviceResponse struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	DeviceId            string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	DisplayName         string                 `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	Sas                 string                 `protobuf:"bytes,3,opt,name=sas,proto3" json:"sas,omitempty"`
+	PendingConfirmation bool                   `protobuf:"varint,4,opt,name=pending_confirmation,json=pendingConfirmation,proto3" json:"pending_confirmation,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *PairDeviceResponse) Reset() {
+	*x = PairDeviceResponse{}
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PairDeviceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PairDeviceResponse) ProtoMessage() {}
+
+func (x *PairDeviceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PairDeviceResponse.ProtoReflect.Descriptor instead.
+func (*PairDeviceResponse) Descriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *PairDeviceResponse) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *PairDeviceResponse) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
+func (x *PairDeviceResponse) GetSas() string {
+	if x != nil {
+		return x.Sas
+	}
+	return ""
+}
+
+func (x *PairDeviceResponse) GetPendingConfirmation() bool {
+	if x != nil {
+		return x.PendingConfirmation
+	}
+	return false
+}
+
+// ConfirmPairingRequest conveys user confirmation of the SAS.
+type ConfirmPairingRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DeviceId      string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	UserConfirmed bool                   `protobuf:"varint,2,opt,name=user_confirmed,json=userConfirmed,proto3" json:"user_confirmed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConfirmPairingRequest) Reset() {
+	*x = ConfirmPairingRequest{}
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConfirmPairingRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfirmPairingRequest) ProtoMessage() {}
+
+func (x *ConfirmPairingRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfirmPairingRequest.ProtoReflect.Descriptor instead.
+func (*ConfirmPairingRequest) Descriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *ConfirmPairingRequest) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *ConfirmPairingRequest) GetUserConfirmed() bool {
+	if x != nil {
+		return x.UserConfirmed
+	}
+	return false
+}
+
+// ConfirmPairingResponse returns the result of the pairing confirmation.
+type ConfirmPairingResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DeviceId      string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	Success       bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`
+	ErrorMessage  string                 `protobuf:"bytes,3,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConfirmPairingResponse) Reset() {
+	*x = ConfirmPairingResponse{}
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConfirmPairingResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfirmPairingResponse) ProtoMessage() {}
+
+func (x *ConfirmPairingResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfirmPairingResponse.ProtoReflect.Descriptor instead.
+func (*ConfirmPairingResponse) Descriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *ConfirmPairingResponse) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *ConfirmPairingResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *ConfirmPairingResponse) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+// TrustedDevice represents a paired device in the persistent trust store.
+type TrustedDevice struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DeviceId      string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	DisplayName   string                 `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	Platform      string                 `protobuf:"bytes,3,opt,name=platform,proto3" json:"platform,omitempty"`
+	PublicKey     []byte                 `protobuf:"bytes,4,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"`
+	PairedAtMs    int64                  `protobuf:"varint,5,opt,name=paired_at_ms,json=pairedAtMs,proto3" json:"paired_at_ms,omitempty"`
+	LastSeenMs    int64                  `protobuf:"varint,6,opt,name=last_seen_ms,json=lastSeenMs,proto3" json:"last_seen_ms,omitempty"`
+	Revoked       bool                   `protobuf:"varint,7,opt,name=revoked,proto3" json:"revoked,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TrustedDevice) Reset() {
+	*x = TrustedDevice{}
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TrustedDevice) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TrustedDevice) ProtoMessage() {}
+
+func (x *TrustedDevice) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TrustedDevice.ProtoReflect.Descriptor instead.
+func (*TrustedDevice) Descriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *TrustedDevice) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *TrustedDevice) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
+func (x *TrustedDevice) GetPlatform() string {
+	if x != nil {
+		return x.Platform
+	}
+	return ""
+}
+
+func (x *TrustedDevice) GetPublicKey() []byte {
+	if x != nil {
+		return x.PublicKey
+	}
+	return nil
+}
+
+func (x *TrustedDevice) GetPairedAtMs() int64 {
+	if x != nil {
+		return x.PairedAtMs
+	}
+	return 0
+}
+
+func (x *TrustedDevice) GetLastSeenMs() int64 {
+	if x != nil {
+		return x.LastSeenMs
+	}
+	return 0
+}
+
+func (x *TrustedDevice) GetRevoked() bool {
+	if x != nil {
+		return x.Revoked
+	}
+	return false
+}
+
+// ListTrustedDevicesRequest is empty.
+type ListTrustedDevicesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListTrustedDevicesRequest) Reset() {
+	*x = ListTrustedDevicesRequest{}
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListTrustedDevicesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListTrustedDevicesRequest) ProtoMessage() {}
+
+func (x *ListTrustedDevicesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListTrustedDevicesRequest.ProtoReflect.Descriptor instead.
+func (*ListTrustedDevicesRequest) Descriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{25}
+}
+
+// ListTrustedDevicesResponse lists all paired devices.
+type ListTrustedDevicesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Devices       []*TrustedDevice       `protobuf:"bytes,1,rep,name=devices,proto3" json:"devices,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListTrustedDevicesResponse) Reset() {
+	*x = ListTrustedDevicesResponse{}
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListTrustedDevicesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListTrustedDevicesResponse) ProtoMessage() {}
+
+func (x *ListTrustedDevicesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListTrustedDevicesResponse.ProtoReflect.Descriptor instead.
+func (*ListTrustedDevicesResponse) Descriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *ListTrustedDevicesResponse) GetDevices() []*TrustedDevice {
+	if x != nil {
+		return x.Devices
+	}
+	return nil
+}
+
+// RevokeDeviceRequest requests revocation of a paired device.
+type RevokeDeviceRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DeviceId      string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeDeviceRequest) Reset() {
+	*x = RevokeDeviceRequest{}
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeDeviceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeDeviceRequest) ProtoMessage() {}
+
+func (x *RevokeDeviceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeDeviceRequest.ProtoReflect.Descriptor instead.
+func (*RevokeDeviceRequest) Descriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *RevokeDeviceRequest) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+// RevokeDeviceResponse confirms revocation.
+type RevokeDeviceResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DeviceId      string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	Success       bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeDeviceResponse) Reset() {
+	*x = RevokeDeviceResponse{}
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeDeviceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeDeviceResponse) ProtoMessage() {}
+
+func (x *RevokeDeviceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeDeviceResponse.ProtoReflect.Descriptor instead.
+func (*RevokeDeviceResponse) Descriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *RevokeDeviceResponse) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *RevokeDeviceResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
 var File_phonebridge_localipc_v1_local_ipc_proto protoreflect.FileDescriptor
 
 const file_phonebridge_localipc_v1_local_ipc_proto_rawDesc = "" +
@@ -597,27 +1864,135 @@ const file_phonebridge_localipc_v1_local_ipc_proto_rawDesc = "" +
 	"\fPingResponse\x12\x14\n" +
 	"\x05nonce\x18\x01 \x01(\x04R\x05nonce\x12%\n" +
 	"\x0eserver_version\x18\x02 \x01(\tR\rserverVersion\"\x15\n" +
-	"\x13StreamEventsRequest\"\x8b\x01\n" +
+	"\x13StreamEventsRequest\"\xd7\x01\n" +
 	"\x14StreamEventsResponse\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x04R\x03seq\x12+\n" +
 	"\x11daemon_generation\x18\x02 \x01(\x04R\x10daemonGeneration\x124\n" +
-	"\benvelope\x18\x03 \x01(\v2\x18.phonebridge.v1.EnvelopeR\benvelope\"\x81\x01\n" +
+	"\benvelope\x18\x03 \x01(\v2\x18.phonebridge.v1.EnvelopeR\benvelope\x12J\n" +
+	"\rsession_event\x18\x04 \x01(\v2%.phonebridge.localipc.v1.SessionEventR\fsessionEvent\"\xcd\x01\n" +
 	"\n" +
 	"LocalEvent\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x04R\x03seq\x12+\n" +
 	"\x11daemon_generation\x18\x02 \x01(\x04R\x10daemonGeneration\x124\n" +
-	"\benvelope\x18\x03 \x01(\v2\x18.phonebridge.v1.EnvelopeR\benvelope\"\x0f\n" +
+	"\benvelope\x18\x03 \x01(\v2\x18.phonebridge.v1.EnvelopeR\benvelope\x12J\n" +
+	"\rsession_event\x18\x04 \x01(\v2%.phonebridge.localipc.v1.SessionEventR\fsessionEvent\"\x0f\n" +
 	"\rHealthRequest\"\x97\x01\n" +
 	"\x0eHealthResponse\x12\x14\n" +
 	"\x05ready\x18\x01 \x01(\bR\x05ready\x12+\n" +
 	"\x11daemon_generation\x18\x02 \x01(\x04R\x10daemonGeneration\x12%\n" +
 	"\x0eserver_version\x18\x03 \x01(\tR\rserverVersion\x12\x1b\n" +
-	"\tuptime_ms\x18\x04 \x01(\x04R\buptimeMs2\x97\x03\n" +
+	"\tuptime_ms\x18\x04 \x01(\x04R\buptimeMs\"\xa7\x01\n" +
+	"\fSessionEvent\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12;\n" +
+	"\x05state\x18\x02 \x01(\x0e2%.phonebridge.localipc.v1.SessionStateR\x05state\x12\x16\n" +
+	"\x06reason\x18\x03 \x01(\tR\x06reason\x12#\n" +
+	"\rerror_message\x18\x04 \x01(\tR\ferrorMessage\"2\n" +
+	"\x13StartSessionRequest\x12\x1b\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\"r\n" +
+	"\x14StartSessionResponse\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12;\n" +
+	"\x05state\x18\x02 \x01(\x0e2%.phonebridge.localipc.v1.SessionStateR\x05state\"K\n" +
+	"\x12StopSessionRequest\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"q\n" +
+	"\x13StopSessionResponse\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12;\n" +
+	"\x05state\x18\x02 \x01(\x0e2%.phonebridge.localipc.v1.SessionStateR\x05state\"7\n" +
+	"\x16GetSessionStateRequest\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\"\xc5\x01\n" +
+	"\vStreamStats\x12\x18\n" +
+	"\apackets\x18\x01 \x01(\x04R\apackets\x12\x1b\n" +
+	"\tbytes_rtp\x18\x02 \x01(\x04R\bbytesRtp\x12\x1d\n" +
+	"\n" +
+	"bytes_h264\x18\x03 \x01(\x04R\tbytesH264\x12!\n" +
+	"\faccess_units\x18\x04 \x01(\x04R\vaccessUnits\x12\x1c\n" +
+	"\tkeyframes\x18\x05 \x01(\x04R\tkeyframes\x12\x1f\n" +
+	"\vdropped_aus\x18\x06 \x01(\x03R\n" +
+	"droppedAus\"\xa7\x02\n" +
+	"\x17GetSessionStateResponse\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12;\n" +
+	"\x05state\x18\x02 \x01(\x0e2%.phonebridge.localipc.v1.SessionStateR\x05state\x12\x1b\n" +
+	"\tdevice_id\x18\x03 \x01(\tR\bdeviceId\x122\n" +
+	"\x15connected_duration_ms\x18\x04 \x01(\x04R\x13connectedDurationMs\x12#\n" +
+	"\rerror_message\x18\x05 \x01(\tR\ferrorMessage\x12:\n" +
+	"\x05stats\x18\x06 \x01(\v2$.phonebridge.localipc.v1.StreamStatsR\x05stats\"\xe9\x01\n" +
+	"\x10DiscoveredDevice\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
+	"\x05model\x18\x03 \x01(\tR\x05model\x12\x18\n" +
+	"\aversion\x18\x04 \x01(\tR\aversion\x12\"\n" +
+	"\fcapabilities\x18\x05 \x03(\tR\fcapabilities\x12\x14\n" +
+	"\x05state\x18\x06 \x01(\tR\x05state\x12\x18\n" +
+	"\aaddress\x18\a \x01(\tR\aaddress\x12\x12\n" +
+	"\x04port\x18\b \x01(\rR\x04port\x12\x19\n" +
+	"\bis_stale\x18\t \x01(\bR\aisStale\"\x14\n" +
+	"\x12ListDevicesRequest\"Z\n" +
+	"\x13ListDevicesResponse\x12C\n" +
+	"\adevices\x18\x01 \x03(\v2).phonebridge.localipc.v1.DiscoveredDeviceR\adevices\"0\n" +
+	"\x11PairDeviceRequest\x12\x1b\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\"\x99\x01\n" +
+	"\x12PairDeviceResponse\x12\x1b\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12!\n" +
+	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12\x10\n" +
+	"\x03sas\x18\x03 \x01(\tR\x03sas\x121\n" +
+	"\x14pending_confirmation\x18\x04 \x01(\bR\x13pendingConfirmation\"[\n" +
+	"\x15ConfirmPairingRequest\x12\x1b\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12%\n" +
+	"\x0euser_confirmed\x18\x02 \x01(\bR\ruserConfirmed\"t\n" +
+	"\x16ConfirmPairingResponse\x12\x1b\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12\x18\n" +
+	"\asuccess\x18\x02 \x01(\bR\asuccess\x12#\n" +
+	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\"\xe8\x01\n" +
+	"\rTrustedDevice\x12\x1b\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12!\n" +
+	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12\x1a\n" +
+	"\bplatform\x18\x03 \x01(\tR\bplatform\x12\x1d\n" +
+	"\n" +
+	"public_key\x18\x04 \x01(\fR\tpublicKey\x12 \n" +
+	"\fpaired_at_ms\x18\x05 \x01(\x03R\n" +
+	"pairedAtMs\x12 \n" +
+	"\flast_seen_ms\x18\x06 \x01(\x03R\n" +
+	"lastSeenMs\x12\x18\n" +
+	"\arevoked\x18\a \x01(\bR\arevoked\"\x1b\n" +
+	"\x19ListTrustedDevicesRequest\"^\n" +
+	"\x1aListTrustedDevicesResponse\x12@\n" +
+	"\adevices\x18\x01 \x03(\v2&.phonebridge.localipc.v1.TrustedDeviceR\adevices\"2\n" +
+	"\x13RevokeDeviceRequest\x12\x1b\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\"M\n" +
+	"\x14RevokeDeviceResponse\x12\x1b\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12\x18\n" +
+	"\asuccess\x18\x02 \x01(\bR\asuccess*\x99\x02\n" +
+	"\fSessionState\x12\x1d\n" +
+	"\x19SESSION_STATE_UNSPECIFIED\x10\x00\x12\x1e\n" +
+	"\x1aSESSION_STATE_DISCONNECTED\x10\x01\x12\x1d\n" +
+	"\x19SESSION_STATE_DISCOVERING\x10\x02\x12\x1c\n" +
+	"\x18SESSION_STATE_CONNECTING\x10\x03\x12\x1b\n" +
+	"\x17SESSION_STATE_CONNECTED\x10\x04\x12\x1b\n" +
+	"\x17SESSION_STATE_STREAMING\x10\x05\x12\x1e\n" +
+	"\x1aSESSION_STATE_RECONNECTING\x10\x06\x12\x19\n" +
+	"\x15SESSION_STATE_STOPPED\x10\a\x12\x18\n" +
+	"\x14SESSION_STATE_FAILED\x10\b2\x94\n" +
+	"\n" +
 	"\x12LocalEngineService\x12b\n" +
 	"\tHandshake\x12).phonebridge.localipc.v1.HandshakeRequest\x1a*.phonebridge.localipc.v1.HandshakeResponse\x12S\n" +
 	"\x04Ping\x12$.phonebridge.localipc.v1.PingRequest\x1a%.phonebridge.localipc.v1.PingResponse\x12m\n" +
 	"\fStreamEvents\x12,.phonebridge.localipc.v1.StreamEventsRequest\x1a-.phonebridge.localipc.v1.StreamEventsResponse0\x01\x12Y\n" +
-	"\x06Health\x12&.phonebridge.localipc.v1.HealthRequest\x1a'.phonebridge.localipc.v1.HealthResponseB\x82\x01\n" +
+	"\x06Health\x12&.phonebridge.localipc.v1.HealthRequest\x1a'.phonebridge.localipc.v1.HealthResponse\x12k\n" +
+	"\fStartSession\x12,.phonebridge.localipc.v1.StartSessionRequest\x1a-.phonebridge.localipc.v1.StartSessionResponse\x12h\n" +
+	"\vStopSession\x12+.phonebridge.localipc.v1.StopSessionRequest\x1a,.phonebridge.localipc.v1.StopSessionResponse\x12t\n" +
+	"\x0fGetSessionState\x12/.phonebridge.localipc.v1.GetSessionStateRequest\x1a0.phonebridge.localipc.v1.GetSessionStateResponse\x12h\n" +
+	"\vListDevices\x12+.phonebridge.localipc.v1.ListDevicesRequest\x1a,.phonebridge.localipc.v1.ListDevicesResponse\x12e\n" +
+	"\n" +
+	"PairDevice\x12*.phonebridge.localipc.v1.PairDeviceRequest\x1a+.phonebridge.localipc.v1.PairDeviceResponse\x12q\n" +
+	"\x0eConfirmPairing\x12..phonebridge.localipc.v1.ConfirmPairingRequest\x1a/.phonebridge.localipc.v1.ConfirmPairingResponse\x12}\n" +
+	"\x12ListTrustedDevices\x122.phonebridge.localipc.v1.ListTrustedDevicesRequest\x1a3.phonebridge.localipc.v1.ListTrustedDevicesResponse\x12k\n" +
+	"\fRevokeDevice\x12,.phonebridge.localipc.v1.RevokeDeviceRequest\x1a-.phonebridge.localipc.v1.RevokeDeviceResponseB\x82\x01\n" +
 	"!dev.phonebridge.proto.localipc.v1P\x01Z[github.com/om051p/phonebridge/core/pkg/protocol/phonebridgelocalipcv1;phonebridgelocalipcv1b\x06proto3"
 
 var (
@@ -632,35 +2007,82 @@ func file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP() []byte {
 	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescData
 }
 
-var file_phonebridge_localipc_v1_local_ipc_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_phonebridge_localipc_v1_local_ipc_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_phonebridge_localipc_v1_local_ipc_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
 var file_phonebridge_localipc_v1_local_ipc_proto_goTypes = []any{
-	(*HandshakeRequest)(nil),       // 0: phonebridge.localipc.v1.HandshakeRequest
-	(*HandshakeResponse)(nil),      // 1: phonebridge.localipc.v1.HandshakeResponse
-	(*PingRequest)(nil),            // 2: phonebridge.localipc.v1.PingRequest
-	(*PingResponse)(nil),           // 3: phonebridge.localipc.v1.PingResponse
-	(*StreamEventsRequest)(nil),    // 4: phonebridge.localipc.v1.StreamEventsRequest
-	(*StreamEventsResponse)(nil),   // 5: phonebridge.localipc.v1.StreamEventsResponse
-	(*LocalEvent)(nil),             // 6: phonebridge.localipc.v1.LocalEvent
-	(*HealthRequest)(nil),          // 7: phonebridge.localipc.v1.HealthRequest
-	(*HealthResponse)(nil),         // 8: phonebridge.localipc.v1.HealthResponse
-	(*phonebridgev1.Envelope)(nil), // 9: phonebridge.v1.Envelope
+	(SessionState)(0),                  // 0: phonebridge.localipc.v1.SessionState
+	(*HandshakeRequest)(nil),           // 1: phonebridge.localipc.v1.HandshakeRequest
+	(*HandshakeResponse)(nil),          // 2: phonebridge.localipc.v1.HandshakeResponse
+	(*PingRequest)(nil),                // 3: phonebridge.localipc.v1.PingRequest
+	(*PingResponse)(nil),               // 4: phonebridge.localipc.v1.PingResponse
+	(*StreamEventsRequest)(nil),        // 5: phonebridge.localipc.v1.StreamEventsRequest
+	(*StreamEventsResponse)(nil),       // 6: phonebridge.localipc.v1.StreamEventsResponse
+	(*LocalEvent)(nil),                 // 7: phonebridge.localipc.v1.LocalEvent
+	(*HealthRequest)(nil),              // 8: phonebridge.localipc.v1.HealthRequest
+	(*HealthResponse)(nil),             // 9: phonebridge.localipc.v1.HealthResponse
+	(*SessionEvent)(nil),               // 10: phonebridge.localipc.v1.SessionEvent
+	(*StartSessionRequest)(nil),        // 11: phonebridge.localipc.v1.StartSessionRequest
+	(*StartSessionResponse)(nil),       // 12: phonebridge.localipc.v1.StartSessionResponse
+	(*StopSessionRequest)(nil),         // 13: phonebridge.localipc.v1.StopSessionRequest
+	(*StopSessionResponse)(nil),        // 14: phonebridge.localipc.v1.StopSessionResponse
+	(*GetSessionStateRequest)(nil),     // 15: phonebridge.localipc.v1.GetSessionStateRequest
+	(*StreamStats)(nil),                // 16: phonebridge.localipc.v1.StreamStats
+	(*GetSessionStateResponse)(nil),    // 17: phonebridge.localipc.v1.GetSessionStateResponse
+	(*DiscoveredDevice)(nil),           // 18: phonebridge.localipc.v1.DiscoveredDevice
+	(*ListDevicesRequest)(nil),         // 19: phonebridge.localipc.v1.ListDevicesRequest
+	(*ListDevicesResponse)(nil),        // 20: phonebridge.localipc.v1.ListDevicesResponse
+	(*PairDeviceRequest)(nil),          // 21: phonebridge.localipc.v1.PairDeviceRequest
+	(*PairDeviceResponse)(nil),         // 22: phonebridge.localipc.v1.PairDeviceResponse
+	(*ConfirmPairingRequest)(nil),      // 23: phonebridge.localipc.v1.ConfirmPairingRequest
+	(*ConfirmPairingResponse)(nil),     // 24: phonebridge.localipc.v1.ConfirmPairingResponse
+	(*TrustedDevice)(nil),              // 25: phonebridge.localipc.v1.TrustedDevice
+	(*ListTrustedDevicesRequest)(nil),  // 26: phonebridge.localipc.v1.ListTrustedDevicesRequest
+	(*ListTrustedDevicesResponse)(nil), // 27: phonebridge.localipc.v1.ListTrustedDevicesResponse
+	(*RevokeDeviceRequest)(nil),        // 28: phonebridge.localipc.v1.RevokeDeviceRequest
+	(*RevokeDeviceResponse)(nil),       // 29: phonebridge.localipc.v1.RevokeDeviceResponse
+	(*phonebridgev1.Envelope)(nil),     // 30: phonebridge.v1.Envelope
 }
 var file_phonebridge_localipc_v1_local_ipc_proto_depIdxs = []int32{
-	9, // 0: phonebridge.localipc.v1.StreamEventsResponse.envelope:type_name -> phonebridge.v1.Envelope
-	9, // 1: phonebridge.localipc.v1.LocalEvent.envelope:type_name -> phonebridge.v1.Envelope
-	0, // 2: phonebridge.localipc.v1.LocalEngineService.Handshake:input_type -> phonebridge.localipc.v1.HandshakeRequest
-	2, // 3: phonebridge.localipc.v1.LocalEngineService.Ping:input_type -> phonebridge.localipc.v1.PingRequest
-	4, // 4: phonebridge.localipc.v1.LocalEngineService.StreamEvents:input_type -> phonebridge.localipc.v1.StreamEventsRequest
-	7, // 5: phonebridge.localipc.v1.LocalEngineService.Health:input_type -> phonebridge.localipc.v1.HealthRequest
-	1, // 6: phonebridge.localipc.v1.LocalEngineService.Handshake:output_type -> phonebridge.localipc.v1.HandshakeResponse
-	3, // 7: phonebridge.localipc.v1.LocalEngineService.Ping:output_type -> phonebridge.localipc.v1.PingResponse
-	5, // 8: phonebridge.localipc.v1.LocalEngineService.StreamEvents:output_type -> phonebridge.localipc.v1.StreamEventsResponse
-	8, // 9: phonebridge.localipc.v1.LocalEngineService.Health:output_type -> phonebridge.localipc.v1.HealthResponse
-	6, // [6:10] is the sub-list for method output_type
-	2, // [2:6] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	30, // 0: phonebridge.localipc.v1.StreamEventsResponse.envelope:type_name -> phonebridge.v1.Envelope
+	10, // 1: phonebridge.localipc.v1.StreamEventsResponse.session_event:type_name -> phonebridge.localipc.v1.SessionEvent
+	30, // 2: phonebridge.localipc.v1.LocalEvent.envelope:type_name -> phonebridge.v1.Envelope
+	10, // 3: phonebridge.localipc.v1.LocalEvent.session_event:type_name -> phonebridge.localipc.v1.SessionEvent
+	0,  // 4: phonebridge.localipc.v1.SessionEvent.state:type_name -> phonebridge.localipc.v1.SessionState
+	0,  // 5: phonebridge.localipc.v1.StartSessionResponse.state:type_name -> phonebridge.localipc.v1.SessionState
+	0,  // 6: phonebridge.localipc.v1.StopSessionResponse.state:type_name -> phonebridge.localipc.v1.SessionState
+	0,  // 7: phonebridge.localipc.v1.GetSessionStateResponse.state:type_name -> phonebridge.localipc.v1.SessionState
+	16, // 8: phonebridge.localipc.v1.GetSessionStateResponse.stats:type_name -> phonebridge.localipc.v1.StreamStats
+	18, // 9: phonebridge.localipc.v1.ListDevicesResponse.devices:type_name -> phonebridge.localipc.v1.DiscoveredDevice
+	25, // 10: phonebridge.localipc.v1.ListTrustedDevicesResponse.devices:type_name -> phonebridge.localipc.v1.TrustedDevice
+	1,  // 11: phonebridge.localipc.v1.LocalEngineService.Handshake:input_type -> phonebridge.localipc.v1.HandshakeRequest
+	3,  // 12: phonebridge.localipc.v1.LocalEngineService.Ping:input_type -> phonebridge.localipc.v1.PingRequest
+	5,  // 13: phonebridge.localipc.v1.LocalEngineService.StreamEvents:input_type -> phonebridge.localipc.v1.StreamEventsRequest
+	8,  // 14: phonebridge.localipc.v1.LocalEngineService.Health:input_type -> phonebridge.localipc.v1.HealthRequest
+	11, // 15: phonebridge.localipc.v1.LocalEngineService.StartSession:input_type -> phonebridge.localipc.v1.StartSessionRequest
+	13, // 16: phonebridge.localipc.v1.LocalEngineService.StopSession:input_type -> phonebridge.localipc.v1.StopSessionRequest
+	15, // 17: phonebridge.localipc.v1.LocalEngineService.GetSessionState:input_type -> phonebridge.localipc.v1.GetSessionStateRequest
+	19, // 18: phonebridge.localipc.v1.LocalEngineService.ListDevices:input_type -> phonebridge.localipc.v1.ListDevicesRequest
+	21, // 19: phonebridge.localipc.v1.LocalEngineService.PairDevice:input_type -> phonebridge.localipc.v1.PairDeviceRequest
+	23, // 20: phonebridge.localipc.v1.LocalEngineService.ConfirmPairing:input_type -> phonebridge.localipc.v1.ConfirmPairingRequest
+	26, // 21: phonebridge.localipc.v1.LocalEngineService.ListTrustedDevices:input_type -> phonebridge.localipc.v1.ListTrustedDevicesRequest
+	28, // 22: phonebridge.localipc.v1.LocalEngineService.RevokeDevice:input_type -> phonebridge.localipc.v1.RevokeDeviceRequest
+	2,  // 23: phonebridge.localipc.v1.LocalEngineService.Handshake:output_type -> phonebridge.localipc.v1.HandshakeResponse
+	4,  // 24: phonebridge.localipc.v1.LocalEngineService.Ping:output_type -> phonebridge.localipc.v1.PingResponse
+	6,  // 25: phonebridge.localipc.v1.LocalEngineService.StreamEvents:output_type -> phonebridge.localipc.v1.StreamEventsResponse
+	9,  // 26: phonebridge.localipc.v1.LocalEngineService.Health:output_type -> phonebridge.localipc.v1.HealthResponse
+	12, // 27: phonebridge.localipc.v1.LocalEngineService.StartSession:output_type -> phonebridge.localipc.v1.StartSessionResponse
+	14, // 28: phonebridge.localipc.v1.LocalEngineService.StopSession:output_type -> phonebridge.localipc.v1.StopSessionResponse
+	17, // 29: phonebridge.localipc.v1.LocalEngineService.GetSessionState:output_type -> phonebridge.localipc.v1.GetSessionStateResponse
+	20, // 30: phonebridge.localipc.v1.LocalEngineService.ListDevices:output_type -> phonebridge.localipc.v1.ListDevicesResponse
+	22, // 31: phonebridge.localipc.v1.LocalEngineService.PairDevice:output_type -> phonebridge.localipc.v1.PairDeviceResponse
+	24, // 32: phonebridge.localipc.v1.LocalEngineService.ConfirmPairing:output_type -> phonebridge.localipc.v1.ConfirmPairingResponse
+	27, // 33: phonebridge.localipc.v1.LocalEngineService.ListTrustedDevices:output_type -> phonebridge.localipc.v1.ListTrustedDevicesResponse
+	29, // 34: phonebridge.localipc.v1.LocalEngineService.RevokeDevice:output_type -> phonebridge.localipc.v1.RevokeDeviceResponse
+	23, // [23:35] is the sub-list for method output_type
+	11, // [11:23] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_phonebridge_localipc_v1_local_ipc_proto_init() }
@@ -673,13 +2095,14 @@ func file_phonebridge_localipc_v1_local_ipc_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_phonebridge_localipc_v1_local_ipc_proto_rawDesc), len(file_phonebridge_localipc_v1_local_ipc_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   9,
+			NumEnums:      1,
+			NumMessages:   29,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_phonebridge_localipc_v1_local_ipc_proto_goTypes,
 		DependencyIndexes: file_phonebridge_localipc_v1_local_ipc_proto_depIdxs,
+		EnumInfos:         file_phonebridge_localipc_v1_local_ipc_proto_enumTypes,
 		MessageInfos:      file_phonebridge_localipc_v1_local_ipc_proto_msgTypes,
 	}.Build()
 	File_phonebridge_localipc_v1_local_ipc_proto = out.File
