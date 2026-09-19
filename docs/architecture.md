@@ -135,6 +135,52 @@ Linux daemon ── DeviceHello (version + capabilities + MediaCapabilities) ─
 - **Scope:** LAN-only. Remote/NAT traversal (Spike 10) and server-based
   rendezvous (Phase 4) are out of scope; the `server/` component stays a stub.
 
+## Clipboard synchronization architecture (DEC-023, Phase 3)
+
+Ratified clipboard synchronization architecture across Linux (COSMIC/Wayland) and Android (API 35+):
+
+```
++───────────────────────────────────────────────────────────────────────────────────+
+|                                    PHONEBRIDGE                                    |
+|                                                                                   |
+|    LINUX HOST                                      ANDROID HOST                   |
+|  ┌───────────────────────────────┐               ┌──────────────────────────────┐ |
+|  | Wayland Compositor            |               | Foreground Window (App)      | |
+|  | (cosmic-comp, Smithay)        |               | (mVisibleBound=true session) | |
+|  └───────────────▲───────────────┘               └──────────────▲───────────────┘ |
+|                  │ zwlr_data_control_v1                         │ IMMS binding    |
+|  ┌───────────────▼───────────────┐               ┌──────────────▼───────────────┐ |
+|  | phonebridge-wayland-helper    |               | PhoneBridge Companion IME    | |
+|  | (isolated C binary, ~35KB)    |               | (InputMethodService)         | |
+|  └───────────────▲───────────────┘               └──────────────▲───────────────┘ |
+|                  │ stdio pipes (EVENT=/CMD=)                    │ JNI (DEC-019)   |
+|  ┌───────────────▼───────────────┐               ┌──────────────▼───────────────┐ |
+|  | Linux Daemon (core/cmd/daemon)|               | PhoneBridgeForegroundService | |
+|  | ┌───────────────────────────┐ |               | ┌──────────────────────────┐ | |
+|  | | Go Core Clipboard Engine  | |               | | Go Core Clipboard Engine | | |
+|  | | - SHA-256 LRU Ring (32)   | |               | | - SHA-256 LRU Ring (32)  | | |
+|  | | - Asymmetric 768 KiB cap  | |               | | - Asymmetric 768 KiB cap | | |
+|  | | - In-memory resident cache| |               | └──────────────────────────┘ | |
+|  | └─────────────▲─────────────┘ |               └──────────────▲───────────────┘ |
+|  └───────────────┼───────────────┘                              │                 |
+|                  │                                              │                 |
+|                  └────────── WebRTC DataChannel ────────────────┘                 |
+|                              (phonebridge.v1.ClipboardUpdate)                     |
++───────────────────────────────────────────────────────────────────────────────────+
+```
+
+- **Linux platform mechanism (Spike 06):** Wayland `zwlr_data_control_unstable_v1` v2 driven by an isolated C helper binary (`phonebridge-wayland-helper`). Provides 100% focus-independent read/write/observation (~215–333 µs) without seat focus, X11 fallback, or window mapping.
+- **COSMIC configuration dependency:** `cosmic-comp` (Smithay) gates `zwlr_data_control_manager_v1` behind `COSMIC_DATA_CONTROL_ENABLED=1`. Daemon pre-flight verifies this flag and surfaces `CLIPBOARD_STATUS_COSMIC_FLAG_REQUIRED` with remediation instructions when unset.
+- **Portal excluded:** Upstream `xdg-desktop-portal` and `xdg-desktop-portal-cosmic` provide NO clipboard D-Bus interface (`org.freedesktop.portal.Clipboard` absent). Protocol-level access is required.
+- **Go integration boundary:** Pure Go core (`CGO_ENABLED=0`). Standalone helper binary (~35 KB, 2.4 MB RSS, 0.0% CPU, 304 µs spawn) driven over stdin/stdout pipes, isolating Go supervisor from compositor crashes with bounded backoff restarts (500 ms → 1 s → 2 s → 4 s, cap 5 s).
+- **Android platform mechanism (Spike 05):** Two-tier hybrid architecture:
+  1. *Tier 1 (Ambient Sync):* Default companion IME (`InputMethodService`) bypasses background read prohibitions (1.0–2.2 ms read, 5.4 ms mean notification latency) with hidden keyboard (`mInputShown=false`), **conditional on `mVisibleBound=true`** (active `InputConnection` in foreground window).
+  2. *Tier 2 (Dormant Fallback):* When `mVisibleBound=false`, Android `ClipboardService` suppresses background notifications. Fallback via Quick Settings Tile, Notification Action, or In-App pull on resume. Background writes are unconditional (0.7–4.6 ms).
+- **Loop/echo suppression:** Neither Wayland nor Android protocol exposes writer identity. Go core (`core/pkg/clipboard`) maintains a thread-safe LRU hash ring buffer (capacity 32, TTL 5,000 ms) of recent outbound SHA-256 digests; incoming events matching cached digests within TTL are dropped at the boundary (0 echo cycles proven).
+- **Payload & MIME policy:** PhoneBridge application safety limit: strictly enforces **768 KiB ceiling (786,432 bytes)** on `ClipboardUpdate.payload` bytes, an application-level safety limit informed by Android Binder transaction buffer measurements (where payloads exceeding ~800 KiB risk fatal `TransactionTooLargeException` process crashes). If payload > 786,432 bytes, `ClipboardUpdate` MUST NOT be transmitted; the Go clipboard engine rejects the oversized payload and informs the local UI that the clipboard exceeds the sync limit. Large content may be transferred via DEC-012 File Transfer, but this requires explicit user action—clipboard sync NEVER silently converts into a file transfer. V1 MIME scope: `text/plain;charset=utf-8` and `text/plain`; V1.1: `text/html` and `text/uri-list`.
+- **Lifecycle, transience & reconnect synchronization:** Because Wayland selections are transient and clear immediately on writer process exit, the Linux Go daemon maintains an in-memory resident clipboard cache to serve desktop paste requests. Reconnect resumes on the same session ID (DEC-022) over a dedicated, reliable, ordered WebRTC DataChannel (`"clipboard"`, gated by `CAPABILITY_CLIPBOARD`). When the DataChannel opens, both peers exchange their active clip via `ClipboardUpdate`. If the 32-byte `sha256_digest` matches, no write occurs and sync is complete. If digests differ, peers compare `copied_at_ms`: if one timestamp is > 1000 ms newer, the newer clipboard wins; if timestamps differ by <= 1000 ms (or are equal), Linux/Desktop wins as a deterministic tie-breaker. This application-level arbitration rule resolves divergent offline edits without assuming synchronized clocks and requires no separate sync message.
+- **Flatpak constraint:** Sandboxed Flatpak access succeeds under default Pop!_OS 24.04 but is blocked if `COSMIC_ENABLE_WAYLAND_SECURITY=1` is enforced; native packaging (`.deb` / systemd user service) is primary distribution target.
+
 ## Repository layout
 
 ```
@@ -152,7 +198,7 @@ third-party/            dependency ledger
 ## Deferred / experimental
 
 - Flutter ↔ Go on Android embedding — `EXPERIMENTAL`
-- Wayland clipboard/input (COSMIC portal/EIS) — `EXPERIMENTAL`
+- Wayland clipboard — architecture ratified (DEC-023, Phase 3); remote input (COSMIC EIS / uinput) remains `EXPERIMENTAL` (Spike 07)
 - WebRTC media perf / codec choice — transport validated (DEC-021, Spike 04); HEVC path and cross-device behaviour — `EXPERIMENTAL`
 - LAN session negotiation + bounded reconnect — contract ratified (DEC-022, Phase 2); remote/TURN and server-based rendezvous — `PLANNED` (Spike 10 / Phase 4)
 - Kotlin capture throttling + Go-side pacing — measured & ratified (DEC-020 amendment + DEC-021, Spike 04)

@@ -2,6 +2,7 @@ package receiver
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -38,6 +39,11 @@ type Config struct {
 	// over the control channel (for example CONSENT_REVOKED or
 	// CAPTURE_FAILED). The message is the device's human-readable detail.
 	OnSessionError func(code string, message string)
+	// OnClipboardMessage receives DataChannel clipboard messages.
+	OnClipboardMessage func([]byte)
+	// OnClipboardOpen is called when the reliable ordered "clipboard" DataChannel
+	// transitions to open state.
+	OnClipboardOpen func()
 }
 
 // Receiver coordinates the WebRTC peer connection, RFC 6184 RTP depacketization,
@@ -49,6 +55,8 @@ type Receiver struct {
 	sink         FrameSink
 	auChan       chan rtpmedia.AccessUnit
 	workerWg     sync.WaitGroup
+
+	clipboardDC atomic.Pointer[pion.DataChannel]
 
 	closed     atomic.Bool
 	droppedAUs atomic.Int64
@@ -97,32 +105,47 @@ func NewReceiver(cfg Config) (*Receiver, error) {
 		trackSeen:    make(chan struct{}),
 	}
 
-	// DataChannel handler for control and RTT ping-pong
+	// DataChannel handler for control, RTT ping-pong, and clipboard
 	pc.OnDataChannel(func(dc *pion.DataChannel) {
-		dc.OnMessage(func(msg pion.DataChannelMessage) {
-			var m map[string]any
-			if json.Unmarshal(msg.Data, &m) == nil {
-				switch m["type"] {
-				case "ping":
-					// Echo pong with the sender's transmit timestamp
-					resp, _ := json.Marshal(map[string]any{
-						"type":        "pong",
-						"tx_epoch_ms": m["tx_epoch_ms"],
-						"rx_epoch_ms": time.Now().UnixMilli(),
-					})
-					_ = dc.SendText(string(resp))
-				case "session_error":
-					// Typed sender-side failure (DEC-022). The device tells us what
-					// actually went wrong so the session can classify it rather than
-					// infer a cause from a stalled stream.
-					code, _ := m["code"].(string)
-					msg, _ := m["message"].(string)
-					if cfg.OnSessionError != nil {
-						cfg.OnSessionError(code, msg)
+		switch dc.Label() {
+		case "clipboard":
+			r.clipboardDC.Store(dc)
+			dc.OnOpen(func() {
+				if cfg.OnClipboardOpen != nil {
+					cfg.OnClipboardOpen()
+				}
+			})
+			dc.OnMessage(func(msg pion.DataChannelMessage) {
+				if cfg.OnClipboardMessage != nil {
+					cfg.OnClipboardMessage(msg.Data)
+				}
+			})
+		default:
+			dc.OnMessage(func(msg pion.DataChannelMessage) {
+				var m map[string]any
+				if json.Unmarshal(msg.Data, &m) == nil {
+					switch m["type"] {
+					case "ping":
+						// Echo pong with the sender's transmit timestamp
+						resp, _ := json.Marshal(map[string]any{
+							"type":        "pong",
+							"tx_epoch_ms": m["tx_epoch_ms"],
+							"rx_epoch_ms": time.Now().UnixMilli(),
+						})
+						_ = dc.SendText(string(resp))
+					case "session_error":
+						// Typed sender-side failure (DEC-022). The device tells us what
+						// actually went wrong so the session can classify it rather than
+						// infer a cause from a stalled stream.
+						code, _ := m["code"].(string)
+						msg, _ := m["message"].(string)
+						if cfg.OnSessionError != nil {
+							cfg.OnSessionError(code, msg)
+						}
 					}
 				}
-			}
-		})
+			})
+		}
 	})
 
 	// Connection state observer
@@ -210,12 +233,23 @@ func (r *Receiver) WaitForState(want pion.PeerConnectionState, timeout time.Dura
 	return fmt.Errorf("receiver: timeout waiting for %s (current %s)", want, r.pc.ConnectionState())
 }
 
+// SendClipboard sends a clipboard update message over the reliable ordered "clipboard" DataChannel.
+func (r *Receiver) SendClipboard(data []byte) error {
+	dc := r.clipboardDC.Load()
+	if dc == nil {
+		return errors.New("receiver: clipboard datachannel not available")
+	}
+	return dc.Send(data)
+}
+
 // Close terminates the receiver, closes network sockets, flushes the depacketizer,
 // drains worker queues, and closes the FrameSink.
 func (r *Receiver) Close() error {
 	if r.closed.Swap(true) {
 		return nil
 	}
+
+	r.clipboardDC.Store(nil)
 
 	var firstErr error
 	if err := r.pc.Close(); err != nil && firstErr == nil {

@@ -1632,11 +1632,25 @@ class ScreenStart extends $pb.GeneratedMessage {
 }
 
 /// ---------------------------------------------------------------------------
-/// Feature payloads — PLANNED stubs. No fields populated in Phase 0.
-/// Each will be expanded in its feature phase with reserved ranges preserved.
+/// Feature payloads
 /// ---------------------------------------------------------------------------
+/// ClipboardUpdate conveys a discrete clipboard state change between paired peers
+/// (ratified by DEC-023, Phase 3). Transported inside Envelope over a dedicated,
+/// reliable, ordered WebRTC DataChannel ("clipboard").
 class ClipboardUpdate extends $pb.GeneratedMessage {
-  factory ClipboardUpdate() => ClipboardUpdate._();
+  factory ClipboardUpdate({
+    $core.String? mimeType,
+    $core.List<$core.int>? payload,
+    $core.List<$core.int>? sha256Digest,
+    $fixnum.Int64? copiedAtMs,
+  }) {
+    final result = ClipboardUpdate._();
+    if (mimeType != null) result.mimeType = mimeType;
+    if (payload != null) result.payload = payload;
+    if (sha256Digest != null) result.sha256Digest = sha256Digest;
+    if (copiedAtMs != null) result.copiedAtMs = copiedAtMs;
+    return result;
+  }
 
   ClipboardUpdate._();
 
@@ -1651,6 +1665,14 @@ class ClipboardUpdate extends $pb.GeneratedMessage {
       _omitMessageNames ? '' : 'ClipboardUpdate',
       package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
       createEmptyInstance: ClipboardUpdate.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'mimeType')
+    ..a<$core.List<$core.int>>(
+        2, _omitFieldNames ? '' : 'payload', $pb.PbFieldType.OY)
+    ..a<$core.List<$core.int>>(
+        3, _omitFieldNames ? '' : 'sha256Digest', $pb.PbFieldType.OY)
+    ..a<$fixnum.Int64>(
+        4, _omitFieldNames ? '' : 'copiedAtMs', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1674,6 +1696,50 @@ class ClipboardUpdate extends $pb.GeneratedMessage {
       _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<ClipboardUpdate>(
           ClipboardUpdate.$_createMessage);
   static ClipboardUpdate? _defaultInstance;
+
+  /// Canonical MIME type of the payload.
+  /// V1 scope: "text/plain;charset=utf-8" and "text/plain".
+  @$pb.TagNumber(1)
+  $core.String get mimeType => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set mimeType($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasMimeType() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearMimeType() => $_clearField(1);
+
+  /// Raw clipboard content bytes.
+  /// Application ceiling: strictly <= 786432 bytes (768 KiB).
+  @$pb.TagNumber(2)
+  $core.List<$core.int> get payload => $_getN(1);
+  @$pb.TagNumber(2)
+  set payload($core.List<$core.int> value) => $_setBytes(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPayload() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPayload() => $_clearField(2);
+
+  /// Raw 32-byte SHA-256 digest of payload.
+  /// Used for wire integrity verification, loop/echo suppression, and connect sync.
+  @$pb.TagNumber(3)
+  $core.List<$core.int> get sha256Digest => $_getN(2);
+  @$pb.TagNumber(3)
+  set sha256Digest($core.List<$core.int> value) => $_setBytes(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasSha256Digest() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearSha256Digest() => $_clearField(3);
+
+  /// Sender wall-clock UTC epoch in milliseconds when content was captured locally.
+  /// Used exclusively for offline/reconnect conflict arbitration ("newer wins").
+  @$pb.TagNumber(4)
+  $fixnum.Int64 get copiedAtMs => $_getI64(3);
+  @$pb.TagNumber(4)
+  set copiedAtMs($fixnum.Int64 value) => $_setInt64(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasCopiedAtMs() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearCopiedAtMs() => $_clearField(4);
 }
 
 class NotificationEvent extends $pb.GeneratedMessage {

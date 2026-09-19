@@ -16,6 +16,10 @@ static int isNull(jobject obj) {
     return obj == NULL ? 1 : 0;
 }
 
+static jobject nullObject() {
+    return NULL;
+}
+
 static jbyteArray nullByteArray() {
     return NULL;
 }
@@ -83,6 +87,80 @@ static int callOnEvent(JNIEnv *env, jobject listener, jmethodID method, jlong se
     if (jKind) (*env)->DeleteLocalRef(env, jKind);
     if (jPayload) (*env)->DeleteLocalRef(env, jPayload);
     return 0;
+}
+
+static jmethodID resolveClipboardWriteMethod(JNIEnv *env, jobject host) {
+    if (!env || !host) return NULL;
+    jclass cls = (*env)->GetObjectClass(env, host);
+    if (!cls) return NULL;
+    jmethodID mid = (*env)->GetMethodID(env, cls, "onWritePlatformClipboard", "(Ljava/lang/String;[B)Z");
+    (*env)->DeleteLocalRef(env, cls);
+    return mid;
+}
+
+static jmethodID resolveClipboardSendMethod(JNIEnv *env, jobject host) {
+    if (!env || !host) return NULL;
+    jclass cls = (*env)->GetObjectClass(env, host);
+    if (!cls) return NULL;
+    jmethodID mid = (*env)->GetMethodID(env, cls, "onSendClipboardUpdate", "([B)Z");
+    (*env)->DeleteLocalRef(env, cls);
+    return mid;
+}
+
+static jmethodID resolveClipboardOversizedMethod(JNIEnv *env, jobject host) {
+    if (!env || !host) return NULL;
+    jclass cls = (*env)->GetObjectClass(env, host);
+    if (!cls) return NULL;
+    jmethodID mid = (*env)->GetMethodID(env, cls, "onOversizedPayload", "(I)V");
+    (*env)->DeleteLocalRef(env, cls);
+    return mid;
+}
+
+static int callClipboardWrite(JNIEnv *env, jobject host, jmethodID mid, const char *mime, const char *payload, int payloadLen) {
+    if (!env || !host || !mid) return 0;
+    jstring jMime = (*env)->NewStringUTF(env, mime);
+    jbyteArray jBytes = newByteArray(env, payloadLen, payload);
+    jboolean res = (*env)->CallBooleanMethod(env, host, mid, jMime, jBytes);
+    if (jMime) (*env)->DeleteLocalRef(env, jMime);
+    if (jBytes) (*env)->DeleteLocalRef(env, jBytes);
+    return res == JNI_TRUE ? 1 : 0;
+}
+
+static int callClipboardSend(JNIEnv *env, jobject host, jmethodID mid, const char *payload, int payloadLen) {
+    if (!env || !host || !mid) return 0;
+    jbyteArray jBytes = newByteArray(env, payloadLen, payload);
+    jboolean res = (*env)->CallBooleanMethod(env, host, mid, jBytes);
+    if (jBytes) (*env)->DeleteLocalRef(env, jBytes);
+    return res == JNI_TRUE ? 1 : 0;
+}
+
+static void callClipboardOversized(JNIEnv *env, jobject host, jmethodID mid, int size) {
+    if (!env || !host || !mid) return;
+    (*env)->CallVoidMethod(env, host, mid, (jint)size);
+}
+
+static jint getOrAttachEnv(JavaVM *jvm, JNIEnv **env, int *didAttach) {
+    *didAttach = 0;
+    jint res = (*jvm)->GetEnv(jvm, (void**)env, JNI_VERSION_1_6);
+    if (res == JNI_OK) {
+        return 0;
+    }
+#if defined(__ANDROID__)
+    res = (*jvm)->AttachCurrentThread(jvm, env, NULL);
+#else
+    res = (*jvm)->AttachCurrentThread(jvm, (void**)env, NULL);
+#endif
+    if (res == 0) {
+        *didAttach = 1;
+        return 0;
+    }
+    return res;
+}
+
+static void releaseEnv(JavaVM *jvm, int didAttach) {
+    if (didAttach) {
+        (*jvm)->DetachCurrentThread(jvm);
+    }
 }
 
 static jint getJavaVM(JNIEnv *env, JavaVM **jvm) {
@@ -547,7 +625,6 @@ func Java_dev_phonebridge_bridge_GoBridge_nativeTrimMemory(env *C.JNIEnv, clazz 
 
 //export Java_dev_phonebridge_bridge_GoBridge_nativeStop
 func Java_dev_phonebridge_bridge_GoBridge_nativeStop(env *C.JNIEnv, clazz C.jclass) C.jboolean {
-	_ = env
 	_ = clazz
 	mu.Lock()
 	defer mu.Unlock()
@@ -566,6 +643,16 @@ func Java_dev_phonebridge_bridge_GoBridge_nativeStop(env *C.JNIEnv, clazz C.jcla
 		mediaTransport.Store(nil)
 	}
 
+	// Defense in depth: tear down clipboard bridge
+	currentClipboardBridge().Stop()
+	clipboardHostMu.Lock()
+	if currentJniHost != nil && C.isNull(currentJniHost.callbackObj) == 0 {
+		C.deleteGlobalRef(env, currentJniHost.callbackObj)
+		currentJniHost.callbackObj = C.nullObject()
+	}
+	currentJniHost = nil
+	clipboardHostMu.Unlock()
+
 	if streamCancel != nil {
 		streamCancel()
 	}
@@ -575,3 +662,204 @@ func Java_dev_phonebridge_bridge_GoBridge_nativeStop(env *C.JNIEnv, clazz C.jcla
 	initialized.Store(false)
 	return C.JNI_TRUE
 }
+
+var (
+	clipboardHostMu sync.Mutex
+	currentJniHost  *jniClipboardHost
+)
+
+type jniClipboardHost struct {
+	callbackObj  C.jobject
+	writeMid     C.jmethodID
+	sendMid      C.jmethodID
+	oversizedMid C.jmethodID
+}
+
+func (h *jniClipboardHost) WritePlatformClipboard(mimeType string, payload []byte) bool {
+	if jvm == nil || C.isNull(h.callbackObj) == 1 {
+		return false
+	}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	var env *C.JNIEnv
+	var didAttach C.int
+	if C.getOrAttachEnv(jvm, &env, &didAttach) != 0 || env == nil {
+		return false
+	}
+	defer C.releaseEnv(jvm, didAttach)
+
+	cMime := C.CString(mimeType)
+	defer C.free(unsafe.Pointer(cMime))
+
+	var cPayload *C.char
+	if len(payload) > 0 {
+		cPayload = (*C.char)(unsafe.Pointer(&payload[0]))
+	}
+
+	ok := C.callClipboardWrite(env, h.callbackObj, h.writeMid, cMime, cPayload, C.int(len(payload)))
+	return ok == 1
+}
+
+func (h *jniClipboardHost) SendClipboardUpdate(wireBytes []byte) bool {
+	if jvm == nil || C.isNull(h.callbackObj) == 1 {
+		return false
+	}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	var env *C.JNIEnv
+	var didAttach C.int
+	if C.getOrAttachEnv(jvm, &env, &didAttach) != 0 || env == nil {
+		return false
+	}
+	defer C.releaseEnv(jvm, didAttach)
+
+	var cBytes *C.char
+	if len(wireBytes) > 0 {
+		cBytes = (*C.char)(unsafe.Pointer(&wireBytes[0]))
+	}
+
+	ok := C.callClipboardSend(env, h.callbackObj, h.sendMid, cBytes, C.int(len(wireBytes)))
+	return ok == 1
+}
+
+func (h *jniClipboardHost) OnOversizedPayload(size int) {
+	if jvm == nil || C.isNull(h.callbackObj) == 1 {
+		return
+	}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	var env *C.JNIEnv
+	var didAttach C.int
+	if C.getOrAttachEnv(jvm, &env, &didAttach) != 0 || env == nil {
+		return
+	}
+	defer C.releaseEnv(jvm, didAttach)
+
+	C.callClipboardOversized(env, h.callbackObj, h.oversizedMid, C.int(size))
+}
+
+func clipboardRecover(env *C.JNIEnv, what string) {
+	if r := recover(); r != nil {
+		panicsCaught.Add(1)
+		errStr := fmt.Sprintf("%s: Go panic recovered: %v", what, r)
+		cErr := C.CString(errStr)
+		defer C.free(unsafe.Pointer(cErr))
+		C.throwIllegalState(env, cErr)
+	}
+}
+
+//export Java_dev_phonebridge_bridge_GoBridge_nativeClipboardInit
+func Java_dev_phonebridge_bridge_GoBridge_nativeClipboardInit(env *C.JNIEnv, clazz C.jclass, jCallback C.jobject) C.jboolean {
+	_ = clazz
+	defer clipboardRecover(env, "clipboardInit")
+
+	if C.isNull(jCallback) == 1 {
+		C.throwIllegalState(env, C.CString("callback cannot be null"))
+		return C.JNI_FALSE
+	}
+
+	if jvm == nil {
+		if C.getJavaVM(env, &jvm) != 0 || jvm == nil {
+			C.throwIllegalState(env, C.CString("Failed to obtain JavaVM reference"))
+			return C.JNI_FALSE
+		}
+	}
+
+	writeMid := C.resolveClipboardWriteMethod(env, jCallback)
+	sendMid := C.resolveClipboardSendMethod(env, jCallback)
+	oversizedMid := C.resolveClipboardOversizedMethod(env, jCallback)
+
+	if C.isNullMethod(writeMid) == 1 || C.isNullMethod(sendMid) == 1 || C.isNullMethod(oversizedMid) == 1 {
+		C.throwIllegalState(env, C.CString("Failed to resolve ClipboardHostCallback methods"))
+		return C.JNI_FALSE
+	}
+
+	gRef := C.makeGlobalRef(env, jCallback)
+	if C.isNull(gRef) == 1 {
+		C.throwIllegalState(env, C.CString("Failed to create global ref for callback"))
+		return C.JNI_FALSE
+	}
+
+	clipboardHostMu.Lock()
+	if currentJniHost != nil && C.isNull(currentJniHost.callbackObj) == 0 {
+		C.deleteGlobalRef(env, currentJniHost.callbackObj)
+	}
+	currentJniHost = &jniClipboardHost{
+		callbackObj:  gRef,
+		writeMid:     writeMid,
+		sendMid:      sendMid,
+		oversizedMid: oversizedMid,
+	}
+	clipboardHostMu.Unlock()
+
+	if err := currentClipboardBridge().Init(currentJniHost); err != nil {
+		cErr := C.CString(err.Error())
+		defer C.free(unsafe.Pointer(cErr))
+		C.throwIllegalState(env, cErr)
+		return C.JNI_FALSE
+	}
+
+	return C.JNI_TRUE
+}
+
+//export Java_dev_phonebridge_bridge_GoBridge_nativeClipboardStop
+func Java_dev_phonebridge_bridge_GoBridge_nativeClipboardStop(env *C.JNIEnv, clazz C.jclass) {
+	_ = clazz
+	defer clipboardRecover(env, "clipboardStop")
+
+	currentClipboardBridge().Stop()
+
+	clipboardHostMu.Lock()
+	if currentJniHost != nil && C.isNull(currentJniHost.callbackObj) == 0 {
+		C.deleteGlobalRef(env, currentJniHost.callbackObj)
+		currentJniHost.callbackObj = C.nullObject()
+	}
+	currentJniHost = nil
+	clipboardHostMu.Unlock()
+}
+
+//export Java_dev_phonebridge_bridge_GoBridge_nativeClipboardOnLocalCopy
+func Java_dev_phonebridge_bridge_GoBridge_nativeClipboardOnLocalCopy(env *C.JNIEnv, clazz C.jclass, jMime C.jstring, jPayload C.jbyteArray, jCopiedAtMs C.jlong) C.jboolean {
+	_ = clazz
+	defer clipboardRecover(env, "clipboardOnLocalCopy")
+
+	mime := goString(env, jMime)
+	payload := cBytes(env, jPayload)
+	if mime == "" || payload == nil {
+		return C.JNI_FALSE
+	}
+
+	err := currentClipboardBridge().OnLocalCopy(mime, payload, int64(jCopiedAtMs))
+	if err != nil {
+		return C.JNI_FALSE
+	}
+	return C.JNI_TRUE
+}
+
+//export Java_dev_phonebridge_bridge_GoBridge_nativeClipboardOnRemoteBytes
+func Java_dev_phonebridge_bridge_GoBridge_nativeClipboardOnRemoteBytes(env *C.JNIEnv, clazz C.jclass, jPayload C.jbyteArray) C.jboolean {
+	_ = clazz
+	defer clipboardRecover(env, "clipboardOnRemoteBytes")
+
+	bytes := cBytes(env, jPayload)
+	if bytes == nil {
+		return C.JNI_FALSE
+	}
+
+	err := currentClipboardBridge().OnRemoteBytes(bytes)
+	if err != nil {
+		return C.JNI_FALSE
+	}
+	return C.JNI_TRUE
+}
+
+//export Java_dev_phonebridge_bridge_GoBridge_nativeClipboardStats
+func Java_dev_phonebridge_bridge_GoBridge_nativeClipboardStats(env *C.JNIEnv, clazz C.jclass) C.jbyteArray {
+	_ = clazz
+	defer clipboardRecover(env, "clipboardStats")
+	return goBytesToJava(env, currentClipboardBridge().StatsJSON())
+}
+

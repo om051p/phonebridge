@@ -13,6 +13,7 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import dev.phonebridge.bridge.GoBridge
+import dev.phonebridge.clipboard.AndroidClipboardAdapter
 import dev.phonebridge.capture.CaptureConfig
 import dev.phonebridge.capture.CodecSelector
 import dev.phonebridge.capture.ScreenCaptureEngine
@@ -375,11 +376,13 @@ class PhoneBridgeService : Service() {
         if (GoBridge.loaded) {
             val storageDir = filesDir.absolutePath
             GoBridge.start(storageDir)
+            AndroidClipboardAdapter.start(applicationContext)
         }
     }
 
     private fun stopGoEngine() {
         if (GoBridge.loaded) {
+            AndroidClipboardAdapter.stop()
             GoBridge.mediaStop()
             GoBridge.mediaRelease()
             GoBridge.stop()

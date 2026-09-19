@@ -1,6 +1,7 @@
 package webrtc // import "github.com/om051p/phonebridge/core/pkg/webrtc"
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -60,6 +61,12 @@ type SessionConfig struct {
 	// OnControlMessage receives DataChannel control messages (from the
 	// Pion receive goroutine — must not block).
 	OnControlMessage func([]byte)
+	// OnClipboardMessage receives DataChannel clipboard messages (from the
+	// Pion receive goroutine — must not block).
+	OnClipboardMessage func([]byte)
+	// OnClipboardOpen is called when the reliable ordered "clipboard" DataChannel
+	// transitions to open state.
+	OnClipboardOpen func()
 }
 
 // Session couples one Sender to one Pion PeerConnection + H.264 track.
@@ -70,6 +77,7 @@ type Session struct {
 	pc     *pion.PeerConnection
 	track  *pion.TrackLocalStaticRTP
 	dc     *pion.DataChannel
+	cbDC   *pion.DataChannel
 	sender *Sender
 }
 
@@ -136,6 +144,22 @@ func NewSession(cfg SessionConfig, sender *Sender) (*Session, error) {
 	if cfg.OnControlMessage != nil {
 		dc.OnMessage(func(msg pion.DataChannelMessage) { cfg.OnControlMessage(msg.Data) })
 	}
+
+	cbOrdered := true
+	cbDC, err := pc.CreateDataChannel("clipboard", &pion.DataChannelInit{
+		Ordered: &cbOrdered,
+	})
+	if err != nil {
+		_ = pc.Close()
+		return nil, fmt.Errorf("webrtc: clipboard datachannel: %w", err)
+	}
+	if cfg.OnClipboardMessage != nil {
+		cbDC.OnMessage(func(msg pion.DataChannelMessage) { cfg.OnClipboardMessage(msg.Data) })
+	}
+	if cfg.OnClipboardOpen != nil {
+		cbDC.OnOpen(cfg.OnClipboardOpen)
+	}
+
 	if cfg.OnStateChange != nil {
 		pc.OnConnectionStateChange(cfg.OnStateChange)
 	}
@@ -146,7 +170,7 @@ func NewSession(cfg SessionConfig, sender *Sender) (*Session, error) {
 		return track.WriteRTP(&pkt)
 	}))
 
-	return &Session{pc: pc, track: track, dc: dc, sender: sender}, nil
+	return &Session{pc: pc, track: track, dc: dc, cbDC: cbDC, sender: sender}, nil
 }
 
 // Track exposes the underlying track (stats/diagnostics).
@@ -217,6 +241,14 @@ func (s *Session) Start() error { return s.sender.Start() }
 // SendControl sends a message on the control DataChannel (statistics,
 // pacing probes — payload semantics are protocol work, not defined here).
 func (s *Session) SendControl(data []byte) error { return s.dc.Send(data) }
+
+// SendClipboard sends a message on the reliable ordered "clipboard" DataChannel.
+func (s *Session) SendClipboard(data []byte) error {
+	if s.cbDC == nil {
+		return errors.New("webrtc: clipboard datachannel not available")
+	}
+	return s.cbDC.Send(data)
+}
 
 // WaitForState polls until the PeerConnection reaches want or the timeout
 // elapses (diagnostic convenience; polling is fine at handshake scale).

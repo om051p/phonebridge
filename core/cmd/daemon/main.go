@@ -9,7 +9,9 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/om051p/phonebridge/core/pkg/clipboard"
 	"github.com/om051p/phonebridge/core/pkg/crypto"
 	"github.com/om051p/phonebridge/core/pkg/discovery"
 	"github.com/om051p/phonebridge/core/pkg/engine"
@@ -95,6 +97,66 @@ func main() {
 	})
 	mgr.SetIdentity(identity)
 	mgr.SetTrustStore(trustStore)
+
+	// Initialize clipboard subsystem (DEC-023)
+	var clipboardAdapter *clipboard.LinuxAdapter
+	var clipboardEngine *clipboard.Engine
+
+	helperPath := os.Getenv("PHONEBRIDGE_WAYLAND_HELPER")
+	if helperPath == "" {
+		candidates := []string{
+			"phonebridge-wayland-helper",
+			"/usr/local/bin/phonebridge-wayland-helper",
+			"/usr/bin/phonebridge-wayland-helper",
+		}
+		for _, c := range candidates {
+			if _, err := os.Stat(c); err == nil {
+				helperPath = c
+				break
+			}
+		}
+	}
+
+	adapterCfg := clipboard.LinuxAdapterConfig{
+		HelperPath: helperPath,
+		OnClipboardChanged: func(c context.Context, mimeType string, payload []byte) error {
+			if clipboardEngine != nil {
+				nowMs := uint64(time.Now().UnixMilli())
+				_, err := clipboardEngine.OnLocalCopy(c, mimeType, payload, nowMs)
+				return err
+			}
+			return nil
+		},
+		OnOversizedPayload: func(size int) {
+			log.Printf("clipboard: oversized payload ignored (%d bytes > 768 KiB)", size)
+		},
+		OnStatusChanged: func(status clipboard.AdapterStatus, err error) {
+			log.Printf("clipboard adapter status: %s (err: %v)", status, err)
+		},
+	}
+
+	adapter, err := clipboard.NewLinuxAdapter(adapterCfg)
+	if err != nil {
+		log.Printf("warning: clipboard adapter initialization failed: %v", err)
+	} else {
+		clipboardAdapter = adapter
+		engineCfg := clipboard.EngineConfig{
+			Role:     clipboard.RoleDesktop,
+			Platform: clipboardAdapter,
+		}
+		eng, err := clipboard.NewEngine(engineCfg)
+		if err != nil {
+			log.Printf("warning: clipboard engine initialization failed: %v", err)
+		} else {
+			clipboardEngine = eng
+			mgr.SetClipboardEngine(clipboardEngine)
+			if err := clipboardAdapter.Start(ctx); err != nil {
+				log.Printf("warning: clipboard adapter start failed: %v", err)
+			}
+			defer clipboardAdapter.Stop()
+		}
+	}
+
 	srv.SetOrchestrator(mgr)
 
 	activeCfg := srv.Config()

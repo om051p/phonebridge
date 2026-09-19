@@ -8,11 +8,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/om051p/phonebridge/core/pkg/clipboard"
 	"github.com/om051p/phonebridge/core/pkg/crypto"
 	"github.com/om051p/phonebridge/core/pkg/discovery"
+	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgev1"
 	"github.com/om051p/phonebridge/core/pkg/receiver"
 	"github.com/om051p/phonebridge/core/pkg/rtpmedia"
 	pion "github.com/pion/webrtc/v4"
+	"google.golang.org/protobuf/proto"
 )
 
 // defaultReconnectBackoff is the delay before each successive reconnect
@@ -103,6 +106,7 @@ type SessionConfig struct {
 	ReconnectBackoff     []time.Duration
 	Identity             *crypto.DeviceIdentity
 	TrustStore           *crypto.TrustStore
+	ClipboardEngine      *clipboard.Engine
 }
 
 // DefaultSessionConfig returns production defaults for session configuration.
@@ -174,9 +178,10 @@ type Session struct {
 	reconnecting      bool
 	reconnectAttempts int
 
-	targetEndpoint string
-	signaling      *SignalingClient
-	trustStore     *crypto.TrustStore
+	targetEndpoint  string
+	signaling       *SignalingClient
+	trustStore      *crypto.TrustStore
+	clipboardEngine *clipboard.Engine
 
 	sink       receiver.FrameSink
 	sinkOwned  bool
@@ -222,13 +227,46 @@ func NewSession(sessionID string, cfg SessionConfig, reg *discovery.DeviceRegist
 			FPS:         cfg.PreferredFPS,
 			BitrateKbps: cfg.PreferredBitrateKbps,
 		}),
-		trustStore:    cfg.TrustStore,
-		signaling:     sigClient,
-		factory:       defaultTransportFactory,
-		onStateChange: cb,
-		ctx:           ctx,
-		cancel:        cancel,
+		trustStore:      cfg.TrustStore,
+		clipboardEngine: cfg.ClipboardEngine,
+		signaling:       sigClient,
+		factory:         defaultTransportFactory,
+		onStateChange:   cb,
+		ctx:             ctx,
+		cancel:          cancel,
 	}
+}
+
+// SetClipboardEngine updates the session's clipboard engine.
+func (s *Session) SetClipboardEngine(eng *clipboard.Engine) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.clipboardEngine = eng
+}
+
+// ClipboardEngine returns the session's active clipboard engine.
+func (s *Session) ClipboardEngine() *clipboard.Engine {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.clipboardEngine
+}
+
+// SendClipboard sends wire bytes over the active transport's clipboard DataChannel.
+func (s *Session) SendClipboard(data []byte) error {
+	s.mu.RLock()
+	tr := s.tr
+	stopping := s.ctx.Err() != nil
+	s.mu.RUnlock()
+
+	if stopping || tr == nil {
+		return errors.New("engine: no active transport")
+	}
+
+	if cb, ok := tr.(interface{ SendClipboard([]byte) error }); ok {
+		return cb.SendClipboard(data)
+	}
+
+	return errors.New("engine: transport does not support clipboard")
 }
 
 // SetTrustStore sets the trust store for checking device peer trust.
@@ -495,6 +533,9 @@ func (s *Session) teardown(reason string) error {
 	if tr != nil {
 		_ = tr.Close()
 	}
+	if eng := s.ClipboardEngine(); eng != nil {
+		eng.SetTransport(nil)
+	}
 	// A session owns its sink (the receiver borrows it so it can outlive an
 	// individual transport) and closes it exactly once, on final teardown.
 	if ownSink && sink != nil {
@@ -720,6 +761,12 @@ func (s *Session) newTransport(gen uint64, sink receiver.FrameSink) (transport, 
 		OnSessionError: func(code, message string) {
 			s.handleDeviceError(gen, code, message)
 		},
+		OnClipboardMessage: func(data []byte) {
+			s.handleClipboardMessage(gen, data)
+		},
+		OnClipboardOpen: func() {
+			s.handleClipboardOpen(gen)
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -729,6 +776,44 @@ func (s *Session) newTransport(gen uint64, sink receiver.FrameSink) (transport, 
 	s.tr = tr
 	s.mu.Unlock()
 	return tr, nil
+}
+
+// handleClipboardMessage processes an inbound clipboard payload from the transport.
+func (s *Session) handleClipboardMessage(gen uint64, data []byte) {
+	s.mu.RLock()
+	stale := gen != s.trGen
+	stopping := s.ctx.Err() != nil
+	eng := s.clipboardEngine
+	s.mu.RUnlock()
+
+	if stale || stopping || eng == nil {
+		return
+	}
+
+	_ = eng.OnRemoteBytes(s.ctx, data)
+}
+
+// handleClipboardOpen configures the outbound transport and triggers reconnect sync.
+func (s *Session) handleClipboardOpen(gen uint64) {
+	s.mu.RLock()
+	stale := gen != s.trGen
+	stopping := s.ctx.Err() != nil
+	eng := s.clipboardEngine
+	s.mu.RUnlock()
+
+	if stale || stopping || eng == nil {
+		return
+	}
+
+	eng.SetTransport(clipboard.TransportFunc(func(ctx context.Context, update *phonebridgev1.ClipboardUpdate) error {
+		wireBytes, err := proto.Marshal(update)
+		if err != nil {
+			return err
+		}
+		return s.SendClipboard(wireBytes)
+	}))
+
+	_ = eng.OnDataChannelOpen(s.ctx)
 }
 
 // beginTransportReplacement invalidates the outgoing transport's callbacks and

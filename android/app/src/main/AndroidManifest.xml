@@ -53,6 +53,34 @@
             android:exported="false"
             android:foregroundServiceType="connectedDevice|mediaProjection" />
 
+        <!-- PhoneBridge Companion InputMethodService for Ambient Clipboard Sync (DEC-023 Tier 1) -->
+        <service
+            android:name=".ime.PhoneBridgeImeService"
+            android:enabled="true"
+            android:exported="true"
+            android:label="PhoneBridge Clipboard Sync"
+            android:permission="android.permission.BIND_INPUT_METHOD">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/method" />
+        </service>
+
+        <!-- Quick Settings Tile for Tier-2 Explicit Manual Clipboard Pull (DEC-023 Tier 2) -->
+        <service
+            android:name=".clipboard.ClipboardPullTileService"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@android:drawable/ic_menu_agenda"
+            android:label="Sync Clipboard"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
     </application>
 
 </manifest>

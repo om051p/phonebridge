@@ -255,10 +255,28 @@ message ScreenStart {
 }
 
 // ---------------------------------------------------------------------------
-// Feature payloads — PLANNED stubs. No fields populated in Phase 0.
-// Each will be expanded in its feature phase with reserved ranges preserved.
+// Feature payloads
 // ---------------------------------------------------------------------------
-message ClipboardUpdate {} // PLANNED
+// ClipboardUpdate conveys a discrete clipboard state change between paired peers
+// (ratified by DEC-023, Phase 3). Transported inside Envelope over a dedicated,
+// reliable, ordered WebRTC DataChannel ("clipboard").
+message ClipboardUpdate {
+  // Canonical MIME type of the payload.
+  // V1 scope: "text/plain;charset=utf-8" and "text/plain".
+  string mime_type = 1;
+
+  // Raw clipboard content bytes.
+  // Application ceiling: strictly <= 786432 bytes (768 KiB).
+  bytes payload = 2;
+
+  // Raw 32-byte SHA-256 digest of payload.
+  // Used for wire integrity verification, loop/echo suppression, and connect sync.
+  bytes sha256_digest = 3;
+
+  // Sender wall-clock UTC epoch in milliseconds when content was captured locally.
+  // Used exclusively for offline/reconnect conflict arbitration ("newer wins").
+  uint64 copied_at_ms = 4;
+}
 message NotificationEvent {} // PLANNED
 message NotificationAction {} // PLANNED
 message NotificationDismissed {} // PLANNED

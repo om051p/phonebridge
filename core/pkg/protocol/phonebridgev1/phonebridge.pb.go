@@ -1437,11 +1437,25 @@ func (x *ScreenStart) GetActual() *MediaParams {
 }
 
 // ---------------------------------------------------------------------------
-// Feature payloads — PLANNED stubs. No fields populated in Phase 0.
-// Each will be expanded in its feature phase with reserved ranges preserved.
+// Feature payloads
 // ---------------------------------------------------------------------------
+// ClipboardUpdate conveys a discrete clipboard state change between paired peers
+// (ratified by DEC-023, Phase 3). Transported inside Envelope over a dedicated,
+// reliable, ordered WebRTC DataChannel ("clipboard").
 type ClipboardUpdate struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Canonical MIME type of the payload.
+	// V1 scope: "text/plain;charset=utf-8" and "text/plain".
+	MimeType string `protobuf:"bytes,1,opt,name=mime_type,json=mimeType,proto3" json:"mime_type,omitempty"`
+	// Raw clipboard content bytes.
+	// Application ceiling: strictly <= 786432 bytes (768 KiB).
+	Payload []byte `protobuf:"bytes,2,opt,name=payload,proto3" json:"payload,omitempty"`
+	// Raw 32-byte SHA-256 digest of payload.
+	// Used for wire integrity verification, loop/echo suppression, and connect sync.
+	Sha256Digest []byte `protobuf:"bytes,3,opt,name=sha256_digest,json=sha256Digest,proto3" json:"sha256_digest,omitempty"`
+	// Sender wall-clock UTC epoch in milliseconds when content was captured locally.
+	// Used exclusively for offline/reconnect conflict arbitration ("newer wins").
+	CopiedAtMs    uint64 `protobuf:"varint,4,opt,name=copied_at_ms,json=copiedAtMs,proto3" json:"copied_at_ms,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1474,6 +1488,34 @@ func (x *ClipboardUpdate) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ClipboardUpdate.ProtoReflect.Descriptor instead.
 func (*ClipboardUpdate) Descriptor() ([]byte, []int) {
 	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ClipboardUpdate) GetMimeType() string {
+	if x != nil {
+		return x.MimeType
+	}
+	return ""
+}
+
+func (x *ClipboardUpdate) GetPayload() []byte {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *ClipboardUpdate) GetSha256Digest() []byte {
+	if x != nil {
+		return x.Sha256Digest
+	}
+	return nil
+}
+
+func (x *ClipboardUpdate) GetCopiedAtMs() uint64 {
+	if x != nil {
+		return x.CopiedAtMs
+	}
+	return 0
 }
 
 type NotificationEvent struct {
@@ -2062,8 +2104,13 @@ const file_phonebridge_v1_phonebridge_proto_rawDesc = "" +
 	"\trequested\x18\x01 \x01(\v2\x1b.phonebridge.v1.MediaParamsR\trequested\x12\x1a\n" +
 	"\baccepted\x18\x02 \x01(\bR\baccepted\x12#\n" +
 	"\rreject_reason\x18\x03 \x01(\tR\frejectReason\x123\n" +
-	"\x06actual\x18\x04 \x01(\v2\x1b.phonebridge.v1.MediaParamsR\x06actual\"\x11\n" +
-	"\x0fClipboardUpdate\"\x13\n" +
+	"\x06actual\x18\x04 \x01(\v2\x1b.phonebridge.v1.MediaParamsR\x06actual\"\x8f\x01\n" +
+	"\x0fClipboardUpdate\x12\x1b\n" +
+	"\tmime_type\x18\x01 \x01(\tR\bmimeType\x12\x18\n" +
+	"\apayload\x18\x02 \x01(\fR\apayload\x12#\n" +
+	"\rsha256_digest\x18\x03 \x01(\fR\fsha256Digest\x12 \n" +
+	"\fcopied_at_ms\x18\x04 \x01(\x04R\n" +
+	"copiedAtMs\"\x13\n" +
 	"\x11NotificationEvent\"\x14\n" +
 	"\x12NotificationAction\"\x17\n" +
 	"\x15NotificationDismissed\"\v\n" +

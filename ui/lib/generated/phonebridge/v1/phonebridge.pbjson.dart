@@ -609,11 +609,19 @@ final $typed_data.Uint8List screenStartDescriptor = $convert.base64Decode(
 @$core.Deprecated('Use clipboardUpdateDescriptor instead')
 const ClipboardUpdate$json = {
   '1': 'ClipboardUpdate',
+  '2': [
+    {'1': 'mime_type', '3': 1, '4': 1, '5': 9, '10': 'mimeType'},
+    {'1': 'payload', '3': 2, '4': 1, '5': 12, '10': 'payload'},
+    {'1': 'sha256_digest', '3': 3, '4': 1, '5': 12, '10': 'sha256Digest'},
+    {'1': 'copied_at_ms', '3': 4, '4': 1, '5': 4, '10': 'copiedAtMs'},
+  ],
 };
 
 /// Descriptor for `ClipboardUpdate`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List clipboardUpdateDescriptor =
-    $convert.base64Decode('Cg9DbGlwYm9hcmRVcGRhdGU=');
+final $typed_data.Uint8List clipboardUpdateDescriptor = $convert.base64Decode(
+    'Cg9DbGlwYm9hcmRVcGRhdGUSGwoJbWltZV90eXBlGAEgASgJUghtaW1lVHlwZRIYCgdwYXlsb2'
+    'FkGAIgASgMUgdwYXlsb2FkEiMKDXNoYTI1Nl9kaWdlc3QYAyABKAxSDHNoYTI1NkRpZ2VzdBIg'
+    'Cgxjb3BpZWRfYXRfbXMYBCABKARSCmNvcGllZEF0TXM=');
 
 @$core.Deprecated('Use notificationEventDescriptor instead')
 const NotificationEvent$json = {

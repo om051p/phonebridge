@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/om051p/phonebridge/core/pkg/clipboard"
 	"github.com/om051p/phonebridge/core/pkg/crypto"
 	"github.com/om051p/phonebridge/core/pkg/discovery"
 	"github.com/om051p/phonebridge/core/pkg/receiver"
@@ -55,6 +56,7 @@ type SessionManager struct {
 	sinkFactory     func() (receiver.FrameSink, error)
 	identity        *crypto.DeviceIdentity
 	trustStore      *crypto.TrustStore
+	clipboardEngine *clipboard.Engine
 	pendingPairings map[string]*pendingPairing
 	httpClient      *http.Client
 }
@@ -94,6 +96,24 @@ func (m *SessionManager) SetTrustStore(ts *crypto.TrustStore) {
 	defer m.mu.Unlock()
 	m.trustStore = ts
 	m.cfg.TrustStore = ts
+}
+
+// SetClipboardEngine configures the clipboard engine for all managed sessions.
+func (m *SessionManager) SetClipboardEngine(eng *clipboard.Engine) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.clipboardEngine = eng
+	m.cfg.ClipboardEngine = eng
+	if m.activeSess != nil {
+		m.activeSess.SetClipboardEngine(eng)
+	}
+}
+
+// ClipboardEngine returns the configured clipboard engine.
+func (m *SessionManager) ClipboardEngine() *clipboard.Engine {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.clipboardEngine
 }
 
 // TrustStore returns the active trust store.

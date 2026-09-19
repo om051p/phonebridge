@@ -33,6 +33,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -108,6 +109,16 @@ func (t *MediaTransport) MediaInit() error {
 			s := st.String()
 			t.lastPC.Store(&s)
 		},
+		OnClipboardMessage: func(data []byte) {
+			if cb := currentClipboardBridge(); cb != nil {
+				_ = cb.OnRemoteBytes(data)
+			}
+		},
+		OnClipboardOpen: func() {
+			if cb := currentClipboardBridge(); cb != nil {
+				cb.OnDataChannelOpen()
+			}
+		},
 	}
 	sess, err := webrtc.NewSession(cfg, sender)
 	if err != nil {
@@ -116,6 +127,17 @@ func (t *MediaTransport) MediaInit() error {
 	t.sender, t.session = sender, sess
 	t.state.Store(trInitialized)
 	return nil
+}
+
+// SendClipboard sends a clipboard update message over the active WebRTC clipboard DataChannel.
+func (t *MediaTransport) SendClipboard(data []byte) error {
+	t.mu.Lock()
+	sess := t.session
+	t.mu.Unlock()
+	if sess == nil {
+		return errors.New("media transport not initialized")
+	}
+	return sess.SendClipboard(data)
 }
 
 // MediaCreateOffer creates the SDP offer (blocks ≤ ~2 s for ICE gathering;

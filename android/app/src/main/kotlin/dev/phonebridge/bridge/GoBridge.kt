@@ -173,6 +173,37 @@ object GoBridge {
         return nativeMediaStats()
     }
 
+    // ------------------------------------------------------------------
+    // Clipboard plane (DEC-023, Phase 3 Step 4).
+    // Go clipboard.Engine acts as single synchronization authority.
+    // ------------------------------------------------------------------
+
+    fun clipboardInit(callback: ClipboardHostCallback): Boolean {
+        check(isLoaded) { "libphonebridge_core.so is not loaded" }
+        return nativeClipboardInit(callback)
+    }
+
+    fun clipboardStop() {
+        if (isLoaded) {
+            nativeClipboardStop()
+        }
+    }
+
+    fun clipboardOnLocalCopy(mimeType: String, payload: ByteArray, copiedAtMs: Long): Boolean {
+        if (!isLoaded) return false
+        return nativeClipboardOnLocalCopy(mimeType, payload, copiedAtMs)
+    }
+
+    fun clipboardOnRemoteBytes(payload: ByteArray): Boolean {
+        if (!isLoaded) return false
+        return nativeClipboardOnRemoteBytes(payload)
+    }
+
+    fun clipboardStats(): ByteArray? {
+        if (!isLoaded) return null
+        return nativeClipboardStats()
+    }
+
     @JvmStatic
     private external fun nativeStart(storageDir: String?): Boolean
 
@@ -216,4 +247,27 @@ object GoBridge {
 
     @JvmStatic
     private external fun nativeMediaStats(): ByteArray?
+
+    // Clipboard plane natives (implemented in core/cmd/android/main.go)
+    @JvmStatic
+    private external fun nativeClipboardInit(callback: ClipboardHostCallback): Boolean
+
+    @JvmStatic
+    private external fun nativeClipboardStop()
+
+    @JvmStatic
+    private external fun nativeClipboardOnLocalCopy(mimeType: String, payload: ByteArray, copiedAtMs: Long): Boolean
+
+    @JvmStatic
+    private external fun nativeClipboardOnRemoteBytes(payload: ByteArray): Boolean
+
+    @JvmStatic
+    private external fun nativeClipboardStats(): ByteArray?
 }
+
+interface ClipboardHostCallback {
+    fun onWritePlatformClipboard(mimeType: String, payload: ByteArray): Boolean
+    fun onSendClipboardUpdate(payload: ByteArray): Boolean
+    fun onOversizedPayload(size: Int)
+}
+

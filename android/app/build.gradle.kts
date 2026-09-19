@@ -62,6 +62,7 @@ android {
     }
 
 testOptions {
+    unitTests.isReturnDefaultValues = true
     unitTests.all {
         // JNI smoke tests load the host-built c-shared library (same sources
         // as the Android .so): build it with `make -C core host-lib`. Tests
