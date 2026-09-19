@@ -14,6 +14,7 @@ import 'package:fixnum/fixnum.dart';
 import 'package:grpc/grpc.dart';
 
 import '../generated/phonebridge/localipc/v1/local_ipc.pbgrpc.dart';
+import '../generated/phonebridge/v1/phonebridge.pb.dart' as pb;
 
 enum LocalIpcState {
   disconnected,
@@ -207,10 +208,18 @@ class LocalIpcClient {
   }
 
   /// Initiates a LAN session with the target device.
-  Future<StartSessionResponse> startSession(String deviceId) async {
+  ///
+  /// [requested] is the media tuple asked for. It must be settled *before* the
+  /// offer exists (DEC-022), so it travels with the request rather than being
+  /// applied afterwards. Omitted fields mean "device default" — which the phone
+  /// reports back as unknown rather than assuming it equals the request.
+  Future<StartSessionResponse> startSession(
+    String deviceId, {
+    pb.MediaParams? requested,
+  }) async {
     return _callWithAuth(
       (opts) => _service.startSession(
-        StartSessionRequest(deviceId: deviceId),
+        StartSessionRequest(deviceId: deviceId, requested: requested),
         options: opts,
       ),
     );

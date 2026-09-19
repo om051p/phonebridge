@@ -1,7 +1,40 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/local_ipc_client.dart';
+import '../models/session_status.dart';
 import '../generated/phonebridge/localipc/v1/local_ipc.pb.dart';
+import '../generated/phonebridge/v1/phonebridge.pb.dart' as pb;
+
+/// Media tuple presets the user can ask the phone for. Zero fields mean
+/// "device default", which the phone reports back as unreported rather than
+/// guessing (DEC-022).
+class _RequestedMedia {
+  const _RequestedMedia._(this.label, this.width, this.height, this.fps, this.bitrateKbps);
+
+  final String label;
+  final int width;
+  final int height;
+  final int fps;
+  final int bitrateKbps;
+
+  static const deviceDefault = _RequestedMedia._('Device default', 0, 0, 0, 0);
+  static const hd720p30 = _RequestedMedia._('720p 30 fps', 720, 1600, 30, 4000);
+  static const hd1080p30 = _RequestedMedia._('1080p 30 fps', 1080, 2400, 30, 6000);
+  static const hd1080p60 = _RequestedMedia._('1080p 60 fps', 1080, 2400, 60, 8000);
+
+  static const values = <_RequestedMedia>[deviceDefault, hd720p30, hd1080p30, hd1080p60];
+
+  pb.MediaParams? toParams() {
+    if (width == 0 && height == 0 && fps == 0 && bitrateKbps == 0) return null;
+    return pb.MediaParams(
+      width: width,
+      height: height,
+      fps: fps,
+      bitrateKbps: bitrateKbps,
+      codec: 'h264',
+    );
+  }
+}
 
 /// Linux desktop session view for PhoneBridge.
 /// Connects to local daemon over UDS + gRPC to:
@@ -35,11 +68,15 @@ class _LinuxSessionViewState extends State<LinuxSessionView> {
   String? _selectedDeviceId;
   final TextEditingController _targetIdController = TextEditingController();
 
-  String? _activeSessionId;
-  SessionState _sessionState = SessionState.SESSION_STATE_DISCONNECTED;
-  String? _sessionReason;
-  String? _sessionError;
-  int _sessionDurationMs = 0;
+  /// The single source of truth for session presentation: state, typed reason,
+  /// the requested tuple and the tuple the phone reported applying.
+  SessionStatus _status = SessionStatus.idle;
+
+  /// What the next session will ask the phone for. Settled before the offer is
+  /// created (DEC-022), so it is chosen here rather than applied afterwards.
+  _RequestedMedia _requestedMedia = _RequestedMedia.deviceDefault;
+
+  String? get _activeSessionId => _status.sessionId;
   StreamStats? _streamStats;
 
   bool _isLoading = false;
@@ -111,19 +148,16 @@ class _LinuxSessionViewState extends State<LinuxSessionView> {
     _sessionEventSub = _ipcClient.onSessionEvents.listen(
       (evt) {
         if (!mounted) return;
-        setState(() {
-          _activeSessionId = evt.sessionId;
-          _sessionState = evt.state;
-          _sessionReason = evt.reason;
-          if (evt.errorMessage.isNotEmpty) {
-            _sessionError = evt.errorMessage;
-          }
-        });
+        final next = SessionStatus.fromEvent(evt, previous: _status);
+        setState(() => _status = next);
 
-        if (evt.state == SessionState.SESSION_STATE_STREAMING) {
+        // A reconnect keeps the same session (the daemon preserves its ID) and
+        // only replaces the transport, so telemetry keeps polling through it:
+        // dropping it here would blank the panel during exactly the moment the
+        // user wants to watch it recover.
+        if (next.shouldKeepTelemetry) {
           _startTelemetryPolling();
-        } else if (evt.state == SessionState.SESSION_STATE_STOPPED ||
-            evt.state == SessionState.SESSION_STATE_FAILED) {
+        } else if (next.isTerminal) {
           _stopTelemetryPolling();
         }
       },
@@ -150,15 +184,16 @@ class _LinuxSessionViewState extends State<LinuxSessionView> {
         final snap = await _ipcClient.getSessionState(sessionId: _activeSessionId!);
         if (mounted) {
           setState(() {
-            _sessionState = snap.state;
-            _sessionDurationMs = snap.connectedDurationMs.toInt();
+            // The snapshot is authoritative for the negotiation, so it replaces
+            // the previous view of it rather than merging into it.
+            _status = SessionStatus.fromSnapshot(snap, previous: _status);
             if (snap.hasStats()) {
               _streamStats = snap.stats;
             }
-            if (snap.errorMessage.isNotEmpty) {
-              _sessionError = snap.errorMessage;
-            }
           });
+          if (!_status.shouldKeepTelemetry) {
+            _stopTelemetryPolling();
+          }
         }
       } catch (_) {}
     });
@@ -371,13 +406,19 @@ class _LinuxSessionViewState extends State<LinuxSessionView> {
 
     setState(() => _isLoading = true);
     try {
-      final resp = await _ipcClient.startSession(targetId);
+      final requested = _requestedMedia.toParams();
+      final resp = await _ipcClient.startSession(targetId, requested: requested);
       if (mounted) {
         setState(() {
-          _activeSessionId = resp.sessionId;
-          _sessionState = resp.state;
-          _sessionReason = 'session initiated';
-          _sessionError = null;
+          // A new session starts from a clean slate: the previous failure and
+          // negotiated tuple must not leak into it.
+          _status = SessionStatus(
+            state: resp.state,
+            sessionId: resp.sessionId,
+            reasonDetail: 'session initiated',
+            requested: requested,
+            actual: null,
+          );
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -404,8 +445,12 @@ class _LinuxSessionViewState extends State<LinuxSessionView> {
       );
       if (mounted) {
         setState(() {
-          _sessionState = resp.state;
-          _sessionReason = 'stopped by user';
+          _status = _status.copyWith(
+            state: resp.state,
+            sessionId: resp.sessionId.isNotEmpty ? resp.sessionId : _status.sessionId,
+            reasonCode: SessionReason.SESSION_REASON_USER_STOPPED,
+            reasonDetail: 'stopped by user',
+          );
         });
         _stopTelemetryPolling();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -489,9 +534,7 @@ class _LinuxSessionViewState extends State<LinuxSessionView> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isConnected = _ipcState == LocalIpcState.connected;
-    final isSessionActive = _sessionState != SessionState.SESSION_STATE_DISCONNECTED &&
-        _sessionState != SessionState.SESSION_STATE_STOPPED &&
-        _sessionState != SessionState.SESSION_STATE_FAILED;
+    final isSessionActive = _status.isActive;
 
     return Scaffold(
       appBar: AppBar(
@@ -525,7 +568,7 @@ class _LinuxSessionViewState extends State<LinuxSessionView> {
         children: [
           _buildSessionStateBanner(theme),
           const SizedBox(height: 16),
-          if (_sessionState == SessionState.SESSION_STATE_STREAMING) ...[
+          if (_status.state == SessionState.SESSION_STATE_STREAMING) ...[
             _buildVideoDisplayBanner(theme),
             const SizedBox(height: 16),
           ],
@@ -545,54 +588,53 @@ class _LinuxSessionViewState extends State<LinuxSessionView> {
     );
   }
 
-  Widget _buildSessionStateBanner(ThemeData theme) {
-    Color color;
-    String label;
-    IconData icon;
-
-    switch (_sessionState) {
+  Color _stateColor(SessionState state) {
+    switch (state) {
       case SessionState.SESSION_STATE_STREAMING:
-        color = Colors.green;
-        label = 'STREAMING (VIDEO ACTIVE)';
-        icon = Icons.play_circle_fill;
-        break;
+        return Colors.green;
       case SessionState.SESSION_STATE_CONNECTED:
-        color = Colors.teal;
-        label = 'CONNECTED (WEBRTC PEER)';
-        icon = Icons.check_circle;
-        break;
+        return Colors.teal;
       case SessionState.SESSION_STATE_CONNECTING:
-        color = Colors.amber;
-        label = 'CONNECTING (SDP OFFER/ANSWER)';
-        icon = Icons.sync;
-        break;
       case SessionState.SESSION_STATE_DISCOVERING:
-        color = Colors.blue;
-        label = 'DISCOVERING TARGET DEVICE';
-        icon = Icons.search;
-        break;
+        return Colors.amber;
       case SessionState.SESSION_STATE_RECONNECTING:
-        color = Colors.orange;
-        label = 'RECONNECTING';
-        icon = Icons.autorenew;
-        break;
+        return Colors.orange;
       case SessionState.SESSION_STATE_FAILED:
-        color = Colors.red;
-        label = 'SESSION FAILED';
-        icon = Icons.error;
-        break;
-      case SessionState.SESSION_STATE_STOPPED:
-        color = Colors.grey;
-        label = 'SESSION STOPPED';
-        icon = Icons.stop_circle;
-        break;
-      case SessionState.SESSION_STATE_DISCONNECTED:
+        return Colors.red;
       default:
-        color = Colors.grey;
-        label = 'SESSION IDLE (READY)';
-        icon = Icons.pause_circle_outline;
-        break;
+        return Colors.grey;
     }
+  }
+
+  IconData _stateIcon(SessionState state) {
+    switch (state) {
+      case SessionState.SESSION_STATE_STREAMING:
+        return Icons.play_circle_fill;
+      case SessionState.SESSION_STATE_CONNECTED:
+        return Icons.check_circle;
+      case SessionState.SESSION_STATE_CONNECTING:
+        return Icons.sync;
+      case SessionState.SESSION_STATE_DISCOVERING:
+        return Icons.search;
+      case SessionState.SESSION_STATE_RECONNECTING:
+        return Icons.autorenew;
+      case SessionState.SESSION_STATE_FAILED:
+        return Icons.error;
+      case SessionState.SESSION_STATE_STOPPED:
+        return Icons.stop_circle;
+      default:
+        return Icons.pause_circle_outline;
+    }
+  }
+
+  Widget _buildSessionStateBanner(ThemeData theme) {
+    final color = _stateColor(_status.state);
+    final label = _status.label;
+    final icon = _stateIcon(_status.state);
+    final negotiation = _status.negotiationSummary();
+    final failure = _status.failureSummary;
+    final recovery = _status.recoveringDetail;
+    final badge = _status.reasonBadge;
 
     return Card(
       elevation: 0,
@@ -619,9 +661,9 @@ class _LinuxSessionViewState extends State<LinuxSessionView> {
                     ),
                   ),
                 ),
-                if (_sessionDurationMs > 0)
+                if (_status.durationMs > 0)
                   Text(
-                    'Duration: ${_formatDuration(_sessionDurationMs)}',
+                    'Duration: ${_formatDuration(_status.durationMs)}',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       fontWeight: FontWeight.w600,
                     ),
@@ -635,20 +677,67 @@ class _LinuxSessionViewState extends State<LinuxSessionView> {
                 style: theme.textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
               ),
             ],
-            if (_sessionReason != null && _sessionReason!.isNotEmpty) ...[
+            if (_status.reasonDetail.isNotEmpty) ...[
               const SizedBox(height: 4),
               Text(
-                'Status detail: $_sessionReason',
+                'Status detail: ${_status.reasonDetail}',
                 style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
               ),
             ],
-            if (_sessionError != null && _sessionError!.isNotEmpty) ...[
-              const SizedBox(height: 4),
+            // Automatic recovery: presented as progress, not as an error.
+            if (recovery.isNotEmpty) ...[
+              const SizedBox(height: 6),
               Text(
-                'Error: $_sessionError',
+                recovery,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+            // What was asked for versus what the phone said it applies. The
+            // requested tuple is never shown as if it had been confirmed.
+            if (negotiation.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                negotiation,
+                style: theme.textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
+              ),
+            ],
+            if (badge.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: color.withValues(alpha: 0.6)),
+                ),
+                child: Text(
+                  badge,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ],
+            if (failure.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                failure,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.error,
                   fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+            if (_status.errorMessage.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Detail: ${_status.errorMessage}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
             ],
@@ -731,6 +820,26 @@ class _LinuxSessionViewState extends State<LinuxSessionView> {
                     : null,
               ),
               enabled: !isSessionActive && !_isLoading && isConnected,
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<_RequestedMedia>(
+              initialValue: _requestedMedia,
+              decoration: const InputDecoration(
+                labelText: 'Requested quality',
+                helperText: 'Negotiated with the phone before the offer is created',
+                prefixIcon: Icon(Icons.high_quality),
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              items: [
+                for (final preset in _RequestedMedia.values)
+                  DropdownMenuItem(value: preset, child: Text(preset.label)),
+              ],
+              onChanged: isSessionActive || _isLoading
+                  ? null
+                  : (value) {
+                      if (value != null) setState(() => _requestedMedia = value);
+                    },
             ),
             const SizedBox(height: 16),
             if (_targetIdController.text.trim().isNotEmpty &&
