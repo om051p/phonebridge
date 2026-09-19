@@ -278,15 +278,37 @@ func (s *Session) Transition(next SessionState, reason string) error {
 }
 
 // TransitionCode validates and applies a state transition with a typed reason.
+//
+// The state callback is invoked with the lock released: observers commonly read
+// the session back (the manager reports the negotiated tuple, for example), and
+// a callback that re-entered the mutex while the transition held it would
+// deadlock on Go's non-reentrant lock.
 func (s *Session) TransitionCode(next SessionState, reason string, code SessionReason) error {
+	old, err := s.applyTransition(next, reason, code)
+	if err != nil {
+		return err
+	}
+
+	s.mu.RLock()
+	cb := s.onStateChange
+	s.mu.RUnlock()
+	if cb != nil {
+		cb(old, next, reason, code)
+	}
+	return nil
+}
+
+// applyTransition performs the transition under the lock and returns the
+// previous state so the caller can notify observers after unlocking.
+func (s *Session) applyTransition(next SessionState, reason string, code SessionReason) (SessionState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.transitionLocked(next, reason, code)
 }
 
-func (s *Session) transitionLocked(next SessionState, reason string, code SessionReason) error {
+func (s *Session) transitionLocked(next SessionState, reason string, code SessionReason) (SessionState, error) {
 	if s.state == next {
-		return nil
+		return s.state, nil
 	}
 
 	valid := false
@@ -310,7 +332,7 @@ func (s *Session) transitionLocked(next SessionState, reason string, code Sessio
 	}
 
 	if !valid {
-		return fmt.Errorf("invalid state transition: %s -> %s (reason: %s)", s.state, next, reason)
+		return s.state, fmt.Errorf("invalid state transition: %s -> %s (reason: %s)", s.state, next, reason)
 	}
 
 	old := s.state
@@ -321,11 +343,7 @@ func (s *Session) transitionLocked(next SessionState, reason string, code Sessio
 	if next == StateConnected && s.startTime.IsZero() {
 		s.startTime = time.Now()
 	}
-
-	if s.onStateChange != nil {
-		s.onStateChange(old, next, reason, code)
-	}
-	return nil
+	return old, nil
 }
 
 // SessionID returns the unique session identifier. It is stable for the whole
