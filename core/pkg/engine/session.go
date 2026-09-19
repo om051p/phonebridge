@@ -362,6 +362,15 @@ func (s *Session) State() SessionState {
 	return s.state
 }
 
+// LifecycleCtx returns the context governing this session's lifetime. It is
+// cancelled by Stop/teardown. Callers that launch work on behalf of the
+// session (the manager's connect goroutine, for example) must derive from
+// this — NOT from a request-scoped context, which is cancelled as soon as
+// the RPC that started the session returns.
+func (s *Session) LifecycleCtx() context.Context {
+	return s.ctx
+}
+
 // ReasonCode returns the typed classification of the current state.
 func (s *Session) ReasonCode() SessionReason {
 	s.mu.RLock()
@@ -924,17 +933,42 @@ func (s *Session) reconnectBackoff(attempt int) time.Duration {
 // awaitTrack promotes the session to STREAMING once media actually arrives.
 // Media never arriving (screen off) is not a failure and does not trigger
 // recovery — only transport state does.
+//
+// The wait is a poll for the lifetime of this transport generation, not a
+// single bounded wait: the phone legitimately delivers ~0 fps while the
+// screen is static (DEC-020), so the first RTP packet can arrive long after
+// ConnectTimeout. A one-shot wait stranded healthy sessions in CONNECTED
+// forever (Phase 2 acceptance: 2,414 RTP packets on the wire, state stuck at
+// CONNECTED). Media arrival promotes; it can never fail the session.
 func (s *Session) awaitTrack(gen uint64, tr transport) {
-	if err := tr.WaitForTrack(s.cfg.ConnectTimeout); err != nil {
-		return
+	for {
+		err := tr.WaitForTrack(time.Second)
+		s.mu.RLock()
+		stale := gen != s.trGen
+		s.mu.RUnlock()
+		if err == nil {
+			if stale {
+				return
+			}
+			_ = s.TransitionCode(StateStreaming, "media track active", ReasonNone)
+			return
+		}
+		if stale {
+			return
+		}
+		select {
+		case <-s.ctx.Done():
+			return
+		default:
+		}
+		if s.stopped.Load() {
+			return
+		}
+		switch s.State() {
+		case StateFailed, StateStopped:
+			return
+		}
 	}
-	s.mu.RLock()
-	stale := gen != s.trGen
-	s.mu.RUnlock()
-	if stale {
-		return
-	}
-	_ = s.TransitionCode(StateStreaming, "media track active", ReasonNone)
 }
 
 // LocateAndConnect resolves the target device and immediately establishes the media connection.
@@ -949,14 +983,12 @@ func (s *Session) LocateAndConnect(ctx context.Context, sink receiver.FrameSink)
 		port = 7804
 	}
 
-	var host string
-	if len(dev.Addresses) > 0 {
-		host = dev.Addresses[0].String()
-	} else {
-		host = "127.0.0.1"
+	endpoint, ok := Endpoint(dev.Addresses, port)
+	if !ok {
+		// No dialable address known (loopback fallback preserved for tests).
+		endpoint = fmt.Sprintf("127.0.0.1:%d", port)
 	}
 
-	endpoint := fmt.Sprintf("%s:%d", host, port)
 	return s.Connect(ctx, endpoint, sink)
 }
 

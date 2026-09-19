@@ -234,9 +234,11 @@ func (d *Discovery) handleDiscoveredService(ev mdns.ServiceEvent) {
 		}
 	}
 
-	var addrs []net.IP
+	var addrs []netip.Addr
 	if ev.Addr.IsValid() {
-		addrs = append(addrs, net.IP(ev.Addr.AsSlice()))
+		// Keep the zone pion/mdns attached for link-local v6 — without it the
+		// address is not dialable. Zone carries through Device.Addresses.
+		addrs = append(addrs, ev.Addr)
 	}
 
 	device := Device{
@@ -286,12 +288,4 @@ func (d *Discovery) Close() error {
 		d.server = nil
 	}
 	return err
-}
-
-// AddrToIP converts netip.Addr to net.IP.
-func AddrToIP(a netip.Addr) net.IP {
-	if !a.IsValid() {
-		return nil
-	}
-	return net.IP(a.AsSlice())
 }

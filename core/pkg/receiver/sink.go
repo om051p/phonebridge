@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/om051p/phonebridge/core/pkg/rtpmedia"
 )
@@ -166,6 +167,11 @@ func (p *PipeSink) WriteAU(au rtpmedia.AccessUnit) error {
 	return nil
 }
 
+// Close shuts the pipe down. The child gets stdin EOF and a short grace
+// period to exit on its own; players like ffplay do NOT exit on stdin EOF
+// (they merely stop reading commands), so an unbounded Wait() hung session
+// teardown forever (found in Phase 2 acceptance). After the grace period the
+// process is killed — Close is a teardown, not a negotiation.
 func (p *PipeSink) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -180,7 +186,17 @@ func (p *PipeSink) Close() error {
 		firstErr = err
 	}
 	if p.cmd != nil && p.cmd.Process != nil {
-		_ = p.cmd.Wait()
+		done := make(chan struct{})
+		go func() {
+			_ = p.cmd.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			_ = p.cmd.Process.Kill()
+			<-done
+		}
 	}
 	return firstErr
 }

@@ -80,9 +80,16 @@ class LanSignalingServer(
                 return SessionOfferAnswer(sdp = "", result = result, capabilities = caps)
             }
             if (!GoBridge.loaded) {
+                // No native transport means no real offer. A fabricated SDP
+                // would only move the failure to an unparseable-offer error on
+                // the peer; fail with the typed transport code instead.
                 return SessionOfferAnswer(
-                    sdp = "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n",
-                    result = result,
+                    sdp = "",
+                    result = SessionNegotiationResult.Rejected(
+                        httpStatus = 503,
+                        code = SessionNegotiation.CODE_TRANSPORT_FAILED,
+                        message = "native transport not loaded",
+                    ),
                     capabilities = caps,
                 )
             }
@@ -93,8 +100,18 @@ class LanSignalingServer(
             GoBridge.mediaRelease()
             GoBridge.mediaInit()
             val offerBytes = GoBridge.mediaCreateOffer()
+            // GoBridge.mediaCreateOffer returns the transport's SDP JSON blob
+            // {"type":"offer","sdp":"v=0..."}; the wire payload carries the SDP
+            // TEXT as the sdp member, so unwrap the blob here. Embedding the
+            // blob verbatim double-encodes it and the peer sees a leading
+            // quote instead of "v=0" (found in Phase 2 acceptance).
+            val offerObj = JSONObject(String(offerBytes, StandardCharsets.UTF_8))
+            val sdp = offerObj.optString("sdp")
+            if (sdp.isBlank()) {
+                throw IllegalStateException("mediaCreateOffer returned no sdp field")
+            }
             return SessionOfferAnswer(
-                sdp = String(offerBytes, StandardCharsets.UTF_8),
+                sdp = sdp,
                 result = result,
                 capabilities = caps,
             )

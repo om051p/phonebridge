@@ -544,8 +544,8 @@ func (s *Server) ListDevices(_ context.Context, _ *phonebridgelocalipcv1.ListDev
 
 	for _, d := range devices {
 		addr := ""
-		if len(d.Addresses) > 0 {
-			addr = d.Addresses[0].String()
+		if a, ok := engine.BestDialAddr(d.Addresses); ok {
+			addr = engine.DialHost(a)
 		}
 		resp.Devices = append(resp.Devices, &phonebridgelocalipcv1.DiscoveredDevice{
 			Id:           d.ID,

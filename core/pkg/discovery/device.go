@@ -1,17 +1,21 @@
 package discovery
 
 import (
-	"net"
+	"net/netip"
 	"sync"
 	"time"
 )
 
 // Device represents a PhoneBridge device discovered on the local network.
 type Device struct {
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	Model        string            `json:"model"`
-	Addresses    []net.IP          `json:"addresses"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Model string `json:"model"`
+	// Addresses keeps the resolved addresses with their IPv6 zones intact:
+	// mDNS link-local v6 (fe80::/10) is only dialable with its %interface
+	// zone, and stripping it (net.IP cannot carry one) made such peers
+	// undialable. Consumers should dial via engine.DialHost/Endpoint.
+	Addresses    []netip.Addr      `json:"addresses"`
 	Port         uint16            `json:"port"`
 	Version      string            `json:"version"`
 	Capabilities []string          `json:"capabilities"`
@@ -118,7 +122,22 @@ func (r *DeviceRegistry) Upsert(dev Device) (EventKind, Device) {
 	existing.Name = dev.Name
 	existing.Model = dev.Model
 	if len(dev.Addresses) > 0 {
-		existing.Addresses = dev.Addresses
+		// Merge instead of replace: mDNS emits one event per packet/source, so a
+		// replace loses the v4 record whenever a v6 event arrives (or vice
+		// versa). Keeping the union lets BestDialAddr pick a dialable family.
+		seen := make(map[string]bool, len(existing.Addresses)+len(dev.Addresses))
+		merged := existing.Addresses[:0]
+		for _, a := range append(append([]netip.Addr{}, existing.Addresses...), dev.Addresses...) {
+			k := a.String()
+			if !seen[k] {
+				seen[k] = true
+				merged = append(merged, a)
+			}
+		}
+		if len(merged) > 4 { // cap: two families plus headroom
+			merged = merged[len(merged)-4:]
+		}
+		existing.Addresses = merged
 	}
 	if dev.Port > 0 {
 		existing.Port = dev.Port

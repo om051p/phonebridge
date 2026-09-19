@@ -21,7 +21,7 @@ func TestRegistry_UpsertAndGet(t *testing.T) {
 		ID:           "dev-01",
 		Name:         "POCO F5",
 		Model:        "23049PCD8I",
-		Addresses:    []net.IP{net.ParseIP("192.168.0.125")},
+		Addresses:    []netip.Addr{netip.MustParseAddr("192.168.0.125")},
 		Port:         7804,
 		Version:      "1",
 		Capabilities: []string{"screen", "files"},

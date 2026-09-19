@@ -189,7 +189,11 @@ func (m *SessionManager) StartSession(ctx context.Context, deviceID string, requ
 		if sink == nil {
 			sink = receiver.NewNullSink()
 		}
-		if err := sess.LocateAndConnect(ctx, sink); err != nil {
+		// Run on the session's OWN lifecycle context: a request-scoped ctx
+		// (the gRPC handler's) is cancelled the moment StartSession returns,
+		// which killed the in-flight signaling POST and failed every session
+		// started over real IPC (found in Phase 2 acceptance).
+		if err := sess.LocateAndConnect(sess.LifecycleCtx(), sink); err != nil {
 			// LocateAndConnect already transitions to StateFailed on error
 		}
 	}()
@@ -257,11 +261,11 @@ func (m *SessionManager) resolveEndpoint(deviceID string) (string, error) {
 	if port == 0 {
 		port = 7804
 	}
-	host := "127.0.0.1"
-	if len(dev.Addresses) > 0 {
-		host = dev.Addresses[0].String()
+	endpoint := fmt.Sprintf("127.0.0.1:%d", port)
+	if ep, ok := Endpoint(dev.Addresses, port); ok {
+		endpoint = ep
 	}
-	return fmt.Sprintf("%s:%d", host, port), nil
+	return endpoint, nil
 }
 
 // PairDevice initiates pairing with a discovered LAN device and returns the SAS.
