@@ -42,6 +42,31 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
         }
     }
 
+    private var methodChannel: MethodChannel? = null
+
+    private val navReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+            val action = intent?.action ?: return
+            if (action == "dev.phonebridge.NAVIGATE") {
+                val tab = intent.getIntExtra("tab", 0)
+                mainHandler.post {
+                    methodChannel?.invokeMethod("onNavigateTab", mapOf("tab" to tab))
+                }
+            } else if (action == "dev.phonebridge.NAVIGATE_ROUTE") {
+                val route = intent.getStringExtra("route") ?: "/"
+                mainHandler.post {
+                    methodChannel?.invokeMethod("onNavigateRoute", mapOf("route" to route))
+                }
+            } else if (action == "dev.phonebridge.TRIGGER_ACTION") {
+                val cmd = intent.getStringExtra("cmd") ?: return
+                val args = intent.getStringExtra("args")
+                mainHandler.post {
+                    methodChannel?.invokeMethod("onTriggerAction", mapOf("cmd" to cmd, "args" to args))
+                }
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val pm = getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
@@ -65,13 +90,25 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
             )
         }
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        val filter = android.content.IntentFilter().apply {
+            addAction("dev.phonebridge.NAVIGATE")
+            addAction("dev.phonebridge.NAVIGATE_ROUTE")
+            addAction("dev.phonebridge.TRIGGER_ACTION")
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(navReceiver, filter, android.content.Context.RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(navReceiver, filter)
+        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CONTROL_CHANNEL)
-            .setMethodCallHandler(this)
+        val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CONTROL_CHANNEL)
+        channel.setMethodCallHandler(this)
+        this.methodChannel = channel
 
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, EVENTS_CHANNEL)
             .setStreamHandler(this)
@@ -96,10 +133,102 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
         }
     }
 
+    private val trustStore by lazy {
+        dev.phonebridge.security.TrustStore(java.io.File(applicationContext.filesDir, "trusted_devices.json"))
+    }
+    private val identityManager by lazy {
+        try {
+            dev.phonebridge.security.DeviceIdentityManager.loadOrGenerate(applicationContext)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun getDeviceState(): Map<String, Any?> {
+        val engine = PhoneBridgeService.activeCaptureEngine
+        return mapOf(
+            "model" to Build.MODEL,
+            "manufacturer" to Build.MANUFACTURER,
+            "sdkInt" to Build.VERSION.SDK_INT,
+            "isCapturing" to (engine?.isCapturing == true),
+            "goEngineLoaded" to GoBridge.loaded,
+            "codec" to (engine?.selectedCodecName ?: "none"),
+            "isHardwareCodec" to (engine?.isHardwareCodec ?: false),
+            "deviceId" to (identityManager?.deviceId ?: "unknown"),
+            "displayName" to (identityManager?.displayName ?: Build.MODEL ?: "Android Device"),
+            "clipboardState" to dev.phonebridge.clipboard.AndroidClipboardAdapter.state.name,
+            "imeSelected" to dev.phonebridge.clipboard.AndroidClipboardAdapter.checkImeSelected(this)
+        )
+    }
+
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "getDeviceState" -> {
                 result.success(getDeviceState())
+            }
+            "getDeviceIdentity" -> {
+                val id = identityManager
+                if (id != null) {
+                    result.success(mapOf(
+                        "deviceId" to id.deviceId,
+                        "displayName" to id.displayName,
+                        "platform" to id.platform
+                    ))
+                } else {
+                    result.success(mapOf(
+                        "deviceId" to "unknown",
+                        "displayName" to (Build.MODEL ?: "Android Device"),
+                        "platform" to "android"
+                    ))
+                }
+            }
+            "getTrustedDevices" -> {
+                try {
+                    val list = trustStore.list().map { rec ->
+                        mapOf(
+                            "deviceId" to rec.deviceId,
+                            "displayName" to rec.displayName,
+                            "platform" to rec.platform,
+                            "pairedAtMs" to rec.pairedAtMs,
+                            "lastSeenMs" to rec.lastSeenMs,
+                            "revoked" to rec.revoked
+                        )
+                    }
+                    result.success(list)
+                } catch (e: Exception) {
+                    result.error("TRUST_STORE_ERROR", e.message, null)
+                }
+            }
+            "revokeDevice" -> {
+                val deviceId = call.argument<String>("deviceId")
+                if (deviceId != null) {
+                    val ok = trustStore.revoke(deviceId)
+                    result.success(ok)
+                } else {
+                    result.error("INVALID_ARGUMENT", "deviceId is required", null)
+                }
+            }
+            "removeDevice" -> {
+                val deviceId = call.argument<String>("deviceId")
+                if (deviceId != null) {
+                    val ok = trustStore.remove(deviceId)
+                    result.success(ok)
+                } else {
+                    result.error("INVALID_ARGUMENT", "deviceId is required", null)
+                }
+            }
+            "getClipboardStatus" -> {
+                val isImeSelected = dev.phonebridge.clipboard.AndroidClipboardAdapter.checkImeSelected(this)
+                val state = dev.phonebridge.clipboard.AndroidClipboardAdapter.state.name
+                result.success(mapOf(
+                    "state" to state,
+                    "imeSelected" to isImeSelected,
+                    "maxPayloadSize" to dev.phonebridge.clipboard.AndroidClipboardAdapter.MAX_PAYLOAD_SIZE
+                ))
+            }
+            "triggerClipboardPull" -> {
+                val ok = dev.phonebridge.clipboard.AndroidClipboardAdapter.triggerManualPull()
+                result.success(ok)
             }
             "startCapture" -> {
                 try {
@@ -144,19 +273,6 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
         }
     }
 
-    private fun getDeviceState(): Map<String, Any?> {
-        val engine = PhoneBridgeService.activeCaptureEngine
-        return mapOf(
-            "model" to Build.MODEL,
-            "manufacturer" to Build.MANUFACTURER,
-            "sdkInt" to Build.VERSION.SDK_INT,
-            "isCapturing" to (engine?.isCapturing == true),
-            "goEngineLoaded" to GoBridge.loaded,
-            "codec" to (engine?.selectedCodecName ?: "none"),
-            "isHardwareCodec" to (engine?.isHardwareCodec ?: false)
-        )
-    }
-
     private fun collectStats(): Map<String, Any?> {
         val engine = PhoneBridgeService.activeCaptureEngine
         val isCapturing = engine?.isCapturing == true
@@ -183,7 +299,9 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
             "isHardwareCodec" to isHardware,
             "durationUs" to if (lastPts > firstPts && firstPts > 0) (lastPts - firstPts) else 0L,
             "goStatsJson" to goStatsJson,
-            "timestampMs" to System.currentTimeMillis()
+            "timestampMs" to System.currentTimeMillis(),
+            "clipboardState" to dev.phonebridge.clipboard.AndroidClipboardAdapter.state.name,
+            "imeSelected" to dev.phonebridge.clipboard.AndroidClipboardAdapter.checkImeSelected(this)
         )
     }
 
@@ -241,6 +359,9 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
     override fun onDestroy() {
         mainHandler.removeCallbacks(statsRunnable)
         PhoneBridgeService.stateListener = null
+        try {
+            unregisterReceiver(navReceiver)
+        } catch (_: Exception) {}
         super.onDestroy()
     }
 }

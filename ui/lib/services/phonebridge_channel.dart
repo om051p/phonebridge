@@ -2,10 +2,16 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import '../models/device_state.dart';
 import '../models/capture_stats.dart';
+import '../models/trusted_device.dart';
+import '../models/clipboard_status.dart';
 
 class PhoneBridgeChannel {
   static const MethodChannel _control = MethodChannel('dev.phonebridge/control');
   static const EventChannel _events = EventChannel('dev.phonebridge/events');
+
+  static void setMethodCallHandler(Future<dynamic> Function(MethodCall call)? handler) {
+    _control.setMethodCallHandler(handler);
+  }
 
   CaptureStats _lastStats = CaptureStats.initial;
 
@@ -64,6 +70,60 @@ class PhoneBridgeChannel {
     return _lastStats;
   }
 
+  Future<List<TrustedDevice>> getTrustedDevices() async {
+    try {
+      final res = await _control.invokeMethod<List<dynamic>>('getTrustedDevices');
+      if (res != null) {
+        return res
+            .whereType<Map<dynamic, dynamic>>()
+            .map((m) => TrustedDevice.fromMap(m))
+            .toList();
+      }
+    } on PlatformException {
+      // Fallback
+    }
+    return [];
+  }
+
+  Future<bool> revokeDevice(String deviceId) async {
+    try {
+      final res = await _control.invokeMethod<bool>('revokeDevice', {'deviceId': deviceId});
+      return res ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  Future<bool> removeDevice(String deviceId) async {
+    try {
+      final res = await _control.invokeMethod<bool>('removeDevice', {'deviceId': deviceId});
+      return res ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  Future<ClipboardStatus> getClipboardStatus() async {
+    try {
+      final res = await _control.invokeMethod<Map<dynamic, dynamic>>('getClipboardStatus');
+      if (res != null) {
+        return ClipboardStatus.fromMap(res);
+      }
+    } on PlatformException {
+      // Fallback
+    }
+    return ClipboardStatus.initial;
+  }
+
+  Future<bool> triggerClipboardPull() async {
+    try {
+      final res = await _control.invokeMethod<bool>('triggerClipboardPull');
+      return res ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
   Stream<CaptureStats> get statsStream {
     return _events.receiveBroadcastStream().map((event) {
       if (event is Map) {
@@ -72,5 +132,9 @@ class PhoneBridgeChannel {
       }
       return _lastStats;
     });
+  }
+
+  Stream<Map<dynamic, dynamic>> get rawEventsStream {
+    return _events.receiveBroadcastStream().where((event) => event is Map).cast<Map<dynamic, dynamic>>();
   }
 }
