@@ -153,7 +153,14 @@ func (d *Discovery) Start(ctx context.Context) error {
 	if d.cfg.Port > 0 && d.cfg.DeviceID != "" {
 		instanceName := d.cfg.InstanceName
 		if instanceName == "" {
-			instanceName = fmt.Sprintf("PhoneBridge-%s", d.cfg.DeviceID)
+			deviceIDShort := d.cfg.DeviceID
+			if len(deviceIDShort) > 16 {
+				deviceIDShort = deviceIDShort[:16]
+			}
+			instanceName = fmt.Sprintf("PhoneBridge-%s", deviceIDShort)
+		}
+		if len(instanceName) > 63 {
+			instanceName = instanceName[:63]
 		}
 
 		txt := []mdns.TXTEntry{

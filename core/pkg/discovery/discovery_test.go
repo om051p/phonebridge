@@ -227,3 +227,38 @@ func TestDiscovery_LoopbackMdnsEndToEnd(t *testing.T) {
 		t.Fatalf("unexpected capabilities: %v", dev.Capabilities)
 	}
 }
+
+func TestDiscovery_LongDeviceID_Registration(t *testing.T) {
+	addr, err := net.ResolveUDPAddr("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, err := net.ListenUDP("udp4", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := ipv4.NewPacketConn(l)
+	_ = p.SetMulticastLoopback(true)
+
+	// 64-char hex device ID
+	longID := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	d, err := NewDiscovery(Config{
+		DeviceID:          longID,
+		DeviceName:        "Linux Host",
+		Port:              7804,
+		CustomPacketConn4: p,
+		IncludeLoopback:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if err := d.Start(ctx); err != nil {
+		t.Fatalf("d.Start failed with 64-char DeviceID: %v", err)
+	}
+}
+
