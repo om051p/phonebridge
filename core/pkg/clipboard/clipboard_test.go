@@ -620,6 +620,34 @@ func TestReconnectArbitration(t *testing.T) {
 			t.Fatalf("expected WinnerRemote, got %v", w)
 		}
 	})
+
+	t.Run("symmetric roles (Linux <-> Linux) deterministic tie-break -> no split-brain", func(t *testing.T) {
+		itemA, _ := NewItem("text/plain", []byte("clip from linux A"), 2000)
+		itemB, _ := NewItem("text/plain", []byte("clip from linux B"), 2200) // 200 ms diff <= 1000 ms
+
+		// Test with peer IDs: Host A vs Host B
+		// Host A evaluates: local=itemA, remote=itemB, localID="host-a", remoteID="host-b"
+		wA := ArbitratePeer(itemA, itemB, RoleDesktop, RoleDesktop, "host-a", "host-b")
+		// Host B evaluates: local=itemB, remote=itemA, localID="host-b", remoteID="host-a"
+		wB := ArbitratePeer(itemB, itemA, RoleDesktop, RoleDesktop, "host-b", "host-a")
+
+		// One must declare WinnerLocal, the other WinnerRemote, so both agree on the same winner
+		if !((wA == WinnerLocal && wB == WinnerRemote) || (wA == WinnerRemote && wB == WinnerLocal)) {
+			t.Fatalf("Split-brain detected! Host A got %v, Host B got %v", wA, wB)
+		}
+		if "host-b" > "host-a" {
+			if wA != WinnerRemote || wB != WinnerLocal {
+				t.Fatalf("Expected host-b to win: Host A got %v, Host B got %v", wA, wB)
+			}
+		}
+
+		// Test fallback with empty peer IDs (digest comparison)
+		wA_digest := ArbitratePeer(itemA, itemB, RoleDesktop, RoleDesktop, "", "")
+		wB_digest := ArbitratePeer(itemB, itemA, RoleDesktop, RoleDesktop, "", "")
+		if !((wA_digest == WinnerLocal && wB_digest == WinnerRemote) || (wA_digest == WinnerRemote && wB_digest == WinnerLocal)) {
+			t.Fatalf("Digest tie-break split brain! Host A got %v, Host B got %v", wA_digest, wB_digest)
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------

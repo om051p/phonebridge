@@ -16,6 +16,16 @@ type EngineConfig struct {
 	// Used for deterministic reconnect conflict arbitration tie-breaking.
 	Role Role
 
+	// RemoteRole optionally identifies the peer device role. If nil, defaults to
+	// the opposite role of Role (RoleMobile if Role is RoleDesktop, and vice-versa).
+	RemoteRole *Role
+
+	// LocalPeerID is the local device identifier used for deterministic symmetric tie-breaking.
+	LocalPeerID string
+
+	// RemotePeerID is the remote peer device identifier used for deterministic symmetric tie-breaking.
+	RemotePeerID string
+
 	// Platform is the platform adapter for writing to the host clipboard.
 	// Can be nil in tests or headless mode.
 	Platform PlatformAdapter
@@ -47,15 +57,18 @@ type EngineConfig struct {
 //     preventing lock cycles with platform event loops.
 //   - Single current item retained; unbounded history is never stored.
 type Engine struct {
-	mu          sync.RWMutex
-	role        Role
-	platform    PlatformAdapter
-	transport   Transport
-	clock       Clock
-	echoFilter  *EchoFilter
-	currentItem *Item
-	onOversized func(size int)
-	syncPending bool
+	mu           sync.RWMutex
+	role         Role
+	remoteRole   *Role
+	localPeerID  string
+	remotePeerID string
+	platform     PlatformAdapter
+	transport    Transport
+	clock        Clock
+	echoFilter   *EchoFilter
+	currentItem  *Item
+	onOversized  func(size int)
+	syncPending  bool
 }
 
 // NewEngine creates a new clipboard synchronization engine.
@@ -76,13 +89,24 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 	}
 
 	return &Engine{
-		role:        cfg.Role,
-		platform:    cfg.Platform,
-		transport:   cfg.Transport,
-		clock:       clock,
-		echoFilter:  NewEchoFilter(cap, ttl, clock),
-		onOversized: cfg.OnOversizedPayload,
+		role:         cfg.Role,
+		remoteRole:   cfg.RemoteRole,
+		localPeerID:  cfg.LocalPeerID,
+		remotePeerID: cfg.RemotePeerID,
+		platform:     cfg.Platform,
+		transport:    cfg.Transport,
+		clock:        clock,
+		echoFilter:   NewEchoFilter(cap, ttl, clock),
+		onOversized:  cfg.OnOversizedPayload,
 	}, nil
+}
+
+// SetPeer updates the remote peer's role and identifier for deterministic conflict arbitration.
+func (e *Engine) SetPeer(remoteRole Role, remotePeerID string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.remoteRole = &remoteRole
+	e.remotePeerID = remotePeerID
 }
 
 // Role returns the configured device role.
@@ -107,6 +131,13 @@ func (e *Engine) SetTransport(t Transport) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.transport = t
+}
+
+// HasTransport returns true if an active transport is configured.
+func (e *Engine) HasTransport() bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.transport != nil
 }
 
 // SetPlatform sets or updates the platform adapter used to write to host clipboard.
@@ -314,7 +345,14 @@ func (e *Engine) OnReconnectSync(ctx context.Context, remoteUpdate *phonebridgev
 	e.mu.Lock()
 	e.syncPending = false
 
-	winner := Arbitrate(e.currentItem, remoteItem, e.role)
+	remoteRole := RoleMobile
+	if e.role == RoleMobile {
+		remoteRole = RoleDesktop
+	}
+	if e.remoteRole != nil {
+		remoteRole = *e.remoteRole
+	}
+	winner := ArbitratePeer(e.currentItem, remoteItem, e.role, remoteRole, e.localPeerID, e.remotePeerID)
 
 	var transport Transport
 	var platform PlatformAdapter

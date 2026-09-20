@@ -7,12 +7,15 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"sync"
 	"time"
+
+	pion "github.com/pion/webrtc/v4"
 
 	"github.com/om051p/phonebridge/core/pkg/clipboard"
 	"github.com/om051p/phonebridge/core/pkg/crypto"
@@ -28,8 +31,8 @@ type SessionEvent struct {
 	ReasonCode   SessionReason
 	ErrorMessage string
 	// Requested/Actual carry the media negotiation when it is known, so the
-	// UI can show what was asked for versus what the device applied without a
-	// separate status call.
+	// local IPC snapshot and UI show what was asked for versus what the device
+	// applied (DEC-022).
 	Requested   MediaParams
 	Actual      MediaParams
 	ActualKnown bool
@@ -51,6 +54,7 @@ type SessionManager struct {
 	cfg             SessionConfig
 	discovery       *discovery.Discovery
 	activeSess      *Session
+	inboundSess     *InboundSession
 	onEvent         func(SessionEvent)
 	sink            receiver.FrameSink
 	sinkFactory     func() (receiver.FrameSink, error)
@@ -96,6 +100,13 @@ func (m *SessionManager) SetTrustStore(ts *crypto.TrustStore) {
 	defer m.mu.Unlock()
 	m.trustStore = ts
 	m.cfg.TrustStore = ts
+}
+
+// SetDiscovery updates the active mDNS discovery manager.
+func (m *SessionManager) SetDiscovery(disc *discovery.Discovery) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.discovery = disc
 }
 
 // SetClipboardEngine configures the clipboard engine for all managed sessions.
@@ -476,5 +487,91 @@ func (m *SessionManager) RevokeDevice(deviceID string) error {
 		}
 	}
 
+	return nil
+}
+
+// HandleInboundOffer processes an incoming POST /session/offer from an authenticated peer.
+func (m *SessionManager) HandleInboundOffer(req NegotiationRequest) (NegotiationResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Check if already busy with an active session
+	if m.activeSess != nil {
+		st := m.activeSess.State()
+		if st != StateStopped && st != StateFailed && st != StateDisconnected {
+			return NegotiationResponse{
+				Code:         CodeSessionBusy,
+				Message:      "session already active",
+				RejectReason: "device is currently in an active session",
+			}, nil
+		}
+	}
+	if m.inboundSess != nil && !m.inboundSess.IsClosed() {
+		return NegotiationResponse{
+			Code:         CodeSessionBusy,
+			Message:      "inbound session already active",
+			RejectReason: "device is currently in an active session",
+		}, nil
+	}
+
+	remoteRole := clipboard.RoleDesktop
+	if m.trustStore != nil && req.PeerDeviceID != "" {
+		if entry, ok := m.trustStore.Get(req.PeerDeviceID); ok && entry.Platform == "android" {
+			remoteRole = clipboard.RoleMobile
+		}
+	}
+
+	if m.clipboardEngine != nil && req.PeerDeviceID != "" {
+		m.clipboardEngine.SetPeer(remoteRole, req.PeerDeviceID)
+	}
+
+	inbound, err := NewInboundSession(InboundSessionConfig{
+		IncludeLoopback: true,
+		PeerDeviceID:    req.PeerDeviceID,
+		ClipboardEngine: m.clipboardEngine,
+	})
+	if err != nil {
+		return NegotiationResponse{}, fmt.Errorf("create inbound session: %w", err)
+	}
+
+	offer, err := inbound.CreateOffer()
+	if err != nil {
+		_ = inbound.Close()
+		return NegotiationResponse{}, fmt.Errorf("generate inbound offer: %w", err)
+	}
+
+	m.inboundSess = inbound
+
+	return NegotiationResponse{
+		Offer:           offer.SDP,
+		ProtocolVersion: signalingVersion,
+		Accepted:        true,
+		Code:            CodeOK,
+	}, nil
+}
+
+// HandleInboundAnswer processes the SDP answer received via POST /session/answer.
+func (m *SessionManager) HandleInboundAnswer(answer pion.SessionDescription) error {
+	m.mu.Lock()
+	inbound := m.inboundSess
+	m.mu.Unlock()
+
+	if inbound == nil || inbound.IsClosed() {
+		return errors.New("no active inbound session")
+	}
+
+	return inbound.SetRemoteAnswer(answer)
+}
+
+// HandleInboundStop processes session termination received via POST /session/stop.
+func (m *SessionManager) HandleInboundStop(reason string, code Code) error {
+	m.mu.Lock()
+	inbound := m.inboundSess
+	m.inboundSess = nil
+	m.mu.Unlock()
+
+	if inbound != nil {
+		return inbound.Close()
+	}
 	return nil
 }

@@ -1,0 +1,434 @@
+package engine
+
+import (
+	"context"
+	"crypto/ed25519"
+	"crypto/subtle"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"sync"
+	"time"
+
+	pion "github.com/pion/webrtc/v4"
+
+	"github.com/om051p/phonebridge/core/pkg/crypto"
+)
+
+// DefaultSignalingPort is the canonical LAN signaling port (DEC-022).
+const DefaultSignalingPort = 7804
+
+type serverPendingPairing struct {
+	token          string
+	remoteName     string
+	remotePlatform string
+	remotePub      []byte
+	sas            string
+	createdAt      time.Time
+}
+
+// SignalingServerConfig configures the inbound HTTP LAN signaling server.
+type SignalingServerConfig struct {
+	// Port to listen on. If 0, an ephemeral port is allocated.
+	Port int
+
+	// Identity of the local device for signing/pairing.
+	Identity *crypto.DeviceIdentity
+
+	// TrustStore for verifying incoming authenticated requests and storing new pairings.
+	TrustStore *crypto.TrustStore
+
+	// OfferHandler handles incoming POST /session/offer.
+	OfferHandler func(req NegotiationRequest) (NegotiationResponse, error)
+
+	// AnswerHandler handles incoming POST /session/answer.
+	AnswerHandler func(answer pion.SessionDescription) error
+
+	// StopHandler handles incoming POST /session/stop.
+	StopHandler func(reason string, code Code) error
+}
+
+// SignalingServer serves the LAN signaling protocol over HTTP with Ed25519 authentication.
+type SignalingServer struct {
+	cfg        SignalingServerConfig
+	listener   net.Listener
+	httpServer *http.Server
+	nonces     *crypto.NonceCache
+
+	mu              sync.Mutex
+	pendingPairings map[string]serverPendingPairing
+	actualPort      int
+}
+
+// NewSignalingServer constructs a new SignalingServer.
+func NewSignalingServer(cfg SignalingServerConfig) *SignalingServer {
+	return &SignalingServer{
+		cfg:             cfg,
+		nonces:          crypto.NewNonceCache(),
+		pendingPairings: make(map[string]serverPendingPairing),
+	}
+}
+
+// Start begins listening on the configured port.
+func (s *SignalingServer) Start(ctx context.Context) error {
+	addr := fmt.Sprintf(":%d", s.cfg.Port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("signaling server listen on %s: %w", addr, err)
+	}
+	s.listener = ln
+	s.actualPort = ln.Addr().(*net.TCPAddr).Port
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/pairing/request", s.handlePairingRequest)
+	mux.HandleFunc("/pairing/confirm", s.handlePairingConfirm)
+	mux.HandleFunc("/session/offer", s.handleSessionOffer)
+	mux.HandleFunc("/session/answer", s.handleSessionAnswer)
+	mux.HandleFunc("/session/stop", s.handleSessionStop)
+
+	s.httpServer = &http.Server{
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+
+	go func() {
+		<-ctx.Done()
+		_ = s.Close()
+	}()
+
+	go func() {
+		if err := s.httpServer.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			// server stopped
+		}
+	}()
+
+	return nil
+}
+
+// Port returns the actual listening TCP port.
+func (s *SignalingServer) Port() int {
+	return s.actualPort
+}
+
+// Close gracefully terminates the signaling server.
+func (s *SignalingServer) Close() error {
+	if s.httpServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		return s.httpServer.Shutdown(ctx)
+	}
+	if s.listener != nil {
+		return s.listener.Close()
+	}
+	return nil
+}
+
+func (s *SignalingServer) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
+}
+
+func (s *SignalingServer) handlePairingRequest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.cfg.Identity == nil {
+		http.Error(w, `{"error":"device identity not configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, `{"error":"failed to read body"}`, http.StatusBadRequest)
+		return
+	}
+
+	var req crypto.PairingRequestPayload
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, `{"error":"malformed json"}`, http.StatusBadRequest)
+		return
+	}
+
+	remotePub, err := hex.DecodeString(req.PublicKey)
+	if err != nil || len(remotePub) != ed25519.PublicKeySize {
+		http.Error(w, `{"error":"invalid public key length"}`, http.StatusBadRequest)
+		return
+	}
+
+	sas := crypto.CalculateSAS(s.cfg.Identity.PublicKey, remotePub, req.PairingToken)
+
+	s.mu.Lock()
+	s.pendingPairings[req.PairingToken] = serverPendingPairing{
+		token:          req.PairingToken,
+		remoteName:     req.DisplayName,
+		remotePlatform: req.Platform,
+		remotePub:      remotePub,
+		sas:            sas,
+		createdAt:      time.Now(),
+	}
+	s.mu.Unlock()
+
+	resp := crypto.PairingAcceptPayload{
+		DisplayName: s.cfg.Identity.DisplayName,
+		Platform:    s.cfg.Identity.Platform,
+		PublicKey:   hex.EncodeToString(s.cfg.Identity.PublicKey),
+		SAS:         sas,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (s *SignalingServer) handlePairingConfirm(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, `{"error":"failed to read body"}`, http.StatusBadRequest)
+		return
+	}
+
+	var req crypto.PairingConfirmPayload
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, `{"error":"malformed json"}`, http.StatusBadRequest)
+		return
+	}
+
+	s.mu.Lock()
+	pending, exists := s.pendingPairings[req.PairingToken]
+	if exists {
+		delete(s.pendingPairings, req.PairingToken)
+	}
+	s.mu.Unlock()
+
+	if !exists || subtle.ConstantTimeCompare([]byte(pending.sas), []byte(req.SAS)) != 1 {
+		http.Error(w, `{"error":"invalid or expired pairing token/sas"}`, http.StatusBadRequest)
+		return
+	}
+
+	if !req.Confirmed {
+		http.Error(w, `{"error":"pairing rejected by user"}`, http.StatusBadRequest)
+		return
+	}
+
+	sigBytes, err := hex.DecodeString(req.Signature)
+	if err != nil || len(sigBytes) != ed25519.SignatureSize {
+		http.Error(w, `{"error":"invalid confirmation signature format"}`, http.StatusBadRequest)
+		return
+	}
+
+	sigMaterial := fmt.Sprintf("%s:%s", req.PairingToken, req.SAS)
+	if !crypto.Verify(pending.remotePub, []byte(sigMaterial), sigBytes) {
+		http.Error(w, `{"error":"invalid confirmation signature"}`, http.StatusUnauthorized)
+		return
+	}
+
+	if s.cfg.TrustStore != nil {
+		_ = s.cfg.TrustStore.AddTrusted(crypto.TrustEntry{
+			DeviceID:    req.DeviceID,
+			DisplayName: pending.remoteName,
+			Platform:    pending.remotePlatform,
+			PublicKey:   pending.remotePub,
+			PairedAt:    time.Now(),
+			LastSeen:    time.Now(),
+			Revoked:     false,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(crypto.PairingStatusPayload{Status: "paired"})
+}
+
+func (s *SignalingServer) verifyAuth(r *http.Request, body []byte) (string, error) {
+	if s.cfg.TrustStore == nil {
+		return "", nil // No auth enforced if trust store not provided (e.g. tests)
+	}
+	return crypto.VerifyRequest(s.cfg.TrustStore, r.Method, r.URL.Path, body, r.Header.Get, s.nonces, 0)
+}
+
+func (s *SignalingServer) handleSessionOffer(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, `{"error":"failed to read body"}`, http.StatusBadRequest)
+		return
+	}
+
+	deviceID, err := s.verifyAuth(r, body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusUnauthorized)
+		return
+	}
+	if s.cfg.TrustStore != nil && deviceID != "" {
+		if entry, ok := s.cfg.TrustStore.Get(deviceID); ok {
+			_ = s.cfg.TrustStore.AddTrusted(entry)
+		}
+	}
+
+	var req offerRequest
+	_ = json.Unmarshal(body, &req)
+
+	if s.cfg.OfferHandler == nil {
+		resp := offerResponse{
+			Code:         "UNSUPPORTED_MEDIA_PARAMS",
+			Message:      "session offer not supported by host",
+			RejectReason: "host has no capture or offer handler",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(resp)
+		return
+	}
+
+	negReq := NegotiationRequest{
+		Requested:    req.Requested.toMediaParams(),
+		PeerDeviceID: deviceID,
+	}
+	ans, err := s.cfg.OfferHandler(negReq)
+	if err != nil {
+		resp := offerResponse{
+			Code:         "INTERNAL",
+			Message:      err.Error(),
+			RejectReason: err.Error(),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(resp)
+		return
+	}
+
+	accepted := ans.Accepted
+	var actual *mediaParamsJSON
+	if ans.ActualKnown {
+		j := toMediaParamsJSON(ans.Actual)
+		actual = &j
+	}
+
+	resp := offerResponse{
+		Type:            "offer",
+		SDP:             ans.Offer,
+		ProtocolVersion: signalingVersion,
+		Code:            string(ans.Code),
+		Message:         ans.Message,
+		Accepted:        &accepted,
+		RejectReason:    ans.RejectReason,
+		Actual:          actual,
+	}
+	for _, c := range ans.Capabilities {
+		resp.Capabilities = append(resp.Capabilities, mediaCapabilityJSON{
+			Codecs:         c.Codecs,
+			MaxWidth:       uint32(c.MaxWidth),
+			MaxHeight:      uint32(c.MaxHeight),
+			MaxFPS:         uint32(c.MaxFPS),
+			SupportsScreen: c.SupportsScreen,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if !accepted {
+		w.WriteHeader(http.StatusConflict)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (s *SignalingServer) handleSessionAnswer(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, `{"error":"failed to read body"}`, http.StatusBadRequest)
+		return
+	}
+
+	deviceID, err := s.verifyAuth(r, body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusUnauthorized)
+		return
+	}
+	if s.cfg.TrustStore != nil && deviceID != "" {
+		if entry, ok := s.cfg.TrustStore.Get(deviceID); ok {
+			_ = s.cfg.TrustStore.AddTrusted(entry)
+		}
+	}
+
+	var payload sdpPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		http.Error(w, `{"error":"invalid sdp payload"}`, http.StatusBadRequest)
+		return
+	}
+
+	if s.cfg.AnswerHandler != nil {
+		err := s.cfg.AnswerHandler(pion.SessionDescription{
+			Type: pion.SDPTypeAnswer,
+			SDP:  payload.SDP,
+		})
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
+}
+
+func (s *SignalingServer) handleSessionStop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, `{"error":"failed to read body"}`, http.StatusBadRequest)
+		return
+	}
+
+	deviceID, err := s.verifyAuth(r, body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusUnauthorized)
+		return
+	}
+	if s.cfg.TrustStore != nil && deviceID != "" {
+		if entry, ok := s.cfg.TrustStore.Get(deviceID); ok {
+			_ = s.cfg.TrustStore.AddTrusted(entry)
+		}
+	}
+
+	var payload stopPayload
+	_ = json.Unmarshal(body, &payload)
+
+	if s.cfg.StopHandler != nil {
+		code, _ := ParseCode(payload.ReasonCode)
+		_ = s.cfg.StopHandler(payload.Reason, code)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
+}

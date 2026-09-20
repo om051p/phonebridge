@@ -805,6 +805,20 @@ func (s *Session) handleClipboardOpen(gen uint64) {
 		return
 	}
 
+	targetID := s.cfg.TargetDeviceID
+	if s.targetDevice.ID != "" {
+		targetID = s.targetDevice.ID
+	}
+	remoteRole := clipboard.RoleMobile
+	if s.trustStore != nil && targetID != "" {
+		if entry, ok := s.trustStore.Get(targetID); ok && entry.Platform == "linux" {
+			remoteRole = clipboard.RoleDesktop
+		}
+	}
+	if targetID != "" {
+		eng.SetPeer(remoteRole, targetID)
+	}
+
 	eng.SetTransport(clipboard.TransportFunc(func(ctx context.Context, update *phonebridgev1.ClipboardUpdate) error {
 		wireBytes, err := proto.Marshal(update)
 		if err != nil {

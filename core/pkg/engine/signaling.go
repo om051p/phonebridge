@@ -151,6 +151,8 @@ func (c *SignalingClient) applyAuth(req *http.Request, body []byte) {
 type NegotiationRequest struct {
 	// Requested is the desired media tuple; zero fields mean "no preference".
 	Requested MediaParams
+	// PeerDeviceID is the authenticated device ID of the remote initiator (populated on the responder side).
+	PeerDeviceID string
 }
 
 // RequestOffer performs the DEC-022 handshake and requests an SDP offer from

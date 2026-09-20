@@ -1,6 +1,18 @@
 package clipboard
 
+import "bytes"
+
 // Arbitrate implements the DEC-023 reconnect and conflict arbitration rules.
+// For asymmetric roles (RoleDesktop vs RoleMobile), Desktop wins ties per DEC-023.
+func Arbitrate(local *Item, remote *Item, role Role) Winner {
+	remoteRole := RoleMobile
+	if role == RoleMobile {
+		remoteRole = RoleDesktop
+	}
+	return ArbitratePeer(local, remote, role, remoteRole, "", "")
+}
+
+// ArbitratePeer implements symmetric and asymmetric reconnect and conflict arbitration.
 //
 // Rules:
 //   - If both local and remote states are empty: WinnerNone (no-op).
@@ -10,9 +22,12 @@ package clipboard
 //   - If digests differ:
 //     1. If remote copied_at_ms > local copied_at_ms + 1000 ms: WinnerRemote (remote is strictly newer).
 //     2. If local copied_at_ms > remote copied_at_ms + 1000 ms: WinnerLocal (local is strictly newer).
-//     3. If |remote - local| <= 1000 ms (or equal, or zero): Linux/Desktop wins as a deterministic tie-breaker.
-//     If role is RoleDesktop, returns WinnerLocal; if role is RoleMobile, returns WinnerRemote.
-func Arbitrate(local *Item, remote *Item, role Role) Winner {
+//     3. If |remote - local| <= 1000 ms (or equal, or zero):
+//        a. If roles differ: RoleDesktop wins as a deterministic tie-breaker (DEC-023).
+//        b. If roles are identical (e.g. Linux <-> Linux or Mobile <-> Mobile):
+//           Tie is broken deterministically by lexicographically comparing local and remote
+//           peer IDs (if non-empty) or item SHA-256 digests.
+func ArbitratePeer(local *Item, remote *Item, localRole, remoteRole Role, localPeerID, remotePeerID string) Winner {
 	localEmpty := local.IsEmpty()
 	remoteEmpty := remote.IsEmpty()
 
@@ -42,8 +57,24 @@ func Arbitrate(local *Item, remote *Item, role Role) Winner {
 		return WinnerLocal
 	}
 
-	// Difference is <= 1000 ms: Desktop wins tie-breaker.
-	if role == RoleDesktop {
+	// Difference is <= 1000 ms: tie-breaker.
+	if localRole != remoteRole {
+		if localRole == RoleDesktop {
+			return WinnerLocal
+		}
+		return WinnerRemote
+	}
+
+	// Identical roles: deterministic tie-breaker.
+	if localPeerID != "" && remotePeerID != "" && localPeerID != remotePeerID {
+		if localPeerID > remotePeerID {
+			return WinnerLocal
+		}
+		return WinnerRemote
+	}
+
+	// Fallback to digest comparison (always non-zero because digests differ).
+	if bytes.Compare(local.Digest[:], remote.Digest[:]) > 0 {
 		return WinnerLocal
 	}
 	return WinnerRemote

@@ -8,8 +8,11 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
+
+	pion "github.com/pion/webrtc/v4"
 
 	"github.com/om051p/phonebridge/core/pkg/clipboard"
 	"github.com/om051p/phonebridge/core/pkg/crypto"
@@ -23,10 +26,11 @@ var version = "0.1.0"
 
 func main() {
 	var (
-		showVersion = flag.Bool("version", false, "Print daemon version and exit")
-		showV       = flag.Bool("V", false, "Print daemon version and exit (shorthand)")
-		socketPath  = flag.String("socket", "", "UDS socket path (default: $XDG_RUNTIME_DIR/phonebridge/engine.sock)")
-		tokenPath   = flag.String("token-file", "", "Bearer token file path (default: $XDG_RUNTIME_DIR/phonebridge/token)")
+		showVersion   = flag.Bool("version", false, "Print daemon version and exit")
+		showV         = flag.Bool("V", false, "Print daemon version and exit (shorthand)")
+		socketPath    = flag.String("socket", "", "UDS socket path (default: $XDG_RUNTIME_DIR/phonebridge/engine.sock)")
+		tokenPath     = flag.String("token-file", "", "Bearer token file path (default: $XDG_RUNTIME_DIR/phonebridge/token)")
+		signalingPort = flag.Int("signaling-port", engine.DefaultSignalingPort, "TCP port for LAN signaling server (0 for ephemeral)")
 	)
 	flag.Parse()
 
@@ -64,11 +68,59 @@ func main() {
 		log.Fatalf("failed to initialize trust store: %v", err)
 	}
 
-	// Initialize mDNS discovery
+	// Initialize session coordinator
+	sessionCfg := engine.DefaultSessionConfig()
+	sessionCfg.Identity = identity
+	sessionCfg.TrustStore = trustStore
+	mgr := engine.NewSessionManager(sessionCfg, nil, nil, func(evt engine.SessionEvent) {
+		srv.BroadcastSessionEvent(&phonebridgelocalipcv1.SessionEvent{
+			SessionId:    evt.SessionID,
+			State:        localipc.ToProtoSessionState(evt.State),
+			Reason:       evt.Reason,
+			ReasonCode:   localipc.ToProtoSessionReason(evt.ReasonCode),
+			ErrorMessage: evt.ErrorMessage,
+		})
+	})
+	mgr.SetIdentity(identity)
+	mgr.SetTrustStore(trustStore)
+
+	// Initialize LAN signaling server with inbound session handlers (DEC-022)
+	portToUse := *signalingPort
+	if envPort := os.Getenv("PHONEBRIDGE_SIGNALING_PORT"); envPort != "" {
+		if p, err := strconv.Atoi(envPort); err == nil {
+			portToUse = p
+		}
+	}
+
+	sigSrv := engine.NewSignalingServer(engine.SignalingServerConfig{
+		Port:       portToUse,
+		Identity:   identity,
+		TrustStore: trustStore,
+		OfferHandler: func(req engine.NegotiationRequest) (engine.NegotiationResponse, error) {
+			return mgr.HandleInboundOffer(req)
+		},
+		AnswerHandler: func(answer pion.SessionDescription) error {
+			return mgr.HandleInboundAnswer(answer)
+		},
+		StopHandler: func(reason string, code engine.Code) error {
+			return mgr.HandleInboundStop(reason, code)
+		},
+	})
+	if err := sigSrv.Start(ctx); err != nil {
+		log.Printf("warning: LAN signaling server start failed on port %d: %v", portToUse, err)
+	} else {
+		defer sigSrv.Close()
+		log.Printf("LAN signaling server listening on port %d", sigSrv.Port())
+	}
+
+	// Initialize mDNS discovery (advertising port and browsing LAN)
 	discCfg := discovery.Config{
 		DeviceID:        identity.DeviceID,
 		DeviceName:      identity.DisplayName,
+		Port:            uint16(sigSrv.Port()),
 		IncludeLoopback: true,
+		Version:         "1",
+		Capabilities:    []string{"SCREEN", "CLIPBOARD"},
 	}
 	disc, err := discovery.NewDiscovery(discCfg)
 	if err != nil {
@@ -80,23 +132,8 @@ func main() {
 			}
 		}()
 		defer disc.Close()
+		mgr.SetDiscovery(disc)
 	}
-
-	// Initialize session coordinator
-	sessionCfg := engine.DefaultSessionConfig()
-	sessionCfg.Identity = identity
-	sessionCfg.TrustStore = trustStore
-	mgr := engine.NewSessionManager(sessionCfg, disc, nil, func(evt engine.SessionEvent) {
-		srv.BroadcastSessionEvent(&phonebridgelocalipcv1.SessionEvent{
-			SessionId:    evt.SessionID,
-			State:        localipc.ToProtoSessionState(evt.State),
-			Reason:       evt.Reason,
-			ReasonCode:   localipc.ToProtoSessionReason(evt.ReasonCode),
-			ErrorMessage: evt.ErrorMessage,
-		})
-	})
-	mgr.SetIdentity(identity)
-	mgr.SetTrustStore(trustStore)
 
 	// Initialize clipboard subsystem (DEC-023)
 	var clipboardAdapter *clipboard.LinuxAdapter
@@ -141,8 +178,9 @@ func main() {
 	} else {
 		clipboardAdapter = adapter
 		engineCfg := clipboard.EngineConfig{
-			Role:     clipboard.RoleDesktop,
-			Platform: clipboardAdapter,
+			Role:        clipboard.RoleDesktop,
+			LocalPeerID: identity.DeviceID,
+			Platform:    clipboardAdapter,
 		}
 		eng, err := clipboard.NewEngine(engineCfg)
 		if err != nil {
