@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -158,9 +159,12 @@ func TestSession_SignalingConnectAndStreamLoopback(t *testing.T) {
 	cfg.TargetDeviceID = "test-phone"
 	cfg.ConnectTimeout = 3 * time.Second
 
+	var mu sync.Mutex
 	var transitions []SessionState
 	s := NewSession("sess-e2e", cfg, reg, func(oldState, newState SessionState, reason string, code SessionReason) {
+		mu.Lock()
 		transitions = append(transitions, newState)
+		mu.Unlock()
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -179,7 +183,10 @@ func TestSession_SignalingConnectAndStreamLoopback(t *testing.T) {
 
 	st := s.State()
 	if st != StateConnected && st != StateStreaming {
-		t.Fatalf("expected StateConnected or StateStreaming, got %v (transitions=%v)", st, transitions)
+		mu.Lock()
+		trCopy := append([]SessionState(nil), transitions...)
+		mu.Unlock()
+		t.Fatalf("expected StateConnected or StateStreaming, got %v (transitions=%v)", st, trCopy)
 	}
 
 	// Now stop session
