@@ -23,6 +23,8 @@ class ClipboardScreen extends StatelessWidget {
     final isEnabled = clipboard.isEnabled;
     final state = clipboard.state;
 
+    final isLinux = controller.service.isLinux;
+
     return ListView(
       padding: const EdgeInsets.all(16.0),
       children: [
@@ -32,7 +34,10 @@ class ClipboardScreen extends StatelessWidget {
         const SizedBox(height: 16),
         _buildSyncNowCard(context, theme, isEnabled),
         const SizedBox(height: 16),
-        _buildCompanionImeGuidanceCard(theme, clipboard.imeSelected),
+        if (isLinux)
+          _buildLinuxWaylandGuidanceCard(theme, clipboard)
+        else
+          _buildCompanionImeGuidanceCard(theme, clipboard.imeSelected),
         const SizedBox(height: 16),
         _buildSyncStatsCard(theme, clipboard),
         const SizedBox(height: 16),
@@ -209,6 +214,71 @@ class ClipboardScreen extends StatelessWidget {
               'On modern Android, background apps are restricted from reading your clipboard. '
               'The PhoneBridge Companion Keyboard runs passively alongside your regular keyboard '
               'to detect copy events instantly without requiring manual pulls.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                height: 1.35,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLinuxWaylandGuidanceCard(ThemeData theme, ClipboardStatus clipboard) {
+    final isUnavailable = clipboard.state == ClipboardSyncState.unavailable;
+    return Card(
+      elevation: 0,
+      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.25),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.desktop_windows_outlined, color: theme.colorScheme.primary, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  'Wayland Data Control',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: !isUnavailable
+                        ? Colors.green.withValues(alpha: 0.15)
+                        : Colors.orange.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    !isUnavailable ? 'Active' : 'Setup Required',
+                    style: TextStyle(
+                      color: !isUnavailable ? Colors.green : Colors.orange.shade800,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              isUnavailable
+                  ? 'Linux Wayland clipboard synchronization requires compositor support for '
+                      'wlr-data-control-unstable-v1.\n\n'
+                      '• COSMIC Desktop: Set COSMIC_DATA_CONTROL_ENABLED=1 in /etc/environment or your session profile.\n'
+                      '• wlroots / Sway / Hyprland: Supported natively.\n'
+                      '• Note: GNOME Wayland lacks data-control protocol and is unsupported.'
+                  : 'Wayland data-control helper is active. Clipboard changes are monitored passively '
+                      'via wl-data-control and synchronized automatically with paired devices.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
                 height: 1.35,

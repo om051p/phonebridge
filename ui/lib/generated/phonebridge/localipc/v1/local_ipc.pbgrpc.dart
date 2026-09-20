@@ -136,6 +136,22 @@ class LocalEngineServiceClient extends $grpc.Client {
     return $createUnaryCall(_$revokeDevice, request, options: options);
   }
 
+  /// GetClipboardStatus returns the current status of the host clipboard adapter and engine.
+  $grpc.ResponseFuture<$0.GetClipboardStatusResponse> getClipboardStatus(
+    $0.GetClipboardStatusRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$getClipboardStatus, request, options: options);
+  }
+
+  /// TriggerClipboardPull reads the host clipboard and synchronizes it to the active peer.
+  $grpc.ResponseFuture<$0.TriggerClipboardPullResponse> triggerClipboardPull(
+    $0.TriggerClipboardPullRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$triggerClipboardPull, request, options: options);
+  }
+
   // method descriptors
 
   static final _$handshake =
@@ -197,6 +213,16 @@ class LocalEngineServiceClient extends $grpc.Client {
           '/phonebridge.localipc.v1.LocalEngineService/RevokeDevice',
           ($0.RevokeDeviceRequest value) => value.writeToBuffer(),
           $0.RevokeDeviceResponse.fromBuffer);
+  static final _$getClipboardStatus = $grpc.ClientMethod<
+          $0.GetClipboardStatusRequest, $0.GetClipboardStatusResponse>(
+      '/phonebridge.localipc.v1.LocalEngineService/GetClipboardStatus',
+      ($0.GetClipboardStatusRequest value) => value.writeToBuffer(),
+      $0.GetClipboardStatusResponse.fromBuffer);
+  static final _$triggerClipboardPull = $grpc.ClientMethod<
+          $0.TriggerClipboardPullRequest, $0.TriggerClipboardPullResponse>(
+      '/phonebridge.localipc.v1.LocalEngineService/TriggerClipboardPull',
+      ($0.TriggerClipboardPullRequest value) => value.writeToBuffer(),
+      $0.TriggerClipboardPullResponse.fromBuffer);
 }
 
 @$pb.GrpcServiceName('phonebridge.localipc.v1.LocalEngineService')
@@ -304,6 +330,24 @@ abstract class LocalEngineServiceBase extends $grpc.Service {
             ($core.List<$core.int> value) =>
                 $0.RevokeDeviceRequest.fromBuffer(value),
             ($0.RevokeDeviceResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.GetClipboardStatusRequest,
+            $0.GetClipboardStatusResponse>(
+        'GetClipboardStatus',
+        getClipboardStatus_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) =>
+            $0.GetClipboardStatusRequest.fromBuffer(value),
+        ($0.GetClipboardStatusResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.TriggerClipboardPullRequest,
+            $0.TriggerClipboardPullResponse>(
+        'TriggerClipboardPull',
+        triggerClipboardPull_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) =>
+            $0.TriggerClipboardPullRequest.fromBuffer(value),
+        ($0.TriggerClipboardPullResponse value) => value.writeToBuffer()));
   }
 
   $async.Future<$0.HandshakeResponse> handshake_Pre($grpc.ServiceCall $call,
@@ -407,4 +451,22 @@ abstract class LocalEngineServiceBase extends $grpc.Service {
 
   $async.Future<$0.RevokeDeviceResponse> revokeDevice(
       $grpc.ServiceCall call, $0.RevokeDeviceRequest request);
+
+  $async.Future<$0.GetClipboardStatusResponse> getClipboardStatus_Pre(
+      $grpc.ServiceCall $call,
+      $async.Future<$0.GetClipboardStatusRequest> $request) async {
+    return getClipboardStatus($call, await $request);
+  }
+
+  $async.Future<$0.GetClipboardStatusResponse> getClipboardStatus(
+      $grpc.ServiceCall call, $0.GetClipboardStatusRequest request);
+
+  $async.Future<$0.TriggerClipboardPullResponse> triggerClipboardPull_Pre(
+      $grpc.ServiceCall $call,
+      $async.Future<$0.TriggerClipboardPullRequest> $request) async {
+    return triggerClipboardPull($call, await $request);
+  }
+
+  $async.Future<$0.TriggerClipboardPullResponse> triggerClipboardPull(
+      $grpc.ServiceCall call, $0.TriggerClipboardPullRequest request);
 }

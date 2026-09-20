@@ -109,6 +109,12 @@ service LocalEngineService {
 
   // RevokeDevice revokes trust for a previously paired device.
   rpc RevokeDevice(RevokeDeviceRequest) returns (RevokeDeviceResponse);
+
+  // GetClipboardStatus returns the current status of the host clipboard adapter and engine.
+  rpc GetClipboardStatus(GetClipboardStatusRequest) returns (GetClipboardStatusResponse);
+
+  // TriggerClipboardPull reads the host clipboard and synchronizes it to the active peer.
+  rpc TriggerClipboardPull(TriggerClipboardPullRequest) returns (TriggerClipboardPullResponse);
 }
 
 // HandshakeRequest advertises the client's local-IPC protocol support.
@@ -174,6 +180,9 @@ message StreamEventsResponse {
 
   // Local session state transitions (connecting, streaming, reconnecting, etc.).
   SessionEvent session_event = 4;
+
+  // Clipboard subsystem status transitions (adapter status, active peer, etc.).
+  ClipboardStatusEvent clipboard_event = 5;
 }
 
 // LocalEvent represents a pushed local event containing the relayed device envelope.
@@ -191,6 +200,9 @@ message LocalEvent {
 
   // Local session state transitions.
   SessionEvent session_event = 4;
+
+  // Clipboard subsystem status transitions.
+  ClipboardStatusEvent clipboard_event = 5;
 }
 
 // HealthRequest is empty.
@@ -419,5 +431,48 @@ message RevokeDeviceResponse {
   bool success = 2;
 }
 
+// ---------------------------------------------------------------------------
+// Clipboard subsystem IPC definitions (DEC-023)
+// ---------------------------------------------------------------------------
 
+// GetClipboardStatusRequest is empty.
+message GetClipboardStatusRequest {}
 
+// GetClipboardStatusResponse returns the current clipboard engine and adapter state.
+message GetClipboardStatusResponse {
+  // Operational state of the clipboard subsystem: "READY", "AMBIENT_ACTIVE", "STOPPED", "COSMIC_FLAG_REQUIRED", "NO_DATA_CONTROL", "WAYLAND_UNAVAILABLE", etc.
+  string state = 1;
+
+  // True if an active clipboard WebRTC DataChannel transport is connected.
+  bool is_connected = 2;
+
+  // Maximum allowed clipboard payload in bytes (DEC-023: 786432).
+  uint32 max_payload_size = 3;
+
+  // Identifier of the remote peer currently connected for clipboard sync, if any.
+  string remote_peer_id = 4;
+
+  // Status string specific to the platform adapter (e.g. Wayland data-control status).
+  string adapter_status = 5;
+
+  // Last sync timestamp in ms since Unix epoch, or 0 if unknown.
+  uint64 last_sync_ms = 6;
+}
+
+// TriggerClipboardPullRequest requests a manual read from the host clipboard to sync to remote peer.
+message TriggerClipboardPullRequest {}
+
+// TriggerClipboardPullResponse returns the result of the manual clipboard pull.
+message TriggerClipboardPullResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// ClipboardStatusEvent represents a pushed clipboard status update on StreamEvents.
+message ClipboardStatusEvent {
+  string state = 1;
+  bool is_connected = 2;
+  string adapter_status = 3;
+  string remote_peer_id = 4;
+  uint32 max_payload_size = 5;
+}

@@ -1,22 +1,41 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../models/device_state.dart';
 import '../models/capture_stats.dart';
 import '../models/trusted_device.dart';
 import '../models/clipboard_status.dart';
 import '../models/activity_event.dart';
+import '../models/discovered_device.dart';
 import '../services/phonebridge_channel.dart';
+import '../services/platform_bridge_service.dart';
+import '../services/android_bridge_service.dart';
+import '../services/linux_bridge_service.dart';
 
 class PhoneBridgeController extends ChangeNotifier {
-  PhoneBridgeController({PhoneBridgeChannel? channel})
-      : _channel = channel ?? PhoneBridgeChannel();
+  PhoneBridgeController({
+    PlatformBridgeService? service,
+    PhoneBridgeChannel? channel,
+  }) : _service = service ??
+            (channel != null
+                ? AndroidBridgeService(channel: channel)
+                : _createDefaultService());
 
-  final PhoneBridgeChannel _channel;
+  static PlatformBridgeService _createDefaultService() {
+    if (kIsWeb || Platform.isAndroid || Platform.environment.containsKey('FLUTTER_TEST')) {
+      return AndroidBridgeService();
+    }
+    return LinuxBridgeService();
+  }
+
+  final PlatformBridgeService _service;
+  PlatformBridgeService get service => _service;
 
   DeviceState _deviceState = DeviceState.initial;
   CaptureStats _captureStats = CaptureStats.initial;
   ClipboardStatus _clipboardStatus = ClipboardStatus.initial;
   List<TrustedDevice> _trustedDevices = [];
+  List<DiscoveredDevice> _discoveredDevices = [];
   final List<ActivityEvent> _activityEvents = [];
 
   bool _isLoading = false;
@@ -34,6 +53,7 @@ class PhoneBridgeController extends ChangeNotifier {
   CaptureStats get captureStats => _captureStats;
   ClipboardStatus get clipboardStatus => _clipboardStatus;
   List<TrustedDevice> get trustedDevices => List.unmodifiable(_trustedDevices);
+  List<DiscoveredDevice> get discoveredDevices => List.unmodifiable(_discoveredDevices);
   List<ActivityEvent> get activityEvents => List.unmodifiable(_activityEvents);
   bool get isLoading => _isLoading;
   String? get lastErrorMessage => _lastErrorMessage;
@@ -60,12 +80,13 @@ class PhoneBridgeController extends ChangeNotifier {
   @override
   void dispose() {
     _rawEventsSub?.cancel();
+    _service.dispose();
     super.dispose();
   }
 
   void _subscribeEvents() {
     _rawEventsSub?.cancel();
-    _rawEventsSub = _channel.rawEventsStream.listen(
+    _rawEventsSub = _service.rawEventsStream.listen(
       (event) {
         final prevCapturing = _captureStats.isCapturing;
         _captureStats = CaptureStats.fromMap(event, previous: _captureStats);
@@ -118,10 +139,10 @@ class PhoneBridgeController extends ChangeNotifier {
 
   Future<void> refreshAll() async {
     try {
-      final state = await _channel.getDeviceState();
-      final stats = await _channel.getMediaStats();
-      final devices = await _channel.getTrustedDevices();
-      final clip = await _channel.getClipboardStatus();
+      final state = await _service.getDeviceState();
+      final stats = await _service.getMediaStats();
+      final devices = await _service.getTrustedDevices();
+      final clip = await _service.getClipboardStatus();
 
       _deviceState = state;
       _captureStats = stats;
@@ -134,13 +155,64 @@ class PhoneBridgeController extends ChangeNotifier {
     }
   }
 
+  Future<void> refreshDiscoveredDevices() async {
+    try {
+      _discoveredDevices = await _service.listDiscoveredDevices();
+      notifyListeners();
+    } catch (e) {
+      _lastErrorMessage = e.toString();
+      notifyListeners();
+    }
+  }
+
+  Future<PairingResult?> pairDevice(String deviceId) async {
+    _isLoading = true;
+    _lastErrorMessage = null;
+    notifyListeners();
+    try {
+      final res = await _service.pairDevice(deviceId);
+      return res;
+    } catch (e) {
+      _lastErrorMessage = e.toString();
+      return null;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> confirmPairing({required String deviceId, required bool confirmed}) async {
+    _isLoading = true;
+    _lastErrorMessage = null;
+    notifyListeners();
+    try {
+      final ok = await _service.confirmPairing(deviceId: deviceId, confirmed: confirmed);
+      if (ok && confirmed) {
+        addActivityEvent(
+          ActivityCategory.pairing,
+          'Pairing Successful',
+          'Successfully paired device $deviceId',
+          ActivityLevel.success,
+        );
+      }
+      await refreshAll();
+      return ok;
+    } catch (e) {
+      _lastErrorMessage = e.toString();
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
   Future<bool> startScreenSharing() async {
     _isLoading = true;
     _lastErrorMessage = null;
     notifyListeners();
 
     try {
-      final ok = await _channel.startCapture(
+      final ok = await _service.startCapture(
         receiverUrl: _receiverUrl.trim().isEmpty ? null : _receiverUrl.trim(),
         width: _selectedWidth,
         height: _selectedHeight,
@@ -168,7 +240,7 @@ class PhoneBridgeController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final ok = await _channel.stopCapture();
+      final ok = await _service.stopCapture();
       await refreshAll();
       return ok;
     } catch (e) {
@@ -184,7 +256,7 @@ class PhoneBridgeController extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
     try {
-      final ok = await _channel.revokeDevice(deviceId);
+      final ok = await _service.revokeDevice(deviceId);
       if (ok) {
         addActivityEvent(
           ActivityCategory.pairing,
@@ -208,7 +280,7 @@ class PhoneBridgeController extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
     try {
-      final ok = await _channel.removeDevice(deviceId);
+      final ok = await _service.removeDevice(deviceId);
       if (ok) {
         addActivityEvent(
           ActivityCategory.pairing,
@@ -230,7 +302,7 @@ class PhoneBridgeController extends ChangeNotifier {
 
   Future<bool> triggerClipboardPull() async {
     try {
-      final ok = await _channel.triggerClipboardPull();
+      final ok = await _service.triggerClipboardPull();
       if (ok) {
         _clipboardStatus = _clipboardStatus.copyWith(
           lastSyncTimestampMs: DateTime.now().millisecondsSinceEpoch,

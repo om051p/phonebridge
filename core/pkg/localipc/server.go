@@ -75,6 +75,8 @@ type SessionOrchestrator interface {
 	ConfirmPairing(ctx context.Context, deviceID string, confirmed bool) error
 	ListTrustedDevices() []crypto.TrustEntry
 	RevokeDevice(deviceID string) error
+	GetClipboardStatus(ctx context.Context) (*phonebridgelocalipcv1.GetClipboardStatusResponse, error)
+	TriggerClipboardPull(ctx context.Context) error
 }
 
 // Config configures the production local IPC server.
@@ -112,8 +114,9 @@ type Server struct {
 }
 
 type eventPayload struct {
-	envelope     *phonebridgev1.Envelope
-	sessionEvent *phonebridgelocalipcv1.SessionEvent
+	envelope       *phonebridgev1.Envelope
+	sessionEvent   *phonebridgelocalipcv1.SessionEvent
+	clipboardEvent *phonebridgelocalipcv1.ClipboardStatusEvent
 }
 
 // NewServer creates a new local IPC server with sensible defaults.
@@ -401,6 +404,7 @@ func (s *Server) StreamEvents(_ *phonebridgelocalipcv1.StreamEventsRequest, stre
 				DaemonGeneration: s.cfg.DaemonGeneration,
 				Envelope:         item.envelope,
 				SessionEvent:     item.sessionEvent,
+				ClipboardEvent:   item.clipboardEvent,
 			}
 			if err := stream.Send(resp); err != nil {
 				return err
@@ -441,6 +445,14 @@ func (s *Server) BroadcastSessionEvent(event *phonebridgelocalipcv1.SessionEvent
 		return
 	}
 	s.broadcastItem(&eventPayload{sessionEvent: event})
+}
+
+// BroadcastClipboardEvent pushes a ClipboardStatusEvent to all active StreamEvents streams.
+func (s *Server) BroadcastClipboardEvent(event *phonebridgelocalipcv1.ClipboardStatusEvent) {
+	if event == nil {
+		return
+	}
+	s.broadcastItem(&eventPayload{clipboardEvent: event})
 }
 
 // StartSession initiates a session targeting the given device ID.
@@ -652,6 +664,36 @@ func (s *Server) RevokeDevice(_ context.Context, req *phonebridgelocalipcv1.Revo
 	return &phonebridgelocalipcv1.RevokeDeviceResponse{
 		DeviceId: req.GetDeviceId(),
 		Success:  true,
+	}, nil
+}
+
+// GetClipboardStatus returns the current clipboard engine and adapter state.
+func (s *Server) GetClipboardStatus(ctx context.Context, _ *phonebridgelocalipcv1.GetClipboardStatusRequest) (*phonebridgelocalipcv1.GetClipboardStatusResponse, error) {
+	if s.closed.Load() {
+		return nil, status.Error(codes.Unavailable, "daemon is shutting down")
+	}
+	if s.orchestrator == nil {
+		return nil, status.Error(codes.FailedPrecondition, "session orchestrator not configured")
+	}
+	return s.orchestrator.GetClipboardStatus(ctx)
+}
+
+// TriggerClipboardPull reads the host clipboard and synchronizes it to the active peer.
+func (s *Server) TriggerClipboardPull(ctx context.Context, _ *phonebridgelocalipcv1.TriggerClipboardPullRequest) (*phonebridgelocalipcv1.TriggerClipboardPullResponse, error) {
+	if s.closed.Load() {
+		return nil, status.Error(codes.Unavailable, "daemon is shutting down")
+	}
+	if s.orchestrator == nil {
+		return nil, status.Error(codes.FailedPrecondition, "session orchestrator not configured")
+	}
+	if err := s.orchestrator.TriggerClipboardPull(ctx); err != nil {
+		return &phonebridgelocalipcv1.TriggerClipboardPullResponse{
+			Success:      false,
+			ErrorMessage: err.Error(),
+		}, nil
+	}
+	return &phonebridgelocalipcv1.TriggerClipboardPullResponse{
+		Success: true,
 	}, nil
 }
 

@@ -1,7 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:phonebridge_ui/main.dart';
-import 'package:phonebridge_ui/ui/linux_session_view.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

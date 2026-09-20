@@ -169,6 +169,32 @@ func main() {
 		},
 		OnStatusChanged: func(status clipboard.AdapterStatus, err error) {
 			log.Printf("clipboard adapter status: %s (err: %v)", status, err)
+			stateStr := "STOPPED"
+			switch status {
+			case clipboard.AdapterStatusReady:
+				stateStr = "AMBIENT_ACTIVE"
+			case clipboard.AdapterStatusCosmicFlagRequired:
+				stateStr = "COSMIC_FLAG_REQUIRED"
+			case clipboard.AdapterStatusNoDataControl:
+				stateStr = "NO_DATA_CONTROL"
+			case clipboard.AdapterStatusWaylandUnavailable:
+				stateStr = "WAYLAND_UNAVAILABLE"
+			case clipboard.AdapterStatusCrashed:
+				stateStr = "UNAVAILABLE"
+			}
+			isConn := false
+			remotePeer := ""
+			if clipboardEngine != nil {
+				isConn = clipboardEngine.HasTransport()
+				remotePeer = clipboardEngine.RemotePeerID()
+			}
+			srv.BroadcastClipboardEvent(&phonebridgelocalipcv1.ClipboardStatusEvent{
+				State:          stateStr,
+				IsConnected:    isConn,
+				AdapterStatus:  status.String(),
+				RemotePeerId:   remotePeer,
+				MaxPayloadSize: clipboard.MaxPayloadSize,
+			})
 		},
 	}
 
@@ -177,6 +203,7 @@ func main() {
 		log.Printf("warning: clipboard adapter initialization failed: %v", err)
 	} else {
 		clipboardAdapter = adapter
+		mgr.SetClipboardAdapter(clipboardAdapter)
 		engineCfg := clipboard.EngineConfig{
 			Role:        clipboard.RoleDesktop,
 			LocalPeerID: identity.DeviceID,

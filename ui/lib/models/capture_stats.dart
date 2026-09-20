@@ -64,6 +64,34 @@ class CaptureStats {
     );
   }
 
+  CaptureStats copyWith({
+    bool? isCapturing,
+    int? encodedFrames,
+    int? keyframes,
+    int? admittedFrames,
+    int? droppedFrames,
+    String? codec,
+    bool? isHardwareCodec,
+    int? durationUs,
+    String? lastError,
+    int? timestampMs,
+    double? currentFps,
+  }) {
+    return CaptureStats(
+      isCapturing: isCapturing ?? this.isCapturing,
+      encodedFrames: encodedFrames ?? this.encodedFrames,
+      keyframes: keyframes ?? this.keyframes,
+      admittedFrames: admittedFrames ?? this.admittedFrames,
+      droppedFrames: droppedFrames ?? this.droppedFrames,
+      codec: codec ?? this.codec,
+      isHardwareCodec: isHardwareCodec ?? this.isHardwareCodec,
+      durationUs: durationUs ?? this.durationUs,
+      lastError: lastError ?? this.lastError,
+      timestampMs: timestampMs ?? this.timestampMs,
+      currentFps: currentFps ?? this.currentFps,
+    );
+  }
+
   static const initial = CaptureStats(
     isCapturing: false,
     encodedFrames: 0,

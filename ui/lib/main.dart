@@ -1,13 +1,11 @@
-import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'controllers/phonebridge_controller.dart';
 import 'screens/app_scaffold.dart';
-import 'ui/linux_session_view.dart';
 
 export 'screens/dashboard_screen.dart';
 export 'screens/app_scaffold.dart';
 export 'controllers/phonebridge_controller.dart';
+export 'ui/linux_session_view.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -43,9 +41,6 @@ class PhoneBridgeApp extends StatelessWidget {
   }
 
   Widget _defaultHome() {
-    if (!kIsWeb && Platform.isAndroid) {
-      return AppScaffold(controller: PhoneBridgeController());
-    }
-    return const LinuxSessionView();
+    return AppScaffold(controller: PhoneBridgeController());
   }
 }

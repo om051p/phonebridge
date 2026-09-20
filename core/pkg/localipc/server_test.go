@@ -467,6 +467,9 @@ type mockOrchestrator struct {
 	confirmErr  error
 	trustedDevs []crypto.TrustEntry
 	revokeErr   error
+	cbStatus    *phonebridgelocalipcv1.GetClipboardStatusResponse
+	cbErr       error
+	cbPullErr   error
 }
 
 func (m *mockOrchestrator) StartSession(ctx context.Context, deviceID string, requested engine.MediaParams) (*engine.Session, error) {
@@ -508,6 +511,22 @@ func (m *mockOrchestrator) ListTrustedDevices() []crypto.TrustEntry {
 
 func (m *mockOrchestrator) RevokeDevice(deviceID string) error {
 	return m.revokeErr
+}
+
+func (m *mockOrchestrator) GetClipboardStatus(ctx context.Context) (*phonebridgelocalipcv1.GetClipboardStatusResponse, error) {
+	if m.cbErr != nil {
+		return nil, m.cbErr
+	}
+	if m.cbStatus == nil {
+		return &phonebridgelocalipcv1.GetClipboardStatusResponse{
+			State: "STOPPED",
+		}, nil
+	}
+	return m.cbStatus, nil
+}
+
+func (m *mockOrchestrator) TriggerClipboardPull(ctx context.Context) error {
+	return m.cbPullErr
 }
 
 func TestMediaParamsConversions(t *testing.T) {
@@ -780,5 +799,99 @@ func TestRPC_PairingAndTrust(t *testing.T) {
 	}
 	if !revokeResp.GetSuccess() {
 		t.Errorf("expected revoke success = true")
+	}
+}
+
+func TestServer_ClipboardEndpoints(t *testing.T) {
+	tmpDir := t.TempDir()
+	sock := filepath.Join(tmpDir, "engine.sock")
+	tok := filepath.Join(tmpDir, "token")
+	tokVal := "test-bearer-token-cb"
+
+	mock := &mockOrchestrator{
+		cbStatus: &phonebridgelocalipcv1.GetClipboardStatusResponse{
+			State:          "AMBIENT_ACTIVE",
+			IsConnected:    true,
+			MaxPayloadSize: 786432,
+			RemotePeerId:   "remote-peer-456",
+			AdapterStatus:  "READY",
+			LastSyncMs:     1726000000000,
+		},
+	}
+
+	cfg := Config{
+		SocketPath:    sock,
+		TokenPath:     tok,
+		Token:         tokVal,
+		ServerVersion: "1.0.0",
+		Orchestrator:  mock,
+	}
+
+	s, cancel, errCh := startTestServer(t, cfg)
+	defer func() {
+		cancel()
+		<-errCh
+	}()
+
+	client, err := Dial(context.Background(), sock, tokVal)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer client.Close()
+
+	ctx := context.Background()
+
+	// 1. GetClipboardStatus
+	statusResp, err := client.GetClipboardStatus(ctx, &phonebridgelocalipcv1.GetClipboardStatusRequest{})
+	if err != nil {
+		t.Fatalf("GetClipboardStatus: %v", err)
+	}
+	if statusResp.GetState() != "AMBIENT_ACTIVE" {
+		t.Errorf("expected state AMBIENT_ACTIVE, got %s", statusResp.GetState())
+	}
+	if !statusResp.GetIsConnected() {
+		t.Errorf("expected is_connected = true")
+	}
+	if statusResp.GetMaxPayloadSize() != 786432 {
+		t.Errorf("expected max payload 786432, got %d", statusResp.GetMaxPayloadSize())
+	}
+	if statusResp.GetRemotePeerId() != "remote-peer-456" {
+		t.Errorf("expected remote peer remote-peer-456, got %s", statusResp.GetRemotePeerId())
+	}
+
+	// 2. TriggerClipboardPull
+	pullResp, err := client.TriggerClipboardPull(ctx, &phonebridgelocalipcv1.TriggerClipboardPullRequest{})
+	if err != nil {
+		t.Fatalf("TriggerClipboardPull: %v", err)
+	}
+	if !pullResp.GetSuccess() {
+		t.Errorf("expected pull success = true")
+	}
+
+	// 3. BroadcastClipboardEvent on StreamEvents
+	streamCtx, streamCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer streamCancel()
+
+	stream, err := client.StreamEvents(streamCtx, &phonebridgelocalipcv1.StreamEventsRequest{})
+	if err != nil {
+		t.Fatalf("StreamEvents: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	s.BroadcastClipboardEvent(&phonebridgelocalipcv1.ClipboardStatusEvent{
+		State:          "COSMIC_FLAG_REQUIRED",
+		AdapterStatus:  "COSMIC_FLAG_REQUIRED",
+		MaxPayloadSize: 786432,
+	})
+
+	evt, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("stream.Recv: %v", err)
+	}
+	if evt.GetClipboardEvent() == nil {
+		t.Fatalf("expected clipboard event in StreamEventsResponse")
+	}
+	if evt.GetClipboardEvent().GetState() != "COSMIC_FLAG_REQUIRED" {
+		t.Errorf("expected COSMIC_FLAG_REQUIRED, got %s", evt.GetClipboardEvent().GetState())
 	}
 }

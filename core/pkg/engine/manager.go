@@ -20,6 +20,7 @@ import (
 	"github.com/om051p/phonebridge/core/pkg/clipboard"
 	"github.com/om051p/phonebridge/core/pkg/crypto"
 	"github.com/om051p/phonebridge/core/pkg/discovery"
+	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgelocalipcv1"
 	"github.com/om051p/phonebridge/core/pkg/receiver"
 )
 
@@ -50,19 +51,20 @@ type pendingPairing struct {
 
 // SessionManager coordinates device discovery and active session lifecycle.
 type SessionManager struct {
-	mu              sync.RWMutex
-	cfg             SessionConfig
-	discovery       *discovery.Discovery
-	activeSess      *Session
-	inboundSess     *InboundSession
-	onEvent         func(SessionEvent)
-	sink            receiver.FrameSink
-	sinkFactory     func() (receiver.FrameSink, error)
-	identity        *crypto.DeviceIdentity
-	trustStore      *crypto.TrustStore
-	clipboardEngine *clipboard.Engine
-	pendingPairings map[string]*pendingPairing
-	httpClient      *http.Client
+	mu               sync.RWMutex
+	cfg              SessionConfig
+	discovery        *discovery.Discovery
+	activeSess       *Session
+	inboundSess      *InboundSession
+	onEvent          func(SessionEvent)
+	sink             receiver.FrameSink
+	sinkFactory      func() (receiver.FrameSink, error)
+	identity         *crypto.DeviceIdentity
+	trustStore       *crypto.TrustStore
+	clipboardEngine  *clipboard.Engine
+	clipboardAdapter clipboard.PlatformAdapter
+	pendingPairings  map[string]*pendingPairing
+	httpClient       *http.Client
 }
 
 // NewSessionManager creates a new session coordinator.
@@ -125,6 +127,77 @@ func (m *SessionManager) ClipboardEngine() *clipboard.Engine {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.clipboardEngine
+}
+
+// SetClipboardAdapter configures the platform clipboard adapter.
+func (m *SessionManager) SetClipboardAdapter(adapter clipboard.PlatformAdapter) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.clipboardAdapter = adapter
+}
+
+// GetClipboardStatus queries the state of the clipboard engine and adapter.
+func (m *SessionManager) GetClipboardStatus(ctx context.Context) (*phonebridgelocalipcv1.GetClipboardStatusResponse, error) {
+	m.mu.RLock()
+	eng := m.clipboardEngine
+	adapter := m.clipboardAdapter
+	m.mu.RUnlock()
+
+	resp := &phonebridgelocalipcv1.GetClipboardStatusResponse{
+		State:          "STOPPED",
+		MaxPayloadSize: clipboard.MaxPayloadSize,
+	}
+
+	if adapter != nil {
+		if linuxAdapter, ok := adapter.(*clipboard.LinuxAdapter); ok {
+			st := linuxAdapter.Status()
+			resp.AdapterStatus = st.String()
+			switch st {
+			case clipboard.AdapterStatusReady:
+				resp.State = "AMBIENT_ACTIVE"
+			case clipboard.AdapterStatusCosmicFlagRequired:
+				resp.State = "COSMIC_FLAG_REQUIRED"
+			case clipboard.AdapterStatusNoDataControl:
+				resp.State = "NO_DATA_CONTROL"
+			case clipboard.AdapterStatusWaylandUnavailable:
+				resp.State = "WAYLAND_UNAVAILABLE"
+			case clipboard.AdapterStatusCrashed:
+				resp.State = "UNAVAILABLE"
+			default:
+				resp.State = "STOPPED"
+			}
+		} else {
+			resp.State = "READY"
+			resp.AdapterStatus = "READY"
+		}
+	}
+
+	if eng != nil {
+		resp.IsConnected = eng.HasTransport()
+		resp.RemotePeerId = eng.RemotePeerID()
+		if cur := eng.CurrentItem(); cur != nil {
+			resp.LastSyncMs = cur.CopiedAtMs
+		}
+	}
+
+	return resp, nil
+}
+
+// TriggerClipboardPull re-broadcasts the active clipboard item or triggers reconnect sync.
+func (m *SessionManager) TriggerClipboardPull(ctx context.Context) error {
+	m.mu.RLock()
+	eng := m.clipboardEngine
+	m.mu.RUnlock()
+
+	if eng == nil {
+		return errors.New("clipboard engine not configured")
+	}
+
+	cur := eng.CurrentItem()
+	if cur != nil {
+		return eng.OnLocalClipboard(ctx, cur)
+	}
+	return nil
 }
 
 // TrustStore returns the active trust store.

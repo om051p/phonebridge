@@ -25,6 +25,8 @@ class ScreenSharingScreen extends StatelessWidget {
     final stats = controller.captureStats;
     final peer = controller.activePeer;
 
+    final isLinux = controller.service.isLinux;
+
     return ListView(
       padding: const EdgeInsets.all(16.0),
       children: [
@@ -34,7 +36,7 @@ class ScreenSharingScreen extends StatelessWidget {
         const SizedBox(height: 16),
         _buildQualityPresetsCard(theme, isCapturing),
         const SizedBox(height: 16),
-        _buildPermissionGuidanceCard(theme),
+        _buildPermissionGuidanceCard(theme, isLinux),
         const SizedBox(height: 20),
         SizedBox(
           width: double.infinity,
@@ -55,9 +57,13 @@ class ScreenSharingScreen extends StatelessWidget {
                       controller.startScreenSharing();
                     }
                   },
-            icon: Icon(isCapturing ? Icons.stop : Icons.screen_share),
+            icon: Icon(isCapturing
+                ? Icons.stop
+                : (isLinux ? Icons.phone_android : Icons.screen_share)),
             label: Text(
-              isCapturing ? 'STOP SCREEN SHARING' : 'START SCREEN SHARING',
+              isCapturing
+                  ? (isLinux ? 'STOP RECEIVER SESSION' : 'STOP SCREEN SHARING')
+                  : (isLinux ? 'MIRROR PHONE SCREEN' : 'START SCREEN SHARING'),
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
           ),
@@ -309,7 +315,7 @@ class ScreenSharingScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildPermissionGuidanceCard(ThemeData theme) {
+  Widget _buildPermissionGuidanceCard(ThemeData theme, bool isLinux) {
     return Card(
       elevation: 0,
       color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.2),
@@ -326,7 +332,9 @@ class ScreenSharingScreen extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Android will show a system permission dialog asking "Start recording or casting with PhoneBridge?" to protect your privacy.',
+                isLinux
+                    ? 'On Linux, PhoneBridge functions as a high-performance WebRTC receiver for Android screen mirroring, with bidirectional clipboard sync.'
+                    : 'Android will show a system permission dialog asking "Start recording or casting with PhoneBridge?" to protect your privacy.',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                   height: 1.3,

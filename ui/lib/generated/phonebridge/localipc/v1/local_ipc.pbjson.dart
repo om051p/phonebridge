@@ -176,6 +176,14 @@ const StreamEventsResponse$json = {
       '6': '.phonebridge.localipc.v1.SessionEvent',
       '10': 'sessionEvent'
     },
+    {
+      '1': 'clipboard_event',
+      '3': 5,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.localipc.v1.ClipboardStatusEvent',
+      '10': 'clipboardEvent'
+    },
   ],
 };
 
@@ -184,7 +192,9 @@ final $typed_data.Uint8List streamEventsResponseDescriptor = $convert.base64Deco
     'ChRTdHJlYW1FdmVudHNSZXNwb25zZRIQCgNzZXEYASABKARSA3NlcRIrChFkYWVtb25fZ2VuZX'
     'JhdGlvbhgCIAEoBFIQZGFlbW9uR2VuZXJhdGlvbhI0CghlbnZlbG9wZRgDIAEoCzIYLnBob25l'
     'YnJpZGdlLnYxLkVudmVsb3BlUghlbnZlbG9wZRJKCg1zZXNzaW9uX2V2ZW50GAQgASgLMiUucG'
-    'hvbmVicmlkZ2UubG9jYWxpcGMudjEuU2Vzc2lvbkV2ZW50UgxzZXNzaW9uRXZlbnQ=');
+    'hvbmVicmlkZ2UubG9jYWxpcGMudjEuU2Vzc2lvbkV2ZW50UgxzZXNzaW9uRXZlbnQSVgoPY2xp'
+    'cGJvYXJkX2V2ZW50GAUgASgLMi0ucGhvbmVicmlkZ2UubG9jYWxpcGMudjEuQ2xpcGJvYXJkU3'
+    'RhdHVzRXZlbnRSDmNsaXBib2FyZEV2ZW50');
 
 @$core.Deprecated('Use localEventDescriptor instead')
 const LocalEvent$json = {
@@ -214,6 +224,14 @@ const LocalEvent$json = {
       '6': '.phonebridge.localipc.v1.SessionEvent',
       '10': 'sessionEvent'
     },
+    {
+      '1': 'clipboard_event',
+      '3': 5,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.localipc.v1.ClipboardStatusEvent',
+      '10': 'clipboardEvent'
+    },
   ],
 };
 
@@ -222,7 +240,9 @@ final $typed_data.Uint8List localEventDescriptor = $convert.base64Decode(
     'CgpMb2NhbEV2ZW50EhAKA3NlcRgBIAEoBFIDc2VxEisKEWRhZW1vbl9nZW5lcmF0aW9uGAIgAS'
     'gEUhBkYWVtb25HZW5lcmF0aW9uEjQKCGVudmVsb3BlGAMgASgLMhgucGhvbmVicmlkZ2UudjEu'
     'RW52ZWxvcGVSCGVudmVsb3BlEkoKDXNlc3Npb25fZXZlbnQYBCABKAsyJS5waG9uZWJyaWRnZS'
-    '5sb2NhbGlwYy52MS5TZXNzaW9uRXZlbnRSDHNlc3Npb25FdmVudA==');
+    '5sb2NhbGlwYy52MS5TZXNzaW9uRXZlbnRSDHNlc3Npb25FdmVudBJWCg9jbGlwYm9hcmRfZXZl'
+    'bnQYBSABKAsyLS5waG9uZWJyaWRnZS5sb2NhbGlwYy52MS5DbGlwYm9hcmRTdGF0dXNFdmVudF'
+    'IOY2xpcGJvYXJkRXZlbnQ=');
 
 @$core.Deprecated('Use healthRequestDescriptor instead')
 const HealthRequest$json = {
@@ -676,3 +696,76 @@ const RevokeDeviceResponse$json = {
 final $typed_data.Uint8List revokeDeviceResponseDescriptor = $convert.base64Decode(
     'ChRSZXZva2VEZXZpY2VSZXNwb25zZRIbCglkZXZpY2VfaWQYASABKAlSCGRldmljZUlkEhgKB3'
     'N1Y2Nlc3MYAiABKAhSB3N1Y2Nlc3M=');
+
+@$core.Deprecated('Use getClipboardStatusRequestDescriptor instead')
+const GetClipboardStatusRequest$json = {
+  '1': 'GetClipboardStatusRequest',
+};
+
+/// Descriptor for `GetClipboardStatusRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List getClipboardStatusRequestDescriptor =
+    $convert.base64Decode('ChlHZXRDbGlwYm9hcmRTdGF0dXNSZXF1ZXN0');
+
+@$core.Deprecated('Use getClipboardStatusResponseDescriptor instead')
+const GetClipboardStatusResponse$json = {
+  '1': 'GetClipboardStatusResponse',
+  '2': [
+    {'1': 'state', '3': 1, '4': 1, '5': 9, '10': 'state'},
+    {'1': 'is_connected', '3': 2, '4': 1, '5': 8, '10': 'isConnected'},
+    {'1': 'max_payload_size', '3': 3, '4': 1, '5': 13, '10': 'maxPayloadSize'},
+    {'1': 'remote_peer_id', '3': 4, '4': 1, '5': 9, '10': 'remotePeerId'},
+    {'1': 'adapter_status', '3': 5, '4': 1, '5': 9, '10': 'adapterStatus'},
+    {'1': 'last_sync_ms', '3': 6, '4': 1, '5': 4, '10': 'lastSyncMs'},
+  ],
+};
+
+/// Descriptor for `GetClipboardStatusResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List getClipboardStatusResponseDescriptor = $convert.base64Decode(
+    'ChpHZXRDbGlwYm9hcmRTdGF0dXNSZXNwb25zZRIUCgVzdGF0ZRgBIAEoCVIFc3RhdGUSIQoMaX'
+    'NfY29ubmVjdGVkGAIgASgIUgtpc0Nvbm5lY3RlZBIoChBtYXhfcGF5bG9hZF9zaXplGAMgASgN'
+    'Ug5tYXhQYXlsb2FkU2l6ZRIkCg5yZW1vdGVfcGVlcl9pZBgEIAEoCVIMcmVtb3RlUGVlcklkEi'
+    'UKDmFkYXB0ZXJfc3RhdHVzGAUgASgJUg1hZGFwdGVyU3RhdHVzEiAKDGxhc3Rfc3luY19tcxgG'
+    'IAEoBFIKbGFzdFN5bmNNcw==');
+
+@$core.Deprecated('Use triggerClipboardPullRequestDescriptor instead')
+const TriggerClipboardPullRequest$json = {
+  '1': 'TriggerClipboardPullRequest',
+};
+
+/// Descriptor for `TriggerClipboardPullRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List triggerClipboardPullRequestDescriptor =
+    $convert.base64Decode('ChtUcmlnZ2VyQ2xpcGJvYXJkUHVsbFJlcXVlc3Q=');
+
+@$core.Deprecated('Use triggerClipboardPullResponseDescriptor instead')
+const TriggerClipboardPullResponse$json = {
+  '1': 'TriggerClipboardPullResponse',
+  '2': [
+    {'1': 'success', '3': 1, '4': 1, '5': 8, '10': 'success'},
+    {'1': 'error_message', '3': 2, '4': 1, '5': 9, '10': 'errorMessage'},
+  ],
+};
+
+/// Descriptor for `TriggerClipboardPullResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List triggerClipboardPullResponseDescriptor =
+    $convert.base64Decode(
+        'ChxUcmlnZ2VyQ2xpcGJvYXJkUHVsbFJlc3BvbnNlEhgKB3N1Y2Nlc3MYASABKAhSB3N1Y2Nlc3'
+        'MSIwoNZXJyb3JfbWVzc2FnZRgCIAEoCVIMZXJyb3JNZXNzYWdl');
+
+@$core.Deprecated('Use clipboardStatusEventDescriptor instead')
+const ClipboardStatusEvent$json = {
+  '1': 'ClipboardStatusEvent',
+  '2': [
+    {'1': 'state', '3': 1, '4': 1, '5': 9, '10': 'state'},
+    {'1': 'is_connected', '3': 2, '4': 1, '5': 8, '10': 'isConnected'},
+    {'1': 'adapter_status', '3': 3, '4': 1, '5': 9, '10': 'adapterStatus'},
+    {'1': 'remote_peer_id', '3': 4, '4': 1, '5': 9, '10': 'remotePeerId'},
+    {'1': 'max_payload_size', '3': 5, '4': 1, '5': 13, '10': 'maxPayloadSize'},
+  ],
+};
+
+/// Descriptor for `ClipboardStatusEvent`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List clipboardStatusEventDescriptor = $convert.base64Decode(
+    'ChRDbGlwYm9hcmRTdGF0dXNFdmVudBIUCgVzdGF0ZRgBIAEoCVIFc3RhdGUSIQoMaXNfY29ubm'
+    'VjdGVkGAIgASgIUgtpc0Nvbm5lY3RlZBIlCg5hZGFwdGVyX3N0YXR1cxgDIAEoCVINYWRhcHRl'
+    'clN0YXR1cxIkCg5yZW1vdGVfcGVlcl9pZBgEIAEoCVIMcmVtb3RlUGVlcklkEigKEG1heF9wYX'
+    'lsb2FkX3NpemUYBSABKA1SDm1heFBheWxvYWRTaXpl');

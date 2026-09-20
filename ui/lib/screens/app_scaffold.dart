@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../controllers/phonebridge_controller.dart';
 import 'package:flutter/services.dart';
-import '../services/phonebridge_channel.dart';
 import 'home_screen.dart';
 import 'devices_screen.dart';
 import 'screen_sharing_screen.dart';
@@ -33,11 +32,12 @@ class _AppScaffoldState extends State<AppScaffold> {
     super.initState();
     _currentIndex = widget.initialIndex;
     widget.controller.initialize();
-    PhoneBridgeChannel.setMethodCallHandler(_handleNativeCall);
+    widget.controller.service.setNativeCallHandler(_handleNativeCall);
   }
 
-  Future<dynamic> _handleNativeCall(MethodCall call) async {
-    if (!mounted) return;
+  Future<dynamic> _handleNativeCall(dynamic rawCall) async {
+    if (!mounted || rawCall is! MethodCall) return;
+    final call = rawCall;
     switch (call.method) {
       case 'onNavigateTab':
         final tab = call.arguments['tab'] as int? ?? 0;
@@ -119,67 +119,122 @@ class _AppScaffoldState extends State<AppScaffold> {
           ActivityScreen(controller: controller),
         ];
 
-        return Scaffold(
-          appBar: AppBar(
-            title: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'PhoneBridge',
-                  style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: -0.5),
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final isWide = constraints.maxWidth >= 720;
+
+            return Scaffold(
+              appBar: AppBar(
+                title: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Flexible(
+                      child: Text(
+                        'PhoneBridge',
+                        style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: -0.5),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _buildStatusBadge(context, isCapturing, activePeer != null),
+                  ],
                 ),
-                const SizedBox(width: 10),
-                _buildStatusBadge(context, isCapturing, activePeer != null),
-              ],
-            ),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.refresh),
-                tooltip: 'Refresh Status',
-                onPressed: controller.isLoading ? null : () => controller.refreshAll(),
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.refresh),
+                    tooltip: 'Refresh Status',
+                    onPressed: controller.isLoading ? null : () => controller.refreshAll(),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.settings_outlined),
+                    tooltip: 'Settings',
+                    onPressed: _openSettings,
+                  ),
+                ],
               ),
-              IconButton(
-                icon: const Icon(Icons.settings_outlined),
-                tooltip: 'Settings',
-                onPressed: _openSettings,
-              ),
-            ],
-          ),
-          body: IndexedStack(
-            index: _currentIndex,
-            children: screens,
-          ),
-          bottomNavigationBar: NavigationBar(
-            selectedIndex: _currentIndex,
-            onDestinationSelected: _onDestinationSelected,
-            destinations: const [
-              NavigationDestination(
-                icon: Icon(Icons.home_outlined),
-                selectedIcon: Icon(Icons.home),
-                label: 'Home',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.devices_outlined),
-                selectedIcon: Icon(Icons.devices),
-                label: 'Devices',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.screen_share_outlined),
-                selectedIcon: Icon(Icons.screen_share),
-                label: 'Screen',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.content_paste_outlined),
-                selectedIcon: Icon(Icons.content_paste),
-                label: 'Clipboard',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.history_outlined),
-                selectedIcon: Icon(Icons.history),
-                label: 'Activity',
-              ),
-            ],
-          ),
+              body: isWide
+                  ? Row(
+                      children: [
+                        NavigationRail(
+                          selectedIndex: _currentIndex,
+                          onDestinationSelected: _onDestinationSelected,
+                          labelType: NavigationRailLabelType.all,
+                          destinations: const [
+                            NavigationRailDestination(
+                              icon: Icon(Icons.home_outlined),
+                              selectedIcon: Icon(Icons.home),
+                              label: Text('Home'),
+                            ),
+                            NavigationRailDestination(
+                              icon: Icon(Icons.devices_outlined),
+                              selectedIcon: Icon(Icons.devices),
+                              label: Text('Devices'),
+                            ),
+                            NavigationRailDestination(
+                              icon: Icon(Icons.screen_share_outlined),
+                              selectedIcon: Icon(Icons.screen_share),
+                              label: Text('Screen'),
+                            ),
+                            NavigationRailDestination(
+                              icon: Icon(Icons.content_paste_outlined),
+                              selectedIcon: Icon(Icons.content_paste),
+                              label: Text('Clipboard'),
+                            ),
+                            NavigationRailDestination(
+                              icon: Icon(Icons.history_outlined),
+                              selectedIcon: Icon(Icons.history),
+                              label: Text('Activity'),
+                            ),
+                          ],
+                        ),
+                        const VerticalDivider(thickness: 1, width: 1),
+                        Expanded(
+                          child: IndexedStack(
+                            index: _currentIndex,
+                            children: screens,
+                          ),
+                        ),
+                      ],
+                    )
+                  : IndexedStack(
+                      index: _currentIndex,
+                      children: screens,
+                    ),
+              bottomNavigationBar: isWide
+                  ? null
+                  : NavigationBar(
+                      selectedIndex: _currentIndex,
+                      onDestinationSelected: _onDestinationSelected,
+                      destinations: const [
+                        NavigationDestination(
+                          icon: Icon(Icons.home_outlined),
+                          selectedIcon: Icon(Icons.home),
+                          label: 'Home',
+                        ),
+                        NavigationDestination(
+                          icon: Icon(Icons.devices_outlined),
+                          selectedIcon: Icon(Icons.devices),
+                          label: 'Devices',
+                        ),
+                        NavigationDestination(
+                          icon: Icon(Icons.screen_share_outlined),
+                          selectedIcon: Icon(Icons.screen_share),
+                          label: 'Screen',
+                        ),
+                        NavigationDestination(
+                          icon: Icon(Icons.content_paste_outlined),
+                          selectedIcon: Icon(Icons.content_paste),
+                          label: 'Clipboard',
+                        ),
+                        NavigationDestination(
+                          icon: Icon(Icons.history_outlined),
+                          selectedIcon: Icon(Icons.history),
+                          label: 'Activity',
+                        ),
+                      ],
+                    ),
+            );
+          },
         );
       },
     );

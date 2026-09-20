@@ -304,10 +304,35 @@ class LocalIpcClient {
     );
   }
 
+  /// Gets current clipboard sync and adapter status from daemon.
+  Future<GetClipboardStatusResponse> getClipboardStatus() async {
+    return _callWithAuth(
+      (opts) => _service.getClipboardStatus(
+        GetClipboardStatusRequest(),
+        options: opts,
+      ),
+    );
+  }
+
+  /// Triggers a manual clipboard sync cycle from daemon.
+  Future<TriggerClipboardPullResponse> triggerClipboardPull() async {
+    return _callWithAuth(
+      (opts) => _service.triggerClipboardPull(
+        TriggerClipboardPullRequest(),
+        options: opts,
+      ),
+    );
+  }
+
   /// Pushed stream of session lifecycle events.
   Stream<SessionEvent> get onSessionEvents => streamEvents()
       .where((event) => event.hasSessionEvent())
       .map((event) => event.sessionEvent);
+
+  /// Pushed stream of clipboard status events.
+  Stream<ClipboardStatusEvent> get onClipboardEvents => streamEvents()
+      .where((event) => event.hasClipboardEvent())
+      .map((event) => event.clipboardEvent);
 
   /// Subscribes to relayed device events via server streaming.
   /// Automatically attempts resubscription with backoff on disconnect.

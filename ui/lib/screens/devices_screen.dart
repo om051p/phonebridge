@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../controllers/phonebridge_controller.dart';
 import '../models/trusted_device.dart';
+import '../models/discovered_device.dart';
 
 class DevicesScreen extends StatelessWidget {
   const DevicesScreen({
@@ -9,6 +10,81 @@ class DevicesScreen extends StatelessWidget {
   });
 
   final PhoneBridgeController controller;
+
+  void _startPairingFlow(BuildContext context, DiscoveredDevice dev) async {
+    final result = await controller.pairDevice(dev.id);
+    if (!context.mounted) return;
+    if (result == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(controller.lastErrorMessage ?? 'Pairing initiation failed'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.security, color: Colors.blue),
+            SizedBox(width: 8),
+            Text('Confirm Pairing Code'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Pairing with ${result.deviceName} (${dev.shortId})'),
+            const SizedBox(height: 16),
+            const Text(
+              'Compare the 6-digit Short Authentication String (SAS) code with the code shown on the other device:',
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  result.sasCode,
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 4,
+                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              controller.confirmPairing(deviceId: dev.id, confirmed: false);
+            },
+            child: const Text('REJECT'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              controller.confirmPairing(deviceId: dev.id, confirmed: true);
+            },
+            child: const Text('CONFIRM MATCH'),
+          ),
+        ],
+      ),
+    );
+  }
 
   String _formatDate(int ms) {
     if (ms <= 0) return 'Unknown';
@@ -141,14 +217,61 @@ class DevicesScreen extends StatelessWidget {
     final theme = Theme.of(context);
     final trusted = controller.trustedDevices;
     final deviceState = controller.deviceState;
+    final isLinux = controller.service.isLinux;
 
     return RefreshIndicator(
-      onRefresh: controller.refreshAll,
+      onRefresh: () async {
+        await controller.refreshAll();
+        if (isLinux) {
+          await controller.refreshDiscoveredDevices();
+        }
+      },
       child: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
-          _buildThisDeviceCard(theme, deviceState),
+          _buildThisDeviceCard(theme, deviceState, isLinux),
           const SizedBox(height: 20),
+          if (isLinux) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Discovered Devices (${controller.discoveredDevices.length})',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: controller.isLoading
+                      ? null
+                      : () => controller.refreshDiscoveredDevices(),
+                  icon: const Icon(Icons.search, size: 16),
+                  label: const Text('Scan'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (controller.discoveredDevices.isEmpty)
+              Card(
+                elevation: 0,
+                color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.25),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                child: const Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: Center(
+                    child: Text(
+                      'No new PhoneBridge devices discovered yet.\nTap "Scan" to search the local network via mDNS.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ),
+              )
+            else
+              ...controller.discoveredDevices
+                  .map((d) => _buildDiscoveredDeviceTile(context, theme, d)),
+            const SizedBox(height: 20),
+          ],
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -172,7 +295,44 @@ class DevicesScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildThisDeviceCard(ThemeData theme, dynamic deviceState) {
+  Widget _buildDiscoveredDeviceTile(
+      BuildContext context, ThemeData theme, DiscoveredDevice dev) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      elevation: 0,
+      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+      ),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: theme.colorScheme.primaryContainer,
+          child: Icon(
+            Icons.phone_android,
+            color: theme.colorScheme.primary,
+          ),
+        ),
+        title: Text(
+          dev.name,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Text(
+          '${dev.model} · ${dev.host}:${dev.port}',
+          style: TextStyle(
+            fontSize: 12,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        trailing: FilledButton.tonal(
+          onPressed: controller.isLoading ? null : () => _startPairingFlow(context, dev),
+          child: const Text('PAIR'),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildThisDeviceCard(ThemeData theme, dynamic deviceState, bool isLinux) {
     return Card(
       elevation: 0,
       color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
@@ -191,8 +351,8 @@ class DevicesScreen extends StatelessWidget {
                 color: theme.colorScheme.primary,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Icon(
-                Icons.phone_android,
+              child: Icon(
+                isLinux ? Icons.desktop_windows : Icons.phone_android,
                 color: Colors.white,
               ),
             ),
@@ -209,7 +369,9 @@ class DevicesScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${deviceState.manufacturer} ${deviceState.model} · Android API ${deviceState.sdkInt}',
+                    isLinux
+                        ? deviceState.manufacturer
+                        : '${deviceState.manufacturer} ${deviceState.model} · Android API ${deviceState.sdkInt}',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),

@@ -109,6 +109,13 @@ func (e *Engine) SetPeer(remoteRole Role, remotePeerID string) {
 	e.remotePeerID = remotePeerID
 }
 
+// RemotePeerID returns the identifier of the configured remote peer.
+func (e *Engine) RemotePeerID() string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.remotePeerID
+}
+
 // Role returns the configured device role.
 func (e *Engine) Role() Role {
 	return e.role

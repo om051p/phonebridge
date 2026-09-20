@@ -365,12 +365,14 @@ class StreamEventsResponse extends $pb.GeneratedMessage {
     $fixnum.Int64? daemonGeneration,
     $1.Envelope? envelope,
     SessionEvent? sessionEvent,
+    ClipboardStatusEvent? clipboardEvent,
   }) {
     final result = StreamEventsResponse._();
     if (seq != null) result.seq = seq;
     if (daemonGeneration != null) result.daemonGeneration = daemonGeneration;
     if (envelope != null) result.envelope = envelope;
     if (sessionEvent != null) result.sessionEvent = sessionEvent;
+    if (clipboardEvent != null) result.clipboardEvent = clipboardEvent;
     return result;
   }
 
@@ -397,6 +399,8 @@ class StreamEventsResponse extends $pb.GeneratedMessage {
         subBuilder: $1.Envelope.$_createMessage)
     ..aOM<SessionEvent>(4, _omitFieldNames ? '' : 'sessionEvent',
         subBuilder: SessionEvent.$_createMessage)
+    ..aOM<ClipboardStatusEvent>(5, _omitFieldNames ? '' : 'clipboardEvent',
+        subBuilder: ClipboardStatusEvent.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -472,6 +476,18 @@ class StreamEventsResponse extends $pb.GeneratedMessage {
   void clearSessionEvent() => $_clearField(4);
   @$pb.TagNumber(4)
   SessionEvent ensureSessionEvent() => $_ensure(3);
+
+  /// Clipboard subsystem status transitions (adapter status, active peer, etc.).
+  @$pb.TagNumber(5)
+  ClipboardStatusEvent get clipboardEvent => $_getN(4);
+  @$pb.TagNumber(5)
+  set clipboardEvent(ClipboardStatusEvent value) => $_setField(5, value);
+  @$pb.TagNumber(5)
+  $core.bool hasClipboardEvent() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearClipboardEvent() => $_clearField(5);
+  @$pb.TagNumber(5)
+  ClipboardStatusEvent ensureClipboardEvent() => $_ensure(4);
 }
 
 /// LocalEvent represents a pushed local event containing the relayed device envelope.
@@ -483,12 +499,14 @@ class LocalEvent extends $pb.GeneratedMessage {
     $fixnum.Int64? daemonGeneration,
     $1.Envelope? envelope,
     SessionEvent? sessionEvent,
+    ClipboardStatusEvent? clipboardEvent,
   }) {
     final result = LocalEvent._();
     if (seq != null) result.seq = seq;
     if (daemonGeneration != null) result.daemonGeneration = daemonGeneration;
     if (envelope != null) result.envelope = envelope;
     if (sessionEvent != null) result.sessionEvent = sessionEvent;
+    if (clipboardEvent != null) result.clipboardEvent = clipboardEvent;
     return result;
   }
 
@@ -515,6 +533,8 @@ class LocalEvent extends $pb.GeneratedMessage {
         subBuilder: $1.Envelope.$_createMessage)
     ..aOM<SessionEvent>(4, _omitFieldNames ? '' : 'sessionEvent',
         subBuilder: SessionEvent.$_createMessage)
+    ..aOM<ClipboardStatusEvent>(5, _omitFieldNames ? '' : 'clipboardEvent',
+        subBuilder: ClipboardStatusEvent.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -580,6 +600,18 @@ class LocalEvent extends $pb.GeneratedMessage {
   void clearSessionEvent() => $_clearField(4);
   @$pb.TagNumber(4)
   SessionEvent ensureSessionEvent() => $_ensure(3);
+
+  /// Clipboard subsystem status transitions.
+  @$pb.TagNumber(5)
+  ClipboardStatusEvent get clipboardEvent => $_getN(4);
+  @$pb.TagNumber(5)
+  set clipboardEvent(ClipboardStatusEvent value) => $_setField(5, value);
+  @$pb.TagNumber(5)
+  $core.bool hasClipboardEvent() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearClipboardEvent() => $_clearField(5);
+  @$pb.TagNumber(5)
+  ClipboardStatusEvent ensureClipboardEvent() => $_ensure(4);
 }
 
 /// HealthRequest is empty.
@@ -2444,6 +2476,421 @@ class RevokeDeviceResponse extends $pb.GeneratedMessage {
   $core.bool hasSuccess() => $_has(1);
   @$pb.TagNumber(2)
   void clearSuccess() => $_clearField(2);
+}
+
+/// GetClipboardStatusRequest is empty.
+class GetClipboardStatusRequest extends $pb.GeneratedMessage {
+  factory GetClipboardStatusRequest() => GetClipboardStatusRequest._();
+
+  GetClipboardStatusRequest._();
+
+  factory GetClipboardStatusRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      GetClipboardStatusRequest()..mergeFromBuffer(data, registry);
+  factory GetClipboardStatusRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      GetClipboardStatusRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'GetClipboardStatusRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: GetClipboardStatusRequest.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetClipboardStatusRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetClipboardStatusRequest copyWith(
+          void Function(GetClipboardStatusRequest) updates) =>
+      super.copyWith((message) => updates(message as GetClipboardStatusRequest))
+          as GetClipboardStatusRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use GetClipboardStatusRequest() / GetClipboardStatusRequest.new instead')
+  static GetClipboardStatusRequest create() => GetClipboardStatusRequest._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      GetClipboardStatusRequest._();
+  @$core.override
+  GetClipboardStatusRequest createEmptyInstance() =>
+      GetClipboardStatusRequest._();
+  @$core.pragma('dart2js:noInline')
+  static GetClipboardStatusRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<GetClipboardStatusRequest>(
+          GetClipboardStatusRequest.$_createMessage);
+  static GetClipboardStatusRequest? _defaultInstance;
+}
+
+/// GetClipboardStatusResponse returns the current clipboard engine and adapter state.
+class GetClipboardStatusResponse extends $pb.GeneratedMessage {
+  factory GetClipboardStatusResponse({
+    $core.String? state,
+    $core.bool? isConnected,
+    $core.int? maxPayloadSize,
+    $core.String? remotePeerId,
+    $core.String? adapterStatus,
+    $fixnum.Int64? lastSyncMs,
+  }) {
+    final result = GetClipboardStatusResponse._();
+    if (state != null) result.state = state;
+    if (isConnected != null) result.isConnected = isConnected;
+    if (maxPayloadSize != null) result.maxPayloadSize = maxPayloadSize;
+    if (remotePeerId != null) result.remotePeerId = remotePeerId;
+    if (adapterStatus != null) result.adapterStatus = adapterStatus;
+    if (lastSyncMs != null) result.lastSyncMs = lastSyncMs;
+    return result;
+  }
+
+  GetClipboardStatusResponse._();
+
+  factory GetClipboardStatusResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      GetClipboardStatusResponse()..mergeFromBuffer(data, registry);
+  factory GetClipboardStatusResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      GetClipboardStatusResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'GetClipboardStatusResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: GetClipboardStatusResponse.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'state')
+    ..aOB(2, _omitFieldNames ? '' : 'isConnected')
+    ..aI(3, _omitFieldNames ? '' : 'maxPayloadSize',
+        fieldType: $pb.PbFieldType.OU3)
+    ..aOS(4, _omitFieldNames ? '' : 'remotePeerId')
+    ..aOS(5, _omitFieldNames ? '' : 'adapterStatus')
+    ..a<$fixnum.Int64>(
+        6, _omitFieldNames ? '' : 'lastSyncMs', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetClipboardStatusResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetClipboardStatusResponse copyWith(
+          void Function(GetClipboardStatusResponse) updates) =>
+      super.copyWith(
+              (message) => updates(message as GetClipboardStatusResponse))
+          as GetClipboardStatusResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use GetClipboardStatusResponse() / GetClipboardStatusResponse.new instead')
+  static GetClipboardStatusResponse create() => GetClipboardStatusResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      GetClipboardStatusResponse._();
+  @$core.override
+  GetClipboardStatusResponse createEmptyInstance() =>
+      GetClipboardStatusResponse._();
+  @$core.pragma('dart2js:noInline')
+  static GetClipboardStatusResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<GetClipboardStatusResponse>(
+          GetClipboardStatusResponse.$_createMessage);
+  static GetClipboardStatusResponse? _defaultInstance;
+
+  /// Operational state of the clipboard subsystem: "READY", "AMBIENT_ACTIVE", "STOPPED", "COSMIC_FLAG_REQUIRED", "NO_DATA_CONTROL", "WAYLAND_UNAVAILABLE", etc.
+  @$pb.TagNumber(1)
+  $core.String get state => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set state($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasState() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearState() => $_clearField(1);
+
+  /// True if an active clipboard WebRTC DataChannel transport is connected.
+  @$pb.TagNumber(2)
+  $core.bool get isConnected => $_getBF(1);
+  @$pb.TagNumber(2)
+  set isConnected($core.bool value) => $_setBool(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasIsConnected() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearIsConnected() => $_clearField(2);
+
+  /// Maximum allowed clipboard payload in bytes (DEC-023: 786432).
+  @$pb.TagNumber(3)
+  $core.int get maxPayloadSize => $_getIZ(2);
+  @$pb.TagNumber(3)
+  set maxPayloadSize($core.int value) => $_setUnsignedInt32(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasMaxPayloadSize() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearMaxPayloadSize() => $_clearField(3);
+
+  /// Identifier of the remote peer currently connected for clipboard sync, if any.
+  @$pb.TagNumber(4)
+  $core.String get remotePeerId => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set remotePeerId($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasRemotePeerId() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearRemotePeerId() => $_clearField(4);
+
+  /// Status string specific to the platform adapter (e.g. Wayland data-control status).
+  @$pb.TagNumber(5)
+  $core.String get adapterStatus => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set adapterStatus($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasAdapterStatus() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearAdapterStatus() => $_clearField(5);
+
+  /// Last sync timestamp in ms since Unix epoch, or 0 if unknown.
+  @$pb.TagNumber(6)
+  $fixnum.Int64 get lastSyncMs => $_getI64(5);
+  @$pb.TagNumber(6)
+  set lastSyncMs($fixnum.Int64 value) => $_setInt64(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasLastSyncMs() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearLastSyncMs() => $_clearField(6);
+}
+
+/// TriggerClipboardPullRequest requests a manual read from the host clipboard to sync to remote peer.
+class TriggerClipboardPullRequest extends $pb.GeneratedMessage {
+  factory TriggerClipboardPullRequest() => TriggerClipboardPullRequest._();
+
+  TriggerClipboardPullRequest._();
+
+  factory TriggerClipboardPullRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      TriggerClipboardPullRequest()..mergeFromBuffer(data, registry);
+  factory TriggerClipboardPullRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      TriggerClipboardPullRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'TriggerClipboardPullRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: TriggerClipboardPullRequest.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TriggerClipboardPullRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TriggerClipboardPullRequest copyWith(
+          void Function(TriggerClipboardPullRequest) updates) =>
+      super.copyWith(
+              (message) => updates(message as TriggerClipboardPullRequest))
+          as TriggerClipboardPullRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use TriggerClipboardPullRequest() / TriggerClipboardPullRequest.new instead')
+  static TriggerClipboardPullRequest create() =>
+      TriggerClipboardPullRequest._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      TriggerClipboardPullRequest._();
+  @$core.override
+  TriggerClipboardPullRequest createEmptyInstance() =>
+      TriggerClipboardPullRequest._();
+  @$core.pragma('dart2js:noInline')
+  static TriggerClipboardPullRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<TriggerClipboardPullRequest>(
+          TriggerClipboardPullRequest.$_createMessage);
+  static TriggerClipboardPullRequest? _defaultInstance;
+}
+
+/// TriggerClipboardPullResponse returns the result of the manual clipboard pull.
+class TriggerClipboardPullResponse extends $pb.GeneratedMessage {
+  factory TriggerClipboardPullResponse({
+    $core.bool? success,
+    $core.String? errorMessage,
+  }) {
+    final result = TriggerClipboardPullResponse._();
+    if (success != null) result.success = success;
+    if (errorMessage != null) result.errorMessage = errorMessage;
+    return result;
+  }
+
+  TriggerClipboardPullResponse._();
+
+  factory TriggerClipboardPullResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      TriggerClipboardPullResponse()..mergeFromBuffer(data, registry);
+  factory TriggerClipboardPullResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      TriggerClipboardPullResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'TriggerClipboardPullResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: TriggerClipboardPullResponse.$_createMessage)
+    ..aOB(1, _omitFieldNames ? '' : 'success')
+    ..aOS(2, _omitFieldNames ? '' : 'errorMessage')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TriggerClipboardPullResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TriggerClipboardPullResponse copyWith(
+          void Function(TriggerClipboardPullResponse) updates) =>
+      super.copyWith(
+              (message) => updates(message as TriggerClipboardPullResponse))
+          as TriggerClipboardPullResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use TriggerClipboardPullResponse() / TriggerClipboardPullResponse.new instead')
+  static TriggerClipboardPullResponse create() =>
+      TriggerClipboardPullResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      TriggerClipboardPullResponse._();
+  @$core.override
+  TriggerClipboardPullResponse createEmptyInstance() =>
+      TriggerClipboardPullResponse._();
+  @$core.pragma('dart2js:noInline')
+  static TriggerClipboardPullResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<TriggerClipboardPullResponse>(
+          TriggerClipboardPullResponse.$_createMessage);
+  static TriggerClipboardPullResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.bool get success => $_getBF(0);
+  @$pb.TagNumber(1)
+  set success($core.bool value) => $_setBool(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasSuccess() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearSuccess() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get errorMessage => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set errorMessage($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasErrorMessage() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearErrorMessage() => $_clearField(2);
+}
+
+/// ClipboardStatusEvent represents a pushed clipboard status update on StreamEvents.
+class ClipboardStatusEvent extends $pb.GeneratedMessage {
+  factory ClipboardStatusEvent({
+    $core.String? state,
+    $core.bool? isConnected,
+    $core.String? adapterStatus,
+    $core.String? remotePeerId,
+    $core.int? maxPayloadSize,
+  }) {
+    final result = ClipboardStatusEvent._();
+    if (state != null) result.state = state;
+    if (isConnected != null) result.isConnected = isConnected;
+    if (adapterStatus != null) result.adapterStatus = adapterStatus;
+    if (remotePeerId != null) result.remotePeerId = remotePeerId;
+    if (maxPayloadSize != null) result.maxPayloadSize = maxPayloadSize;
+    return result;
+  }
+
+  ClipboardStatusEvent._();
+
+  factory ClipboardStatusEvent.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ClipboardStatusEvent()..mergeFromBuffer(data, registry);
+  factory ClipboardStatusEvent.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ClipboardStatusEvent()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ClipboardStatusEvent',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: ClipboardStatusEvent.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'state')
+    ..aOB(2, _omitFieldNames ? '' : 'isConnected')
+    ..aOS(3, _omitFieldNames ? '' : 'adapterStatus')
+    ..aOS(4, _omitFieldNames ? '' : 'remotePeerId')
+    ..aI(5, _omitFieldNames ? '' : 'maxPayloadSize',
+        fieldType: $pb.PbFieldType.OU3)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ClipboardStatusEvent clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ClipboardStatusEvent copyWith(void Function(ClipboardStatusEvent) updates) =>
+      super.copyWith((message) => updates(message as ClipboardStatusEvent))
+          as ClipboardStatusEvent;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ClipboardStatusEvent() / ClipboardStatusEvent.new instead')
+  static ClipboardStatusEvent create() => ClipboardStatusEvent._();
+  static $pb.GeneratedMessage $_createMessage() => ClipboardStatusEvent._();
+  @$core.override
+  ClipboardStatusEvent createEmptyInstance() => ClipboardStatusEvent._();
+  @$core.pragma('dart2js:noInline')
+  static ClipboardStatusEvent getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ClipboardStatusEvent>(
+          ClipboardStatusEvent.$_createMessage);
+  static ClipboardStatusEvent? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get state => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set state($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasState() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearState() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.bool get isConnected => $_getBF(1);
+  @$pb.TagNumber(2)
+  set isConnected($core.bool value) => $_setBool(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasIsConnected() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearIsConnected() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get adapterStatus => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set adapterStatus($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasAdapterStatus() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearAdapterStatus() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.String get remotePeerId => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set remotePeerId($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasRemotePeerId() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearRemotePeerId() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.int get maxPayloadSize => $_getIZ(4);
+  @$pb.TagNumber(5)
+  set maxPayloadSize($core.int value) => $_setUnsignedInt32(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasMaxPayloadSize() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearMaxPayloadSize() => $_clearField(5);
 }
 
 const $core.bool _omitFieldNames =
