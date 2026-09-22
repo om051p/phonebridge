@@ -66,7 +66,7 @@ Linux:   Flutter → Linux integration (linux/) → Go core (core/cmd/daemon)
 
 | Layer | Owns | Status |
 |-------|------|--------|
-| Flutter (`ui/`) | pairing/device/file/notification/screen UI, state | `PLANNED` |
+| Flutter (`ui/`) | pairing/device/file/notification/screen UI, state | `PLANNED` — mission control shipped; transfer UI in Phase 4 |
 | Go core (`core/`) | protocol engine, crypto, identity, discovery, WebRTC, DataChannels, file/clipboard transport, engine | `PLANNED` — Phase 0 scaffold only |
 | Kotlin (`android/`) | ForegroundService, CDM, NLS, AccessibilityService, MediaProjection/MediaCodec, SAF, IME | `PLANNED` |
 | Linux (`linux/`) | D-Bus, Notifications, Wayland clipboard, XDG portals, PipeWire, uinput/EIS, systemd | `PLANNED` |
@@ -181,6 +181,39 @@ Ratified clipboard synchronization architecture across Linux (COSMIC/Wayland) an
 - **Lifecycle, transience & reconnect synchronization:** Because Wayland selections are transient and clear immediately on writer process exit, the Linux Go daemon maintains an in-memory resident clipboard cache to serve desktop paste requests. Reconnect resumes on the same session ID (DEC-022) over a dedicated, reliable, ordered WebRTC DataChannel (`"clipboard"`, gated by `CAPABILITY_CLIPBOARD`). When the DataChannel opens, both peers exchange their active clip via `ClipboardUpdate`. If the 32-byte `sha256_digest` matches, no write occurs and sync is complete. If digests differ, peers compare `copied_at_ms`: if one timestamp is > 1000 ms newer, the newer clipboard wins; if timestamps differ by <= 1000 ms (or are equal), Linux/Desktop wins as a deterministic tie-breaker. This application-level arbitration rule resolves divergent offline edits without assuming synchronized clocks and requires no separate sync message.
 - **Flatpak constraint:** Sandboxed Flatpak access succeeds under default Pop!_OS 24.04 but is blocked if `COSMIC_ENABLE_WAYLAND_SECURITY=1` is enforced; native packaging (`.deb` / systemd user service) is primary distribution target.
 
+## File transfer architecture (DEC-024, Phase 4)
+
+Bidirectional file transfer rides the **existing** authenticated session on one
+dedicated reliable/ordered DataChannel — no second transport:
+
+```
+  sender Go core (core/pkg/transfer)                        receiver Go core
+  ┌───────────────────────────────┐                     ┌────────────────────────────┐
+  │ framing / limits / state      │   "transfer" DC     │ validation / hashing       │
+  │ one 64 KiB read buffer        │  (one TransferFrame │ incremental temp writes    │
+  │ backpressure: 1 MiB HWM /     │   per DC message)   │ verify size + SHA-256      │
+  │ 256 KiB LWM via BufferedAmount│ ──────────────────▶ │ promote (Linux: rename;    │
+  │ SHA-256 in the same pass      │ ◀────────────────── │  Android: MediaStore       │
+  │ local events → IPC / JNI      │  accept/result/…    │  IS_PENDING=1 → clear)     │
+  └───────────────────────────────┘                     └────────────────────────────┘
+```
+
+- **Channel:** `transfer` (reliable, ordered) created by the same offerer that
+  creates `control`/`clipboard`; the clipboard channel is untouched. Presence of
+  the channel is the capability; a session is still required (piggyback, like
+  clipboard) — capture-free/data-only sessions remain a follow-up.
+- **Protocol:** `TransferFrame` oneof (`FileOffer/FileAccept/FileChunk/
+  FileComplete/FileResult/FileCancel`) sent bare on the DC, documented in
+  `docs/protocol.md`; `Envelope.file_*` branches stay for wire compatibility.
+- **Limits:** 64 KiB chunks (128 KiB received-frame cap), 16 GiB max file,
+  free-space preflight, one outbound + one inbound transfer per session,
+  bounded buffers only (no whole-file buffering), stall/complete timeouts.
+- **No partial exposure:** Linux writes a hidden temp inside the destination
+  filesystem and renames after verification; Android writes through a MediaStore
+  pending item that becomes visible only on commit.
+- **Reconnect:** no resume in Phase 4 — interrupted transfers fail typed
+  (`CODE_TRANSFER_INTERRUPTED`), partials are deleted, the user retries from zero.
+
 ## Repository layout
 
 ```
@@ -200,6 +233,7 @@ third-party/            dependency ledger
 - Flutter ↔ Go on Android embedding — `EXPERIMENTAL`
 - Wayland clipboard — architecture ratified (DEC-023, Phase 3); remote input (COSMIC EIS / uinput) remains `EXPERIMENTAL` (Spike 07)
 - WebRTC media perf / codec choice — transport validated (DEC-021, Spike 04); HEVC path and cross-device behaviour — `EXPERIMENTAL`
-- LAN session negotiation + bounded reconnect — contract ratified (DEC-022, Phase 2); remote/TURN and server-based rendezvous — `PLANNED` (Spike 10 / Phase 4)
+- LAN session negotiation + bounded reconnect — contract ratified (DEC-022, Phase 2); remote/TURN and server-based rendezvous — `PLANNED`
+- File transfer transport/protocol/storage — ratified (DEC-024, Phase 4); transfer **resume**, capture-free data-only sessions, SAF "Save as…" and Linux drag-and-drop — `PLANNED` follow-ups
 - Kotlin capture throttling + Go-side pacing — measured & ratified (DEC-020 amendment + DEC-021, Spike 04)
 - TURN infra/cost — `PLANNED`, no commitment in Phase 0 (remote NAT/TURN remains Spike 10)

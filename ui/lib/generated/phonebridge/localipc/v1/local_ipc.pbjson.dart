@@ -72,6 +72,77 @@ final $typed_data.Uint8List sessionReasonDescriptor = $convert.base64Decode(
     'lPTl9SRUFTT05fUkVDT05ORUNUX1RJTUVPVVQQChIjCh9TRVNTSU9OX1JFQVNPTl9TSUdOQUxJ'
     'TkdfRkFJTEVEEAsSHwobU0VTU0lPTl9SRUFTT05fVVNFUl9TVE9QUEVEEAw=');
 
+@$core.Deprecated('Use transferDirectionDescriptor instead')
+const TransferDirection$json = {
+  '1': 'TransferDirection',
+  '2': [
+    {'1': 'TRANSFER_DIRECTION_UNSPECIFIED', '2': 0},
+    {'1': 'TRANSFER_DIRECTION_OUTBOUND', '2': 1},
+    {'1': 'TRANSFER_DIRECTION_INBOUND', '2': 2},
+  ],
+};
+
+/// Descriptor for `TransferDirection`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List transferDirectionDescriptor = $convert.base64Decode(
+    'ChFUcmFuc2ZlckRpcmVjdGlvbhIiCh5UUkFOU0ZFUl9ESVJFQ1RJT05fVU5TUEVDSUZJRUQQAB'
+    'IfChtUUkFOU0ZFUl9ESVJFQ1RJT05fT1VUQk9VTkQQARIeChpUUkFOU0ZFUl9ESVJFQ1RJT05f'
+    'SU5CT1VORBAC');
+
+@$core.Deprecated('Use transferStateDescriptor instead')
+const TransferState$json = {
+  '1': 'TransferState',
+  '2': [
+    {'1': 'TRANSFER_STATE_UNSPECIFIED', '2': 0},
+    {'1': 'TRANSFER_STATE_PENDING', '2': 1},
+    {'1': 'TRANSFER_STATE_ACTIVE', '2': 2},
+    {'1': 'TRANSFER_STATE_VERIFYING', '2': 3},
+    {'1': 'TRANSFER_STATE_COMPLETE', '2': 4},
+    {'1': 'TRANSFER_STATE_CANCELLED', '2': 5},
+    {'1': 'TRANSFER_STATE_FAILED', '2': 6},
+  ],
+};
+
+/// Descriptor for `TransferState`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List transferStateDescriptor = $convert.base64Decode(
+    'Cg1UcmFuc2ZlclN0YXRlEh4KGlRSQU5TRkVSX1NUQVRFX1VOU1BFQ0lGSUVEEAASGgoWVFJBTl'
+    'NGRVJfU1RBVEVfUEVORElORxABEhkKFVRSQU5TRkVSX1NUQVRFX0FDVElWRRACEhwKGFRSQU5T'
+    'RkVSX1NUQVRFX1ZFUklGWUlORxADEhsKF1RSQU5TRkVSX1NUQVRFX0NPTVBMRVRFEAQSHAoYVF'
+    'JBTlNGRVJfU1RBVEVfQ0FOQ0VMTEVEEAUSGQoVVFJBTlNGRVJfU1RBVEVfRkFJTEVEEAY=');
+
+@$core.Deprecated('Use transferReasonDescriptor instead')
+const TransferReason$json = {
+  '1': 'TransferReason',
+  '2': [
+    {'1': 'TRANSFER_REASON_UNSPECIFIED', '2': 0},
+    {'1': 'TRANSFER_REASON_NONE', '2': 1},
+    {'1': 'TRANSFER_REASON_NO_SESSION', '2': 2},
+    {'1': 'TRANSFER_REASON_UNSUPPORTED_PEER', '2': 3},
+    {'1': 'TRANSFER_REASON_BUSY', '2': 4},
+    {'1': 'TRANSFER_REASON_UNSAFE_FILENAME', '2': 5},
+    {'1': 'TRANSFER_REASON_TOO_LARGE', '2': 6},
+    {'1': 'TRANSFER_REASON_CHECKSUM_MISMATCH', '2': 7},
+    {'1': 'TRANSFER_REASON_STORAGE_FAILED', '2': 8},
+    {'1': 'TRANSFER_REASON_INTERRUPTED', '2': 9},
+    {'1': 'TRANSFER_REASON_CANCELLED_BY_PEER', '2': 10},
+    {'1': 'TRANSFER_REASON_CANCELLED_BY_USER', '2': 11},
+    {'1': 'TRANSFER_REASON_PROTOCOL_ERROR', '2': 12},
+    {'1': 'TRANSFER_REASON_INCOMPATIBLE_VERSION', '2': 13},
+  ],
+};
+
+/// Descriptor for `TransferReason`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List transferReasonDescriptor = $convert.base64Decode(
+    'Cg5UcmFuc2ZlclJlYXNvbhIfChtUUkFOU0ZFUl9SRUFTT05fVU5TUEVDSUZJRUQQABIYChRUUk'
+    'FOU0ZFUl9SRUFTT05fTk9ORRABEh4KGlRSQU5TRkVSX1JFQVNPTl9OT19TRVNTSU9OEAISJAog'
+    'VFJBTlNGRVJfUkVBU09OX1VOU1VQUE9SVEVEX1BFRVIQAxIYChRUUkFOU0ZFUl9SRUFTT05fQl'
+    'VTWRAEEiMKH1RSQU5TRkVSX1JFQVNPTl9VTlNBRkVfRklMRU5BTUUQBRIdChlUUkFOU0ZFUl9S'
+    'RUFTT05fVE9PX0xBUkdFEAYSJQohVFJBTlNGRVJfUkVBU09OX0NIRUNLU1VNX01JU01BVENIEA'
+    'cSIgoeVFJBTlNGRVJfUkVBU09OX1NUT1JBR0VfRkFJTEVEEAgSHwobVFJBTlNGRVJfUkVBU09O'
+    'X0lOVEVSUlVQVEVEEAkSJQohVFJBTlNGRVJfUkVBU09OX0NBTkNFTExFRF9CWV9QRUVSEAoSJQ'
+    'ohVFJBTlNGRVJfUkVBU09OX0NBTkNFTExFRF9CWV9VU0VSEAsSIgoeVFJBTlNGRVJfUkVBU09O'
+    'X1BST1RPQ09MX0VSUk9SEAwSKAokVFJBTlNGRVJfUkVBU09OX0lOQ09NUEFUSUJMRV9WRVJTSU'
+    '9OEA0=');
+
 @$core.Deprecated('Use handshakeRequestDescriptor instead')
 const HandshakeRequest$json = {
   '1': 'HandshakeRequest',
@@ -184,6 +255,14 @@ const StreamEventsResponse$json = {
       '6': '.phonebridge.localipc.v1.ClipboardStatusEvent',
       '10': 'clipboardEvent'
     },
+    {
+      '1': 'transfer_event',
+      '3': 6,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.localipc.v1.TransferEvent',
+      '10': 'transferEvent'
+    },
   ],
 };
 
@@ -194,7 +273,8 @@ final $typed_data.Uint8List streamEventsResponseDescriptor = $convert.base64Deco
     'YnJpZGdlLnYxLkVudmVsb3BlUghlbnZlbG9wZRJKCg1zZXNzaW9uX2V2ZW50GAQgASgLMiUucG'
     'hvbmVicmlkZ2UubG9jYWxpcGMudjEuU2Vzc2lvbkV2ZW50UgxzZXNzaW9uRXZlbnQSVgoPY2xp'
     'cGJvYXJkX2V2ZW50GAUgASgLMi0ucGhvbmVicmlkZ2UubG9jYWxpcGMudjEuQ2xpcGJvYXJkU3'
-    'RhdHVzRXZlbnRSDmNsaXBib2FyZEV2ZW50');
+    'RhdHVzRXZlbnRSDmNsaXBib2FyZEV2ZW50Ek0KDnRyYW5zZmVyX2V2ZW50GAYgASgLMiYucGhv'
+    'bmVicmlkZ2UubG9jYWxpcGMudjEuVHJhbnNmZXJFdmVudFINdHJhbnNmZXJFdmVudA==');
 
 @$core.Deprecated('Use localEventDescriptor instead')
 const LocalEvent$json = {
@@ -232,6 +312,14 @@ const LocalEvent$json = {
       '6': '.phonebridge.localipc.v1.ClipboardStatusEvent',
       '10': 'clipboardEvent'
     },
+    {
+      '1': 'transfer_event',
+      '3': 6,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.localipc.v1.TransferEvent',
+      '10': 'transferEvent'
+    },
   ],
 };
 
@@ -242,7 +330,8 @@ final $typed_data.Uint8List localEventDescriptor = $convert.base64Decode(
     'RW52ZWxvcGVSCGVudmVsb3BlEkoKDXNlc3Npb25fZXZlbnQYBCABKAsyJS5waG9uZWJyaWRnZS'
     '5sb2NhbGlwYy52MS5TZXNzaW9uRXZlbnRSDHNlc3Npb25FdmVudBJWCg9jbGlwYm9hcmRfZXZl'
     'bnQYBSABKAsyLS5waG9uZWJyaWRnZS5sb2NhbGlwYy52MS5DbGlwYm9hcmRTdGF0dXNFdmVudF'
-    'IOY2xpcGJvYXJkRXZlbnQ=');
+    'IOY2xpcGJvYXJkRXZlbnQSTQoOdHJhbnNmZXJfZXZlbnQYBiABKAsyJi5waG9uZWJyaWRnZS5s'
+    'b2NhbGlwYy52MS5UcmFuc2ZlckV2ZW50Ug10cmFuc2ZlckV2ZW50');
 
 @$core.Deprecated('Use healthRequestDescriptor instead')
 const HealthRequest$json = {
@@ -769,3 +858,190 @@ final $typed_data.Uint8List clipboardStatusEventDescriptor = $convert.base64Deco
     'VjdGVkGAIgASgIUgtpc0Nvbm5lY3RlZBIlCg5hZGFwdGVyX3N0YXR1cxgDIAEoCVINYWRhcHRl'
     'clN0YXR1cxIkCg5yZW1vdGVfcGVlcl9pZBgEIAEoCVIMcmVtb3RlUGVlcklkEigKEG1heF9wYX'
     'lsb2FkX3NpemUYBSABKA1SDm1heFBheWxvYWRTaXpl');
+
+@$core.Deprecated('Use transferInfoDescriptor instead')
+const TransferInfo$json = {
+  '1': 'TransferInfo',
+  '2': [
+    {'1': 'transfer_id', '3': 1, '4': 1, '5': 9, '10': 'transferId'},
+    {
+      '1': 'direction',
+      '3': 2,
+      '4': 1,
+      '5': 14,
+      '6': '.phonebridge.localipc.v1.TransferDirection',
+      '10': 'direction'
+    },
+    {
+      '1': 'state',
+      '3': 3,
+      '4': 1,
+      '5': 14,
+      '6': '.phonebridge.localipc.v1.TransferState',
+      '10': 'state'
+    },
+    {'1': 'peer_device_id', '3': 4, '4': 1, '5': 9, '10': 'peerDeviceId'},
+    {'1': 'filename', '3': 5, '4': 1, '5': 9, '10': 'filename'},
+    {'1': 'mime_type', '3': 6, '4': 1, '5': 9, '10': 'mimeType'},
+    {'1': 'size_bytes', '3': 7, '4': 1, '5': 4, '10': 'sizeBytes'},
+    {
+      '1': 'bytes_transferred',
+      '3': 8,
+      '4': 1,
+      '5': 4,
+      '10': 'bytesTransferred'
+    },
+    {'1': 'started_at_ms', '3': 9, '4': 1, '5': 4, '10': 'startedAtMs'},
+    {'1': 'finished_at_ms', '3': 10, '4': 1, '5': 4, '10': 'finishedAtMs'},
+    {
+      '1': 'reason_code',
+      '3': 11,
+      '4': 1,
+      '5': 14,
+      '6': '.phonebridge.localipc.v1.TransferReason',
+      '10': 'reasonCode'
+    },
+    {'1': 'error_message', '3': 12, '4': 1, '5': 9, '10': 'errorMessage'},
+    {'1': 'saved_name', '3': 13, '4': 1, '5': 9, '10': 'savedName'},
+  ],
+};
+
+/// Descriptor for `TransferInfo`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List transferInfoDescriptor = $convert.base64Decode(
+    'CgxUcmFuc2ZlckluZm8SHwoLdHJhbnNmZXJfaWQYASABKAlSCnRyYW5zZmVySWQSSAoJZGlyZW'
+    'N0aW9uGAIgASgOMioucGhvbmVicmlkZ2UubG9jYWxpcGMudjEuVHJhbnNmZXJEaXJlY3Rpb25S'
+    'CWRpcmVjdGlvbhI8CgVzdGF0ZRgDIAEoDjImLnBob25lYnJpZGdlLmxvY2FsaXBjLnYxLlRyYW'
+    '5zZmVyU3RhdGVSBXN0YXRlEiQKDnBlZXJfZGV2aWNlX2lkGAQgASgJUgxwZWVyRGV2aWNlSWQS'
+    'GgoIZmlsZW5hbWUYBSABKAlSCGZpbGVuYW1lEhsKCW1pbWVfdHlwZRgGIAEoCVIIbWltZVR5cG'
+    'USHQoKc2l6ZV9ieXRlcxgHIAEoBFIJc2l6ZUJ5dGVzEisKEWJ5dGVzX3RyYW5zZmVycmVkGAgg'
+    'ASgEUhBieXRlc1RyYW5zZmVycmVkEiIKDXN0YXJ0ZWRfYXRfbXMYCSABKARSC3N0YXJ0ZWRBdE'
+    '1zEiQKDmZpbmlzaGVkX2F0X21zGAogASgEUgxmaW5pc2hlZEF0TXMSSAoLcmVhc29uX2NvZGUY'
+    'CyABKA4yJy5waG9uZWJyaWRnZS5sb2NhbGlwYy52MS5UcmFuc2ZlclJlYXNvblIKcmVhc29uQ2'
+    '9kZRIjCg1lcnJvcl9tZXNzYWdlGAwgASgJUgxlcnJvck1lc3NhZ2USHQoKc2F2ZWRfbmFtZRgN'
+    'IAEoCVIJc2F2ZWROYW1l');
+
+@$core.Deprecated('Use sendFileRequestDescriptor instead')
+const SendFileRequest$json = {
+  '1': 'SendFileRequest',
+  '2': [
+    {'1': 'device_id', '3': 1, '4': 1, '5': 9, '10': 'deviceId'},
+    {'1': 'local_path', '3': 2, '4': 1, '5': 9, '10': 'localPath'},
+    {'1': 'filename', '3': 3, '4': 1, '5': 9, '10': 'filename'},
+  ],
+};
+
+/// Descriptor for `SendFileRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List sendFileRequestDescriptor = $convert.base64Decode(
+    'Cg9TZW5kRmlsZVJlcXVlc3QSGwoJZGV2aWNlX2lkGAEgASgJUghkZXZpY2VJZBIdCgpsb2NhbF'
+    '9wYXRoGAIgASgJUglsb2NhbFBhdGgSGgoIZmlsZW5hbWUYAyABKAlSCGZpbGVuYW1l');
+
+@$core.Deprecated('Use sendFileResponseDescriptor instead')
+const SendFileResponse$json = {
+  '1': 'SendFileResponse',
+  '2': [
+    {'1': 'transfer_id', '3': 1, '4': 1, '5': 9, '10': 'transferId'},
+    {
+      '1': 'state',
+      '3': 2,
+      '4': 1,
+      '5': 14,
+      '6': '.phonebridge.localipc.v1.TransferState',
+      '10': 'state'
+    },
+    {
+      '1': 'reason_code',
+      '3': 3,
+      '4': 1,
+      '5': 14,
+      '6': '.phonebridge.localipc.v1.TransferReason',
+      '10': 'reasonCode'
+    },
+    {'1': 'error_message', '3': 4, '4': 1, '5': 9, '10': 'errorMessage'},
+  ],
+};
+
+/// Descriptor for `SendFileResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List sendFileResponseDescriptor = $convert.base64Decode(
+    'ChBTZW5kRmlsZVJlc3BvbnNlEh8KC3RyYW5zZmVyX2lkGAEgASgJUgp0cmFuc2ZlcklkEjwKBX'
+    'N0YXRlGAIgASgOMiYucGhvbmVicmlkZ2UubG9jYWxpcGMudjEuVHJhbnNmZXJTdGF0ZVIFc3Rh'
+    'dGUSSAoLcmVhc29uX2NvZGUYAyABKA4yJy5waG9uZWJyaWRnZS5sb2NhbGlwYy52MS5UcmFuc2'
+    'ZlclJlYXNvblIKcmVhc29uQ29kZRIjCg1lcnJvcl9tZXNzYWdlGAQgASgJUgxlcnJvck1lc3Nh'
+    'Z2U=');
+
+@$core.Deprecated('Use cancelTransferRequestDescriptor instead')
+const CancelTransferRequest$json = {
+  '1': 'CancelTransferRequest',
+  '2': [
+    {'1': 'transfer_id', '3': 1, '4': 1, '5': 9, '10': 'transferId'},
+  ],
+};
+
+/// Descriptor for `CancelTransferRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List cancelTransferRequestDescriptor = $convert.base64Decode(
+    'ChVDYW5jZWxUcmFuc2ZlclJlcXVlc3QSHwoLdHJhbnNmZXJfaWQYASABKAlSCnRyYW5zZmVySW'
+    'Q=');
+
+@$core.Deprecated('Use cancelTransferResponseDescriptor instead')
+const CancelTransferResponse$json = {
+  '1': 'CancelTransferResponse',
+  '2': [
+    {'1': 'transfer_id', '3': 1, '4': 1, '5': 9, '10': 'transferId'},
+    {'1': 'cancelled', '3': 2, '4': 1, '5': 8, '10': 'cancelled'},
+    {'1': 'error_message', '3': 3, '4': 1, '5': 9, '10': 'errorMessage'},
+  ],
+};
+
+/// Descriptor for `CancelTransferResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List cancelTransferResponseDescriptor = $convert.base64Decode(
+    'ChZDYW5jZWxUcmFuc2ZlclJlc3BvbnNlEh8KC3RyYW5zZmVyX2lkGAEgASgJUgp0cmFuc2Zlck'
+    'lkEhwKCWNhbmNlbGxlZBgCIAEoCFIJY2FuY2VsbGVkEiMKDWVycm9yX21lc3NhZ2UYAyABKAlS'
+    'DGVycm9yTWVzc2FnZQ==');
+
+@$core.Deprecated('Use listTransfersRequestDescriptor instead')
+const ListTransfersRequest$json = {
+  '1': 'ListTransfersRequest',
+};
+
+/// Descriptor for `ListTransfersRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listTransfersRequestDescriptor =
+    $convert.base64Decode('ChRMaXN0VHJhbnNmZXJzUmVxdWVzdA==');
+
+@$core.Deprecated('Use listTransfersResponseDescriptor instead')
+const ListTransfersResponse$json = {
+  '1': 'ListTransfersResponse',
+  '2': [
+    {
+      '1': 'transfers',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.phonebridge.localipc.v1.TransferInfo',
+      '10': 'transfers'
+    },
+  ],
+};
+
+/// Descriptor for `ListTransfersResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listTransfersResponseDescriptor = $convert.base64Decode(
+    'ChVMaXN0VHJhbnNmZXJzUmVzcG9uc2USQwoJdHJhbnNmZXJzGAEgAygLMiUucGhvbmVicmlkZ2'
+    'UubG9jYWxpcGMudjEuVHJhbnNmZXJJbmZvUgl0cmFuc2ZlcnM=');
+
+@$core.Deprecated('Use transferEventDescriptor instead')
+const TransferEvent$json = {
+  '1': 'TransferEvent',
+  '2': [
+    {
+      '1': 'transfer',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.localipc.v1.TransferInfo',
+      '10': 'transfer'
+    },
+  ],
+};
+
+/// Descriptor for `TransferEvent`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List transferEventDescriptor = $convert.base64Decode(
+    'Cg1UcmFuc2ZlckV2ZW50EkEKCHRyYW5zZmVyGAEgASgLMiUucGhvbmVicmlkZ2UubG9jYWxpcG'
+    'MudjEuVHJhbnNmZXJJbmZvUgh0cmFuc2Zlcg==');

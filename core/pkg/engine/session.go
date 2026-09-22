@@ -14,6 +14,7 @@ import (
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgev1"
 	"github.com/om051p/phonebridge/core/pkg/receiver"
 	"github.com/om051p/phonebridge/core/pkg/rtpmedia"
+	"github.com/om051p/phonebridge/core/pkg/transfer"
 	pion "github.com/pion/webrtc/v4"
 	"google.golang.org/protobuf/proto"
 )
@@ -76,6 +77,12 @@ type transport interface {
 	SetRemoteOffer(offer pion.SessionDescription) (pion.SessionDescription, error)
 	WaitForTrack(timeout time.Duration) error
 	Stats() (rtpmedia.StreamStats, int64)
+	// TransferChannel is the file-transfer DataChannel adapter this transport
+	// owns (DEC-024). It may be nil until the peer opens the channel; the
+	// session attaches it to the transfer engine when the channel opens. The
+	// declared type is the engine's own Channel port, so this package never
+	// depends on Pion specifics.
+	TransferChannel() transfer.Channel
 	Close() error
 }
 
@@ -107,6 +114,9 @@ type SessionConfig struct {
 	Identity             *crypto.DeviceIdentity
 	TrustStore           *crypto.TrustStore
 	ClipboardEngine      *clipboard.Engine
+	// TransferEngine carries file transfers over the dedicated "transfer"
+	// DataChannel (DEC-024). It is independent of the clipboard engine.
+	TransferEngine *transfer.Engine
 }
 
 // DefaultSessionConfig returns production defaults for session configuration.
@@ -182,6 +192,7 @@ type Session struct {
 	signaling       *SignalingClient
 	trustStore      *crypto.TrustStore
 	clipboardEngine *clipboard.Engine
+	transferEngine  *transfer.Engine
 
 	sink       receiver.FrameSink
 	sinkOwned  bool
@@ -229,6 +240,7 @@ func NewSession(sessionID string, cfg SessionConfig, reg *discovery.DeviceRegist
 		}),
 		trustStore:      cfg.TrustStore,
 		clipboardEngine: cfg.ClipboardEngine,
+		transferEngine:  cfg.TransferEngine,
 		signaling:       sigClient,
 		factory:         defaultTransportFactory,
 		onStateChange:   cb,
@@ -249,6 +261,29 @@ func (s *Session) ClipboardEngine() *clipboard.Engine {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.clipboardEngine
+}
+
+// SetTransferEngine updates the session's transfer engine.
+func (s *Session) SetTransferEngine(eng *transfer.Engine) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.transferEngine = eng
+}
+
+// TransferEngine returns the session's active transfer engine.
+func (s *Session) TransferEngine() *transfer.Engine {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.transferEngine
+}
+
+// TransferReady reports whether a transfer channel is currently bound to the
+// session's transfer engine. A caller sends files only when this is true; the
+// engine refuses earlier attempts with CODE_UNAVAILABLE rather than queueing
+// them against a transport that may never appear.
+func (s *Session) TransferReady() bool {
+	eng := s.TransferEngine()
+	return eng != nil && eng.ChannelReady()
 }
 
 // SendClipboard sends wire bytes over the active transport's clipboard DataChannel.
@@ -533,6 +568,11 @@ func (s *Session) teardown(reason string) error {
 	if tr != nil {
 		_ = tr.Close()
 	}
+	if teng := s.TransferEngine(); teng != nil {
+		// The transport is being torn down: a transfer in flight cannot continue
+		// on it, and DEC-024 has no resume.
+		teng.DetachChannel(transfer.ReasonInterrupted, "transport closed")
+	}
 	if eng := s.ClipboardEngine(); eng != nil {
 		eng.SetTransport(nil)
 	}
@@ -767,6 +807,15 @@ func (s *Session) newTransport(gen uint64, sink receiver.FrameSink) (transport, 
 		OnClipboardOpen: func() {
 			s.handleClipboardOpen(gen)
 		},
+		OnTransferMessage: func(data []byte) {
+			s.handleTransferMessage(gen, data)
+		},
+		OnTransferOpen: func() {
+			s.handleTransferOpen(gen)
+		},
+		OnTransferClose: func() {
+			s.handleTransferClose(gen)
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -828,6 +877,58 @@ func (s *Session) handleClipboardOpen(gen uint64) {
 	}))
 
 	_ = eng.OnDataChannelOpen(s.ctx)
+}
+
+// handleTransferMessage feeds one transfer frame to the local transfer engine.
+func (s *Session) handleTransferMessage(gen uint64, data []byte) {
+	s.mu.RLock()
+	stale := gen != s.trGen
+	stopping := s.ctx.Err() != nil
+	eng := s.transferEngine
+	s.mu.RUnlock()
+
+	if stale || stopping || eng == nil {
+		return
+	}
+	eng.OnFrame(data)
+}
+
+// handleTransferOpen binds the freshly opened "transfer" DataChannel to the
+// local transfer engine. Only the transport that created the channel (this
+// side's receiver) has the adapter, so the session is the attach point.
+func (s *Session) handleTransferOpen(gen uint64) {
+	s.mu.RLock()
+	stale := gen != s.trGen
+	stopping := s.ctx.Err() != nil
+	eng := s.transferEngine
+	tr := s.tr
+	s.mu.RUnlock()
+
+	if stale || stopping || eng == nil || tr == nil {
+		return
+	}
+	targetID := s.cfg.TargetDeviceID
+	if s.targetDevice.ID != "" {
+		targetID = s.targetDevice.ID
+	}
+	eng.SetPeerDeviceID(targetID)
+	eng.AttachChannel(tr.TransferChannel())
+}
+
+// handleTransferClose interrupts in-flight transfers as soon as the channel is
+// gone, rather than letting each one wait out its own stall timeout (DEC-024:
+// an interrupted transfer fails, it never resumes).
+func (s *Session) handleTransferClose(gen uint64) {
+	s.mu.RLock()
+	stale := gen != s.trGen
+	eng := s.transferEngine
+	tr := s.tr
+	s.mu.RUnlock()
+
+	if stale || eng == nil || tr == nil {
+		return
+	}
+	eng.DetachChannelIf(tr.TransferChannel(), transfer.ReasonInterrupted, "transfer channel closed")
 }
 
 // beginTransportReplacement invalidates the outgoing transport's callbacks and

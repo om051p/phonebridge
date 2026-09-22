@@ -57,6 +57,13 @@ const Code$json = {
     {'1': 'CODE_TRANSPORT_FAILED', '2': 14},
     {'1': 'CODE_RECONNECT_TIMEOUT', '2': 15},
     {'1': 'CODE_SESSION_BUSY', '2': 16},
+    {'1': 'CODE_TRANSFER_INTERRUPTED', '2': 17},
+    {'1': 'CODE_CHECKSUM_MISMATCH', '2': 18},
+    {'1': 'CODE_STORAGE_FAILED', '2': 19},
+    {'1': 'CODE_FILE_TOO_LARGE', '2': 20},
+    {'1': 'CODE_UNSAFE_FILENAME', '2': 21},
+    {'1': 'CODE_TRANSFER_BUSY', '2': 22},
+    {'1': 'CODE_TRANSFER_CANCELLED', '2': 23},
   ],
 };
 
@@ -69,7 +76,11 @@ final $typed_data.Uint8List codeDescriptor = $convert.base64Decode(
     'VEVEEAgSEQoNQ09ERV9JTlRFUk5BTBAJEhQKEENPREVfVU5BVkFJTEFCTEUQChIhCh1DT0RFX1'
     'VOU1VQUE9SVEVEX01FRElBX1BBUkFNUxALEhgKFENPREVfQ09OU0VOVF9SRVZPS0VEEAwSFwoT'
     'Q09ERV9DQVBUVVJFX0ZBSUxFRBANEhkKFUNPREVfVFJBTlNQT1JUX0ZBSUxFRBAOEhoKFkNPRE'
-    'VfUkVDT05ORUNUX1RJTUVPVVQQDxIVChFDT0RFX1NFU1NJT05fQlVTWRAQ');
+    'VfUkVDT05ORUNUX1RJTUVPVVQQDxIVChFDT0RFX1NFU1NJT05fQlVTWRAQEh0KGUNPREVfVFJB'
+    'TlNGRVJfSU5URVJSVVBURUQQERIaChZDT0RFX0NIRUNLU1VNX01JU01BVENIEBISFwoTQ09ERV'
+    '9TVE9SQUdFX0ZBSUxFRBATEhcKE0NPREVfRklMRV9UT09fTEFSR0UQFBIYChRDT0RFX1VOU0FG'
+    'RV9GSUxFTkFNRRAVEhYKEkNPREVfVFJBTlNGRVJfQlVTWRAWEhsKF0NPREVfVFJBTlNGRVJfQ0'
+    'FOQ0VMTEVEEBc=');
 
 @$core.Deprecated('Use envelopeDescriptor instead')
 const Envelope$json = {
@@ -623,6 +634,208 @@ final $typed_data.Uint8List clipboardUpdateDescriptor = $convert.base64Decode(
     'FkGAIgASgMUgdwYXlsb2FkEiMKDXNoYTI1Nl9kaWdlc3QYAyABKAxSDHNoYTI1NkRpZ2VzdBIg'
     'Cgxjb3BpZWRfYXRfbXMYBCABKARSCmNvcGllZEF0TXM=');
 
+@$core.Deprecated('Use transferFrameDescriptor instead')
+const TransferFrame$json = {
+  '1': 'TransferFrame',
+  '2': [
+    {'1': 'version', '3': 1, '4': 1, '5': 13, '10': 'version'},
+    {
+      '1': 'offer',
+      '3': 10,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.FileOffer',
+      '9': 0,
+      '10': 'offer'
+    },
+    {
+      '1': 'accept',
+      '3': 11,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.FileAccept',
+      '9': 0,
+      '10': 'accept'
+    },
+    {
+      '1': 'chunk',
+      '3': 12,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.FileChunk',
+      '9': 0,
+      '10': 'chunk'
+    },
+    {
+      '1': 'complete',
+      '3': 13,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.FileComplete',
+      '9': 0,
+      '10': 'complete'
+    },
+    {
+      '1': 'result',
+      '3': 14,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.FileResult',
+      '9': 0,
+      '10': 'result'
+    },
+    {
+      '1': 'cancel',
+      '3': 15,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.FileCancel',
+      '9': 0,
+      '10': 'cancel'
+    },
+  ],
+  '8': [
+    {'1': 'body'},
+  ],
+};
+
+/// Descriptor for `TransferFrame`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List transferFrameDescriptor = $convert.base64Decode(
+    'Cg1UcmFuc2ZlckZyYW1lEhgKB3ZlcnNpb24YASABKA1SB3ZlcnNpb24SMQoFb2ZmZXIYCiABKA'
+    'syGS5waG9uZWJyaWRnZS52MS5GaWxlT2ZmZXJIAFIFb2ZmZXISNAoGYWNjZXB0GAsgASgLMhou'
+    'cGhvbmVicmlkZ2UudjEuRmlsZUFjY2VwdEgAUgZhY2NlcHQSMQoFY2h1bmsYDCABKAsyGS5waG'
+    '9uZWJyaWRnZS52MS5GaWxlQ2h1bmtIAFIFY2h1bmsSOgoIY29tcGxldGUYDSABKAsyHC5waG9u'
+    'ZWJyaWRnZS52MS5GaWxlQ29tcGxldGVIAFIIY29tcGxldGUSNAoGcmVzdWx0GA4gASgLMhoucG'
+    'hvbmVicmlkZ2UudjEuRmlsZVJlc3VsdEgAUgZyZXN1bHQSNAoGY2FuY2VsGA8gASgLMhoucGhv'
+    'bmVicmlkZ2UudjEuRmlsZUNhbmNlbEgAUgZjYW5jZWxCBgoEYm9keQ==');
+
+@$core.Deprecated('Use fileOfferDescriptor instead')
+const FileOffer$json = {
+  '1': 'FileOffer',
+  '2': [
+    {'1': 'transfer_id', '3': 1, '4': 1, '5': 9, '10': 'transferId'},
+    {'1': 'filename', '3': 2, '4': 1, '5': 9, '10': 'filename'},
+    {'1': 'mime_type', '3': 3, '4': 1, '5': 9, '10': 'mimeType'},
+    {'1': 'size_bytes', '3': 4, '4': 1, '5': 4, '10': 'sizeBytes'},
+    {'1': 'sha256_digest', '3': 5, '4': 1, '5': 12, '10': 'sha256Digest'},
+    {'1': 'chunk_size', '3': 6, '4': 1, '5': 13, '10': 'chunkSize'},
+    {'1': 'created_at_ms', '3': 7, '4': 1, '5': 4, '10': 'createdAtMs'},
+  ],
+};
+
+/// Descriptor for `FileOffer`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List fileOfferDescriptor = $convert.base64Decode(
+    'CglGaWxlT2ZmZXISHwoLdHJhbnNmZXJfaWQYASABKAlSCnRyYW5zZmVySWQSGgoIZmlsZW5hbW'
+    'UYAiABKAlSCGZpbGVuYW1lEhsKCW1pbWVfdHlwZRgDIAEoCVIIbWltZVR5cGUSHQoKc2l6ZV9i'
+    'eXRlcxgEIAEoBFIJc2l6ZUJ5dGVzEiMKDXNoYTI1Nl9kaWdlc3QYBSABKAxSDHNoYTI1NkRpZ2'
+    'VzdBIdCgpjaHVua19zaXplGAYgASgNUgljaHVua1NpemUSIgoNY3JlYXRlZF9hdF9tcxgHIAEo'
+    'BFILY3JlYXRlZEF0TXM=');
+
+@$core.Deprecated('Use fileAcceptDescriptor instead')
+const FileAccept$json = {
+  '1': 'FileAccept',
+  '2': [
+    {'1': 'transfer_id', '3': 1, '4': 1, '5': 9, '10': 'transferId'},
+    {'1': 'accept', '3': 2, '4': 1, '5': 8, '10': 'accept'},
+    {
+      '1': 'code',
+      '3': 3,
+      '4': 1,
+      '5': 14,
+      '6': '.phonebridge.v1.Code',
+      '10': 'code'
+    },
+    {'1': 'reason', '3': 4, '4': 1, '5': 9, '10': 'reason'},
+  ],
+};
+
+/// Descriptor for `FileAccept`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List fileAcceptDescriptor = $convert.base64Decode(
+    'CgpGaWxlQWNjZXB0Eh8KC3RyYW5zZmVyX2lkGAEgASgJUgp0cmFuc2ZlcklkEhYKBmFjY2VwdB'
+    'gCIAEoCFIGYWNjZXB0EigKBGNvZGUYAyABKA4yFC5waG9uZWJyaWRnZS52MS5Db2RlUgRjb2Rl'
+    'EhYKBnJlYXNvbhgEIAEoCVIGcmVhc29u');
+
+@$core.Deprecated('Use fileChunkDescriptor instead')
+const FileChunk$json = {
+  '1': 'FileChunk',
+  '2': [
+    {'1': 'transfer_id', '3': 1, '4': 1, '5': 9, '10': 'transferId'},
+    {'1': 'chunk_index', '3': 2, '4': 1, '5': 4, '10': 'chunkIndex'},
+    {'1': 'offset', '3': 3, '4': 1, '5': 4, '10': 'offset'},
+    {'1': 'data', '3': 4, '4': 1, '5': 12, '10': 'data'},
+  ],
+};
+
+/// Descriptor for `FileChunk`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List fileChunkDescriptor = $convert.base64Decode(
+    'CglGaWxlQ2h1bmsSHwoLdHJhbnNmZXJfaWQYASABKAlSCnRyYW5zZmVySWQSHwoLY2h1bmtfaW'
+    '5kZXgYAiABKARSCmNodW5rSW5kZXgSFgoGb2Zmc2V0GAMgASgEUgZvZmZzZXQSEgoEZGF0YRgE'
+    'IAEoDFIEZGF0YQ==');
+
+@$core.Deprecated('Use fileCompleteDescriptor instead')
+const FileComplete$json = {
+  '1': 'FileComplete',
+  '2': [
+    {'1': 'transfer_id', '3': 1, '4': 1, '5': 9, '10': 'transferId'},
+    {'1': 'size_bytes', '3': 2, '4': 1, '5': 4, '10': 'sizeBytes'},
+    {'1': 'sha256_digest', '3': 3, '4': 1, '5': 12, '10': 'sha256Digest'},
+  ],
+};
+
+/// Descriptor for `FileComplete`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List fileCompleteDescriptor = $convert.base64Decode(
+    'CgxGaWxlQ29tcGxldGUSHwoLdHJhbnNmZXJfaWQYASABKAlSCnRyYW5zZmVySWQSHQoKc2l6ZV'
+    '9ieXRlcxgCIAEoBFIJc2l6ZUJ5dGVzEiMKDXNoYTI1Nl9kaWdlc3QYAyABKAxSDHNoYTI1NkRp'
+    'Z2VzdA==');
+
+@$core.Deprecated('Use fileResultDescriptor instead')
+const FileResult$json = {
+  '1': 'FileResult',
+  '2': [
+    {'1': 'transfer_id', '3': 1, '4': 1, '5': 9, '10': 'transferId'},
+    {'1': 'committed', '3': 2, '4': 1, '5': 8, '10': 'committed'},
+    {
+      '1': 'code',
+      '3': 3,
+      '4': 1,
+      '5': 14,
+      '6': '.phonebridge.v1.Code',
+      '10': 'code'
+    },
+    {'1': 'reason', '3': 4, '4': 1, '5': 9, '10': 'reason'},
+    {'1': 'saved_name', '3': 5, '4': 1, '5': 9, '10': 'savedName'},
+  ],
+};
+
+/// Descriptor for `FileResult`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List fileResultDescriptor = $convert.base64Decode(
+    'CgpGaWxlUmVzdWx0Eh8KC3RyYW5zZmVyX2lkGAEgASgJUgp0cmFuc2ZlcklkEhwKCWNvbW1pdH'
+    'RlZBgCIAEoCFIJY29tbWl0dGVkEigKBGNvZGUYAyABKA4yFC5waG9uZWJyaWRnZS52MS5Db2Rl'
+    'UgRjb2RlEhYKBnJlYXNvbhgEIAEoCVIGcmVhc29uEh0KCnNhdmVkX25hbWUYBSABKAlSCXNhdm'
+    'VkTmFtZQ==');
+
+@$core.Deprecated('Use fileCancelDescriptor instead')
+const FileCancel$json = {
+  '1': 'FileCancel',
+  '2': [
+    {'1': 'transfer_id', '3': 1, '4': 1, '5': 9, '10': 'transferId'},
+    {
+      '1': 'code',
+      '3': 2,
+      '4': 1,
+      '5': 14,
+      '6': '.phonebridge.v1.Code',
+      '10': 'code'
+    },
+    {'1': 'reason', '3': 3, '4': 1, '5': 9, '10': 'reason'},
+  ],
+};
+
+/// Descriptor for `FileCancel`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List fileCancelDescriptor = $convert.base64Decode(
+    'CgpGaWxlQ2FuY2VsEh8KC3RyYW5zZmVyX2lkGAEgASgJUgp0cmFuc2ZlcklkEigKBGNvZGUYAi'
+    'ABKA4yFC5waG9uZWJyaWRnZS52MS5Db2RlUgRjb2RlEhYKBnJlYXNvbhgDIAEoCVIGcmVhc29u');
+
 @$core.Deprecated('Use notificationEventDescriptor instead')
 const NotificationEvent$json = {
   '1': 'NotificationEvent',
@@ -649,51 +862,6 @@ const NotificationDismissed$json = {
 /// Descriptor for `NotificationDismissed`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List notificationDismissedDescriptor =
     $convert.base64Decode('ChVOb3RpZmljYXRpb25EaXNtaXNzZWQ=');
-
-@$core.Deprecated('Use fileOfferDescriptor instead')
-const FileOffer$json = {
-  '1': 'FileOffer',
-};
-
-/// Descriptor for `FileOffer`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List fileOfferDescriptor =
-    $convert.base64Decode('CglGaWxlT2ZmZXI=');
-
-@$core.Deprecated('Use fileAcceptDescriptor instead')
-const FileAccept$json = {
-  '1': 'FileAccept',
-};
-
-/// Descriptor for `FileAccept`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List fileAcceptDescriptor =
-    $convert.base64Decode('CgpGaWxlQWNjZXB0');
-
-@$core.Deprecated('Use fileChunkDescriptor instead')
-const FileChunk$json = {
-  '1': 'FileChunk',
-};
-
-/// Descriptor for `FileChunk`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List fileChunkDescriptor =
-    $convert.base64Decode('CglGaWxlQ2h1bms=');
-
-@$core.Deprecated('Use fileCompleteDescriptor instead')
-const FileComplete$json = {
-  '1': 'FileComplete',
-};
-
-/// Descriptor for `FileComplete`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List fileCompleteDescriptor =
-    $convert.base64Decode('CgxGaWxlQ29tcGxldGU=');
-
-@$core.Deprecated('Use fileCancelDescriptor instead')
-const FileCancel$json = {
-  '1': 'FileCancel',
-};
-
-/// Descriptor for `FileCancel`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List fileCancelDescriptor =
-    $convert.base64Decode('CgpGaWxlQ2FuY2Vs');
 
 @$core.Deprecated('Use screenStopDescriptor instead')
 const ScreenStop$json = {

@@ -144,5 +144,172 @@ class SessionReason extends $pb.ProtobufEnum {
   const SessionReason._(super.value, super.name);
 }
 
+/// TransferDirection states which way the bytes flow for this device.
+class TransferDirection extends $pb.ProtobufEnum {
+  static const TransferDirection TRANSFER_DIRECTION_UNSPECIFIED =
+      TransferDirection._(
+          0, _omitEnumNames ? '' : 'TRANSFER_DIRECTION_UNSPECIFIED');
+
+  /// This device sends the file.
+  static const TransferDirection TRANSFER_DIRECTION_OUTBOUND =
+      TransferDirection._(
+          1, _omitEnumNames ? '' : 'TRANSFER_DIRECTION_OUTBOUND');
+
+  /// This device receives the file.
+  static const TransferDirection TRANSFER_DIRECTION_INBOUND =
+      TransferDirection._(
+          2, _omitEnumNames ? '' : 'TRANSFER_DIRECTION_INBOUND');
+
+  static const $core.List<TransferDirection> values = <TransferDirection>[
+    TRANSFER_DIRECTION_UNSPECIFIED,
+    TRANSFER_DIRECTION_OUTBOUND,
+    TRANSFER_DIRECTION_INBOUND,
+  ];
+
+  static final $core.List<TransferDirection?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 2);
+  static TransferDirection? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const TransferDirection._(super.value, super.name);
+}
+
+/// TransferState is the lifecycle phase of one transfer.
+class TransferState extends $pb.ProtobufEnum {
+  static const TransferState TRANSFER_STATE_UNSPECIFIED =
+      TransferState._(0, _omitEnumNames ? '' : 'TRANSFER_STATE_UNSPECIFIED');
+
+  /// Offer sent (outbound) or received (inbound); awaiting FileAccept.
+  static const TransferState TRANSFER_STATE_PENDING =
+      TransferState._(1, _omitEnumNames ? '' : 'TRANSFER_STATE_PENDING');
+
+  /// Chunks are flowing.
+  static const TransferState TRANSFER_STATE_ACTIVE =
+      TransferState._(2, _omitEnumNames ? '' : 'TRANSFER_STATE_ACTIVE');
+
+  /// All chunks received; verifying size/digest and promoting the file.
+  static const TransferState TRANSFER_STATE_VERIFYING =
+      TransferState._(3, _omitEnumNames ? '' : 'TRANSFER_STATE_VERIFYING');
+
+  /// Terminal success: the file was committed at the destination.
+  static const TransferState TRANSFER_STATE_COMPLETE =
+      TransferState._(4, _omitEnumNames ? '' : 'TRANSFER_STATE_COMPLETE');
+
+  /// Terminal: cancelled locally or by the peer.
+  static const TransferState TRANSFER_STATE_CANCELLED =
+      TransferState._(5, _omitEnumNames ? '' : 'TRANSFER_STATE_CANCELLED');
+
+  /// Terminal: failed (integrity, storage, interruption, protocol, policy).
+  static const TransferState TRANSFER_STATE_FAILED =
+      TransferState._(6, _omitEnumNames ? '' : 'TRANSFER_STATE_FAILED');
+
+  static const $core.List<TransferState> values = <TransferState>[
+    TRANSFER_STATE_UNSPECIFIED,
+    TRANSFER_STATE_PENDING,
+    TRANSFER_STATE_ACTIVE,
+    TRANSFER_STATE_VERIFYING,
+    TRANSFER_STATE_COMPLETE,
+    TRANSFER_STATE_CANCELLED,
+    TRANSFER_STATE_FAILED,
+  ];
+
+  static final $core.List<TransferState?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 6);
+  static TransferState? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const TransferState._(super.value, super.name);
+}
+
+/// TransferReason is the typed classification of a non-success outcome, so the
+/// UI never parses prose. SESSION-style distinction applies: NONE is an
+/// explicitly normal outcome, UNSPECIFIED means the daemon did not classify.
+class TransferReason extends $pb.ProtobufEnum {
+  static const TransferReason TRANSFER_REASON_UNSPECIFIED =
+      TransferReason._(0, _omitEnumNames ? '' : 'TRANSFER_REASON_UNSPECIFIED');
+
+  /// No failure (normal progress or completion).
+  static const TransferReason TRANSFER_REASON_NONE =
+      TransferReason._(1, _omitEnumNames ? '' : 'TRANSFER_REASON_NONE');
+
+  /// No active session with a peer that supports file transfer.
+  static const TransferReason TRANSFER_REASON_NO_SESSION =
+      TransferReason._(2, _omitEnumNames ? '' : 'TRANSFER_REASON_NO_SESSION');
+
+  /// The peer does not advertise file transfer (no "transfer" DataChannel).
+  static const TransferReason TRANSFER_REASON_UNSUPPORTED_PEER =
+      TransferReason._(
+          3, _omitEnumNames ? '' : 'TRANSFER_REASON_UNSUPPORTED_PEER');
+
+  /// A transfer is already in flight in that direction (DEC-024 limit).
+  static const TransferReason TRANSFER_REASON_BUSY =
+      TransferReason._(4, _omitEnumNames ? '' : 'TRANSFER_REASON_BUSY');
+
+  /// The proposed filename is not a plain basename.
+  static const TransferReason TRANSFER_REASON_UNSAFE_FILENAME =
+      TransferReason._(
+          5, _omitEnumNames ? '' : 'TRANSFER_REASON_UNSAFE_FILENAME');
+
+  /// The file exceeds the configured size policy.
+  static const TransferReason TRANSFER_REASON_TOO_LARGE =
+      TransferReason._(6, _omitEnumNames ? '' : 'TRANSFER_REASON_TOO_LARGE');
+
+  /// Size or SHA-256 did not match; nothing was committed.
+  static const TransferReason TRANSFER_REASON_CHECKSUM_MISMATCH =
+      TransferReason._(
+          7, _omitEnumNames ? '' : 'TRANSFER_REASON_CHECKSUM_MISMATCH');
+
+  /// Destination write/promotion failed (space, permission, MediaStore/SAF).
+  static const TransferReason TRANSFER_REASON_STORAGE_FAILED = TransferReason._(
+      8, _omitEnumNames ? '' : 'TRANSFER_REASON_STORAGE_FAILED');
+
+  /// The transport/session went away mid-transfer; retry restarts from zero.
+  static const TransferReason TRANSFER_REASON_INTERRUPTED =
+      TransferReason._(9, _omitEnumNames ? '' : 'TRANSFER_REASON_INTERRUPTED');
+
+  /// The peer cancelled.
+  static const TransferReason TRANSFER_REASON_CANCELLED_BY_PEER =
+      TransferReason._(
+          10, _omitEnumNames ? '' : 'TRANSFER_REASON_CANCELLED_BY_PEER');
+
+  /// The local user cancelled.
+  static const TransferReason TRANSFER_REASON_CANCELLED_BY_USER =
+      TransferReason._(
+          11, _omitEnumNames ? '' : 'TRANSFER_REASON_CANCELLED_BY_USER');
+
+  /// A wire frame violated the protocol (wrong index/offset/state).
+  static const TransferReason TRANSFER_REASON_PROTOCOL_ERROR = TransferReason._(
+      12, _omitEnumNames ? '' : 'TRANSFER_REASON_PROTOCOL_ERROR');
+
+  /// The peer speaks a transfer frame version this build does not implement.
+  static const TransferReason TRANSFER_REASON_INCOMPATIBLE_VERSION =
+      TransferReason._(
+          13, _omitEnumNames ? '' : 'TRANSFER_REASON_INCOMPATIBLE_VERSION');
+
+  static const $core.List<TransferReason> values = <TransferReason>[
+    TRANSFER_REASON_UNSPECIFIED,
+    TRANSFER_REASON_NONE,
+    TRANSFER_REASON_NO_SESSION,
+    TRANSFER_REASON_UNSUPPORTED_PEER,
+    TRANSFER_REASON_BUSY,
+    TRANSFER_REASON_UNSAFE_FILENAME,
+    TRANSFER_REASON_TOO_LARGE,
+    TRANSFER_REASON_CHECKSUM_MISMATCH,
+    TRANSFER_REASON_STORAGE_FAILED,
+    TRANSFER_REASON_INTERRUPTED,
+    TRANSFER_REASON_CANCELLED_BY_PEER,
+    TRANSFER_REASON_CANCELLED_BY_USER,
+    TRANSFER_REASON_PROTOCOL_ERROR,
+    TRANSFER_REASON_INCOMPATIBLE_VERSION,
+  ];
+
+  static final $core.List<TransferReason?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 13);
+  static TransferReason? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const TransferReason._(super.value, super.name);
+}
+
 const $core.bool _omitEnumNames =
     $core.bool.fromEnvironment('protobuf.omit_enum_names');

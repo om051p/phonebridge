@@ -3,6 +3,8 @@
 // Status: CONFIRMED (Phase 0) — contract ratified from Spike 01 (DEC-018).
 //         Session lifecycle extended in Phase 2 (DEC-022): requested/actual
 //         media parameters and typed session reason codes.
+//         Clipboard status/pull added in Phase 3 (DEC-023); file-transfer
+//         RPCs and events added in Phase 4 (DEC-024).
 // Source of truth for wire compatibility: this file + buf breaking checks.
 //
 // Scope and isolation rules (see docs/protocol.md):
@@ -115,6 +117,20 @@ service LocalEngineService {
 
   // TriggerClipboardPull reads the host clipboard and synchronizes it to the active peer.
   rpc TriggerClipboardPull(TriggerClipboardPullRequest) returns (TriggerClipboardPullResponse);
+
+  // SendFile offers a local file to the active peer over the session's
+  // dedicated "transfer" DataChannel (DEC-024). The daemon reads local_path
+  // itself: file bytes never cross this local boundary, and no whole file is
+  // buffered anywhere (streaming chunked I/O).
+  rpc SendFile(SendFileRequest) returns (SendFileResponse);
+
+  // CancelTransfer aborts an in-flight transfer in either direction. The
+  // cancel frame goes to the peer and the partial file is deleted locally.
+  rpc CancelTransfer(CancelTransferRequest) returns (CancelTransferResponse);
+
+  // ListTransfers returns in-flight transfers plus the recent in-memory
+  // history (Phase 4 does not persist history across daemon restarts).
+  rpc ListTransfers(ListTransfersRequest) returns (ListTransfersResponse);
 }
 
 // HandshakeRequest advertises the client's local-IPC protocol support.
@@ -183,6 +199,9 @@ message StreamEventsResponse {
 
   // Clipboard subsystem status transitions (adapter status, active peer, etc.).
   ClipboardStatusEvent clipboard_event = 5;
+
+  // File-transfer state/progress transitions (DEC-024).
+  TransferEvent transfer_event = 6;
 }
 
 // LocalEvent represents a pushed local event containing the relayed device envelope.
@@ -203,6 +222,9 @@ message LocalEvent {
 
   // Clipboard subsystem status transitions.
   ClipboardStatusEvent clipboard_event = 5;
+
+  // File-transfer state/progress transitions (DEC-024).
+  TransferEvent transfer_event = 6;
 }
 
 // HealthRequest is empty.
@@ -475,4 +497,147 @@ message ClipboardStatusEvent {
   string adapter_status = 3;
   string remote_peer_id = 4;
   uint32 max_payload_size = 5;
+}
+
+// ---------------------------------------------------------------------------
+// File-transfer subsystem IPC definitions (DEC-024, Phase 4)
+// ---------------------------------------------------------------------------
+// These types are deliberately local to this contract, mirroring the
+// SessionState/SessionReason precedent: the daemon's transfer state machine has
+// failure modes of its own (storage policy, local cancel, SAF/MediaStore) that
+// the device protocol expresses as phonebridge.v1.Code instead.
+
+// TransferDirection states which way the bytes flow for this device.
+enum TransferDirection {
+  TRANSFER_DIRECTION_UNSPECIFIED = 0;
+  // This device sends the file.
+  TRANSFER_DIRECTION_OUTBOUND = 1;
+  // This device receives the file.
+  TRANSFER_DIRECTION_INBOUND = 2;
+}
+
+// TransferState is the lifecycle phase of one transfer.
+enum TransferState {
+  TRANSFER_STATE_UNSPECIFIED = 0;
+  // Offer sent (outbound) or received (inbound); awaiting FileAccept.
+  TRANSFER_STATE_PENDING = 1;
+  // Chunks are flowing.
+  TRANSFER_STATE_ACTIVE = 2;
+  // All chunks received; verifying size/digest and promoting the file.
+  TRANSFER_STATE_VERIFYING = 3;
+  // Terminal success: the file was committed at the destination.
+  TRANSFER_STATE_COMPLETE = 4;
+  // Terminal: cancelled locally or by the peer.
+  TRANSFER_STATE_CANCELLED = 5;
+  // Terminal: failed (integrity, storage, interruption, protocol, policy).
+  TRANSFER_STATE_FAILED = 6;
+}
+
+// TransferReason is the typed classification of a non-success outcome, so the
+// UI never parses prose. SESSION-style distinction applies: NONE is an
+// explicitly normal outcome, UNSPECIFIED means the daemon did not classify.
+enum TransferReason {
+  TRANSFER_REASON_UNSPECIFIED = 0;
+  // No failure (normal progress or completion).
+  TRANSFER_REASON_NONE = 1;
+  // No active session with a peer that supports file transfer.
+  TRANSFER_REASON_NO_SESSION = 2;
+  // The peer does not advertise file transfer (no "transfer" DataChannel).
+  TRANSFER_REASON_UNSUPPORTED_PEER = 3;
+  // A transfer is already in flight in that direction (DEC-024 limit).
+  TRANSFER_REASON_BUSY = 4;
+  // The proposed filename is not a plain basename.
+  TRANSFER_REASON_UNSAFE_FILENAME = 5;
+  // The file exceeds the configured size policy.
+  TRANSFER_REASON_TOO_LARGE = 6;
+  // Size or SHA-256 did not match; nothing was committed.
+  TRANSFER_REASON_CHECKSUM_MISMATCH = 7;
+  // Destination write/promotion failed (space, permission, MediaStore/SAF).
+  TRANSFER_REASON_STORAGE_FAILED = 8;
+  // The transport/session went away mid-transfer; retry restarts from zero.
+  TRANSFER_REASON_INTERRUPTED = 9;
+  // The peer cancelled.
+  TRANSFER_REASON_CANCELLED_BY_PEER = 10;
+  // The local user cancelled.
+  TRANSFER_REASON_CANCELLED_BY_USER = 11;
+  // A wire frame violated the protocol (wrong index/offset/state).
+  TRANSFER_REASON_PROTOCOL_ERROR = 12;
+  // The peer speaks a transfer frame version this build does not implement.
+  TRANSFER_REASON_INCOMPATIBLE_VERSION = 13;
+}
+
+// TransferInfo is the UI-facing snapshot of one transfer (in-flight or in the
+// recent history).
+message TransferInfo {
+  string transfer_id = 1;
+  TransferDirection direction = 2;
+  TransferState state = 3;
+  // Peer device identity this transfer belongs to.
+  string peer_device_id = 4;
+  // Original filename proposed by the sender (basename).
+  string filename = 5;
+  // Canonical MIME type when known; empty otherwise.
+  string mime_type = 6;
+  // Total bytes (0 while unknown for an inbound offer that was never parsed).
+  uint64 size_bytes = 7;
+  // Bytes transferred so far (clamped to size_bytes).
+  uint64 bytes_transferred = 8;
+  uint64 started_at_ms = 9;
+  // 0 while in flight.
+  uint64 finished_at_ms = 10;
+  TransferReason reason_code = 11;
+  // Human-readable detail for logs and UI; never parsed.
+  string error_message = 12;
+  // Basename the receiving side stored (post collision rename); empty for
+  // outbound transfers and until commit.
+  string saved_name = 13;
+}
+
+// SendFileRequest offers a local file to the currently connected peer.
+message SendFileRequest {
+  // Target device id. Empty means "the active session's peer" — accepted only
+  // when a session is active, so the UI cannot accidentally target a device
+  // that is merely discovered.
+  string device_id = 1;
+  // Absolute local path of a regular, readable file (Linux). The daemon reads
+  // it directly; it is never transferred over local IPC.
+  string local_path = 2;
+  // Optional display name override; empty means "use the file's basename".
+  string filename = 3;
+}
+
+// SendFileResponse returns the new transfer identity.
+message SendFileResponse {
+  string transfer_id = 1;
+  // First state of the transfer (PENDING in the normal case).
+  TransferState state = 2;
+  // Typed failure when the offer could not be started.
+  TransferReason reason_code = 3;
+  string error_message = 4;
+}
+
+// CancelTransferRequest aborts an in-flight transfer.
+message CancelTransferRequest {
+  string transfer_id = 1;
+}
+
+// CancelTransferResponse confirms the cancellation request was handled.
+message CancelTransferResponse {
+  string transfer_id = 1;
+  bool cancelled = 2;
+  string error_message = 3;
+}
+
+// ListTransfersRequest is empty.
+message ListTransfersRequest {}
+
+// ListTransfersResponse returns in-flight transfers and the recent history,
+// newest first.
+message ListTransfersResponse {
+  repeated TransferInfo transfers = 1;
+}
+
+// TransferEvent is one pushed transfer transition on StreamEvents.
+message TransferEvent {
+  TransferInfo transfer = 1;
 }

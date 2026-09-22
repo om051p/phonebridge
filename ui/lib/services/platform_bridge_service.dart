@@ -4,8 +4,9 @@ import '../models/capture_stats.dart';
 import '../models/trusted_device.dart';
 import '../models/clipboard_status.dart';
 import '../models/discovered_device.dart';
+import 'transfer_backend.dart';
 
-abstract class PlatformBridgeService {
+abstract class PlatformBridgeService implements TransferBackend {
   bool get isAndroid;
   bool get isLinux;
 

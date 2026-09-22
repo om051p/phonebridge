@@ -139,6 +139,11 @@ static void callClipboardOversized(JNIEnv *env, jobject host, jmethodID mid, int
     (*env)->CallVoidMethod(env, host, mid, (jint)size);
 }
 
+
+static void deleteLocalRef(JNIEnv *env, jobject obj) {
+    if (env && obj) (*env)->DeleteLocalRef(env, obj);
+}
+
 static jint getOrAttachEnv(JavaVM *jvm, JNIEnv **env, int *didAttach) {
     *didAttach = 0;
     jint res = (*jvm)->GetEnv(jvm, (void**)env, JNI_VERSION_1_6);
@@ -310,21 +315,28 @@ func Java_dev_phonebridge_bridge_GoBridge_nativeInvoke(env *C.JNIEnv, clazz C.jc
 
 	// Method routing
 	var resp []byte
-	switch method {
-	case "ping":
-		resp = append([]byte("pong:"), payload...)
-	case "echo":
-		resp = make([]byte, len(payload))
-		copy(resp, payload)
-	case "state":
-		resp = []byte(fmt.Sprintf("%d", engineState.Load()))
-	case "panic":
-		panic("simulated Go runtime panic")
-	default:
-		cErr := C.CString(fmt.Sprintf("unknown method: %s", method))
-		defer C.free(unsafe.Pointer(cErr))
-		C.throwIllegalState(env, cErr)
-		return C.nullByteArray()
+	if out, handled := invokeTransfer(method, payload); handled {
+		if out == nil {
+			out = []byte("{}")
+		}
+		resp = out
+	} else {
+		switch method {
+		case "ping":
+			resp = append([]byte("pong:"), payload...)
+		case "echo":
+			resp = make([]byte, len(payload))
+			copy(resp, payload)
+		case "state":
+			resp = []byte(fmt.Sprintf("%d", engineState.Load()))
+		case "panic":
+			panic("simulated Go runtime panic")
+		default:
+			cErr := C.CString(fmt.Sprintf("unknown method: %s", method))
+			defer C.free(unsafe.Pointer(cErr))
+			C.throwIllegalState(env, cErr)
+			return C.nullByteArray()
+		}
 	}
 
 	var respPtr *C.char
@@ -862,4 +874,3 @@ func Java_dev_phonebridge_bridge_GoBridge_nativeClipboardStats(env *C.JNIEnv, cl
 	defer clipboardRecover(env, "clipboardStats")
 	return goBytesToJava(env, currentClipboardBridge().StatsJSON())
 }
-

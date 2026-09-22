@@ -2,12 +2,17 @@
 // Package: phonebridge.v1
 // Status: CONFIRMED (Phase 2, DEC-022) for the device handshake (DeviceHello
 // version/capability exchange) and screen-session parameter negotiation
-// (ScreenStart/ScreenStop). All other feature payloads remain stubs until
-// their own phases.
+// (ScreenStart/ScreenStop). CONFIRMED (Phase 3, DEC-023) for ClipboardUpdate.
+// CONFIRMED (Phase 4, DEC-024) for file transfer (TransferFrame and the
+// FileOffer/FileAccept/FileChunk/FileComplete/FileResult/FileCancel family).
+// Notification, input and device-status payloads remain stubs until their own
+// phases.
 // Source of truth for wire compatibility: this file + buf breaking checks.
 //
 // Conventions (see docs/protocol.md):
-// - Every application message is framed as Envelope.
+// - Session-level control messages are framed as Envelope; feature
+//   DataChannels carry their own feature message (clipboard: ClipboardUpdate,
+//   transfer: TransferFrame — DEC-024).
 // - version/capabilities negotiated via DeviceHello handshake.
 // - sequence + nonce provide replay protection per session_id.
 // - New fields are optional; removed fields are reserved. New oneof branches
@@ -133,6 +138,25 @@ const (
 	Code_CODE_RECONNECT_TIMEOUT Code = 15
 	// The device already has an active session.
 	Code_CODE_SESSION_BUSY Code = 16
+	// File-transfer failures (DEC-024). Appended, never renumbered.
+	// The transfer DataChannel or session went away mid-transfer. Restart from
+	// zero after reconnect: Phase 4 has no resume (see DEC-024).
+	Code_CODE_TRANSFER_INTERRUPTED Code = 17
+	// The received bytes did not match the declared size or SHA-256 digest.
+	Code_CODE_CHECKSUM_MISMATCH Code = 18
+	// The receiver could not write or promote the file (no space, permissions,
+	// MediaStore/SAF failure).
+	Code_CODE_STORAGE_FAILED Code = 19
+	// The file exceeds the receiving side's file-size policy.
+	Code_CODE_FILE_TOO_LARGE Code = 20
+	// The proposed filename is not a plain basename (separator, NUL, "..",
+	// over-length). The receiver never accepts a sender-controlled path.
+	Code_CODE_UNSAFE_FILENAME Code = 21
+	// The receiver already has a transfer in flight (DEC-024 allows one inbound
+	// and one outbound transfer per session).
+	Code_CODE_TRANSFER_BUSY Code = 22
+	// The local user cancelled the transfer.
+	Code_CODE_TRANSFER_CANCELLED Code = 23
 )
 
 // Enum value maps for Code.
@@ -155,6 +179,13 @@ var (
 		14: "CODE_TRANSPORT_FAILED",
 		15: "CODE_RECONNECT_TIMEOUT",
 		16: "CODE_SESSION_BUSY",
+		17: "CODE_TRANSFER_INTERRUPTED",
+		18: "CODE_CHECKSUM_MISMATCH",
+		19: "CODE_STORAGE_FAILED",
+		20: "CODE_FILE_TOO_LARGE",
+		21: "CODE_UNSAFE_FILENAME",
+		22: "CODE_TRANSFER_BUSY",
+		23: "CODE_TRANSFER_CANCELLED",
 	}
 	Code_value = map[string]int32{
 		"CODE_UNSPECIFIED":              0,
@@ -174,6 +205,13 @@ var (
 		"CODE_TRANSPORT_FAILED":         14,
 		"CODE_RECONNECT_TIMEOUT":        15,
 		"CODE_SESSION_BUSY":             16,
+		"CODE_TRANSFER_INTERRUPTED":     17,
+		"CODE_CHECKSUM_MISMATCH":        18,
+		"CODE_STORAGE_FAILED":           19,
+		"CODE_FILE_TOO_LARGE":           20,
+		"CODE_UNSAFE_FILENAME":          21,
+		"CODE_TRANSFER_BUSY":            22,
+		"CODE_TRANSFER_CANCELLED":       23,
 	}
 )
 
@@ -205,7 +243,12 @@ func (Code) EnumDescriptor() ([]byte, []int) {
 }
 
 // ---------------------------------------------------------------------------
-// Envelope — top-level framing for every message on the wire.
+// Envelope — top-level framing for session-level control messages and for the
+// local IPC relay (DEC-018). Feature DataChannels carry their own feature
+// message directly (the shipped Phase 3 clipboard DataChannel carries a bare
+// ClipboardUpdate; the Phase 4 "transfer" DataChannel carries a bare
+// TransferFrame — see DEC-024), so the Envelope feature branches below are
+// retained for wire compatibility but are not sent by current peers.
 // ---------------------------------------------------------------------------
 type Envelope struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -589,23 +632,27 @@ type Envelope_NotificationDismissed struct {
 }
 
 type Envelope_FileOffer struct {
-	FileOffer *FileOffer `protobuf:"bytes,24,opt,name=file_offer,json=fileOffer,proto3,oneof"` // PLANNED
+	// File transfer. The messages are real as of Phase 4 (DEC-024) but they
+	// travel inside TransferFrame on the "transfer" DataChannel; these
+	// Envelope branches exist for wire compatibility and are never sent by
+	// current peers. Removing them would be a breaking proto change.
+	FileOffer *FileOffer `protobuf:"bytes,24,opt,name=file_offer,json=fileOffer,proto3,oneof"`
 }
 
 type Envelope_FileAccept struct {
-	FileAccept *FileAccept `protobuf:"bytes,25,opt,name=file_accept,json=fileAccept,proto3,oneof"` // PLANNED
+	FileAccept *FileAccept `protobuf:"bytes,25,opt,name=file_accept,json=fileAccept,proto3,oneof"`
 }
 
 type Envelope_FileChunk struct {
-	FileChunk *FileChunk `protobuf:"bytes,26,opt,name=file_chunk,json=fileChunk,proto3,oneof"` // PLANNED
+	FileChunk *FileChunk `protobuf:"bytes,26,opt,name=file_chunk,json=fileChunk,proto3,oneof"`
 }
 
 type Envelope_FileComplete struct {
-	FileComplete *FileComplete `protobuf:"bytes,27,opt,name=file_complete,json=fileComplete,proto3,oneof"` // PLANNED
+	FileComplete *FileComplete `protobuf:"bytes,27,opt,name=file_complete,json=fileComplete,proto3,oneof"`
 }
 
 type Envelope_FileCancel struct {
-	FileCancel *FileCancel `protobuf:"bytes,28,opt,name=file_cancel,json=fileCancel,proto3,oneof"` // PLANNED
+	FileCancel *FileCancel `protobuf:"bytes,28,opt,name=file_cancel,json=fileCancel,proto3,oneof"`
 }
 
 type Envelope_ScreenStart struct {
@@ -1440,8 +1487,9 @@ func (x *ScreenStart) GetActual() *MediaParams {
 // Feature payloads
 // ---------------------------------------------------------------------------
 // ClipboardUpdate conveys a discrete clipboard state change between paired peers
-// (ratified by DEC-023, Phase 3). Transported inside Envelope over a dedicated,
-// reliable, ordered WebRTC DataChannel ("clipboard").
+// (ratified by DEC-023, Phase 3). Transported as a bare message over a
+// dedicated, reliable, ordered WebRTC DataChannel ("clipboard") — NOT inside
+// Envelope; see the Envelope comment above and DEC-024.
 type ClipboardUpdate struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Canonical MIME type of the payload.
@@ -1518,26 +1566,60 @@ func (x *ClipboardUpdate) GetCopiedAtMs() uint64 {
 	return 0
 }
 
-type NotificationEvent struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+// ---------------------------------------------------------------------------
+// File transfer (DEC-012 → DEC-024, Phase 4)
+// ---------------------------------------------------------------------------
+// One dedicated, reliable, ordered WebRTC DataChannel ("transfer", created by
+// the same side that creates "control" and "clipboard"). Every DataChannel
+// message is exactly one TransferFrame, so each frame is self-describing
+// without an Envelope (the shipped Phase 3 clipboard DataChannel works the
+// same way with a bare ClipboardUpdate).
+//
+// Lifecycle, in order:
+//  1. sender   → receiver: FileOffer
+//  2. receiver → sender:   FileAccept        (exactly one per offer)
+//  3. sender   → receiver: FileChunk × N     (only after an accepted offer)
+//  4. sender   → receiver: FileComplete
+//  5. receiver → sender:   FileResult        (terminal verdict = the sender's ack)
+//
+// FileCancel may replace any remaining step after the offer. At most one
+// outbound and one inbound transfer is active per session (DEC-024), so chunks
+// of one transfer are never interleaved with another's; TransferFrame carries
+// transfer_id in every branch anyway so a future interleaved mode is additive.
+type TransferFrame struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Frame format version. v1 = 1. A receiver refuses an unknown version with
+	// CODE_INCOMPATIBLE_VERSION instead of guessing field semantics.
+	Version uint32 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
+	// Exactly one body. Unknown branches must be ignored by older peers.
+	//
+	// Types that are valid to be assigned to Body:
+	//
+	//	*TransferFrame_Offer
+	//	*TransferFrame_Accept
+	//	*TransferFrame_Chunk
+	//	*TransferFrame_Complete
+	//	*TransferFrame_Result
+	//	*TransferFrame_Cancel
+	Body          isTransferFrame_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *NotificationEvent) Reset() {
-	*x = NotificationEvent{}
+func (x *TransferFrame) Reset() {
+	*x = TransferFrame{}
 	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *NotificationEvent) String() string {
+func (x *TransferFrame) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*NotificationEvent) ProtoMessage() {}
+func (*TransferFrame) ProtoMessage() {}
 
-func (x *NotificationEvent) ProtoReflect() protoreflect.Message {
+func (x *TransferFrame) ProtoReflect() protoreflect.Message {
 	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1549,92 +1631,155 @@ func (x *NotificationEvent) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use NotificationEvent.ProtoReflect.Descriptor instead.
-func (*NotificationEvent) Descriptor() ([]byte, []int) {
+// Deprecated: Use TransferFrame.ProtoReflect.Descriptor instead.
+func (*TransferFrame) Descriptor() ([]byte, []int) {
 	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{14}
 }
 
-type NotificationAction struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *NotificationAction) Reset() {
-	*x = NotificationAction{}
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[15]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *NotificationAction) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*NotificationAction) ProtoMessage() {}
-
-func (x *NotificationAction) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[15]
+func (x *TransferFrame) GetVersion() uint32 {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
+		return x.Version
 	}
-	return mi.MessageOf(x)
+	return 0
 }
 
-// Deprecated: Use NotificationAction.ProtoReflect.Descriptor instead.
-func (*NotificationAction) Descriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{15}
-}
-
-type NotificationDismissed struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *NotificationDismissed) Reset() {
-	*x = NotificationDismissed{}
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[16]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *NotificationDismissed) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*NotificationDismissed) ProtoMessage() {}
-
-func (x *NotificationDismissed) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[16]
+func (x *TransferFrame) GetBody() isTransferFrame_Body {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
+		return x.Body
 	}
-	return mi.MessageOf(x)
+	return nil
 }
 
-// Deprecated: Use NotificationDismissed.ProtoReflect.Descriptor instead.
-func (*NotificationDismissed) Descriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{16}
+func (x *TransferFrame) GetOffer() *FileOffer {
+	if x != nil {
+		if x, ok := x.Body.(*TransferFrame_Offer); ok {
+			return x.Offer
+		}
+	}
+	return nil
 }
 
+func (x *TransferFrame) GetAccept() *FileAccept {
+	if x != nil {
+		if x, ok := x.Body.(*TransferFrame_Accept); ok {
+			return x.Accept
+		}
+	}
+	return nil
+}
+
+func (x *TransferFrame) GetChunk() *FileChunk {
+	if x != nil {
+		if x, ok := x.Body.(*TransferFrame_Chunk); ok {
+			return x.Chunk
+		}
+	}
+	return nil
+}
+
+func (x *TransferFrame) GetComplete() *FileComplete {
+	if x != nil {
+		if x, ok := x.Body.(*TransferFrame_Complete); ok {
+			return x.Complete
+		}
+	}
+	return nil
+}
+
+func (x *TransferFrame) GetResult() *FileResult {
+	if x != nil {
+		if x, ok := x.Body.(*TransferFrame_Result); ok {
+			return x.Result
+		}
+	}
+	return nil
+}
+
+func (x *TransferFrame) GetCancel() *FileCancel {
+	if x != nil {
+		if x, ok := x.Body.(*TransferFrame_Cancel); ok {
+			return x.Cancel
+		}
+	}
+	return nil
+}
+
+type isTransferFrame_Body interface {
+	isTransferFrame_Body()
+}
+
+type TransferFrame_Offer struct {
+	Offer *FileOffer `protobuf:"bytes,10,opt,name=offer,proto3,oneof"`
+}
+
+type TransferFrame_Accept struct {
+	Accept *FileAccept `protobuf:"bytes,11,opt,name=accept,proto3,oneof"`
+}
+
+type TransferFrame_Chunk struct {
+	Chunk *FileChunk `protobuf:"bytes,12,opt,name=chunk,proto3,oneof"`
+}
+
+type TransferFrame_Complete struct {
+	Complete *FileComplete `protobuf:"bytes,13,opt,name=complete,proto3,oneof"`
+}
+
+type TransferFrame_Result struct {
+	Result *FileResult `protobuf:"bytes,14,opt,name=result,proto3,oneof"`
+}
+
+type TransferFrame_Cancel struct {
+	Cancel *FileCancel `protobuf:"bytes,15,opt,name=cancel,proto3,oneof"`
+}
+
+func (*TransferFrame_Offer) isTransferFrame_Body() {}
+
+func (*TransferFrame_Accept) isTransferFrame_Body() {}
+
+func (*TransferFrame_Chunk) isTransferFrame_Body() {}
+
+func (*TransferFrame_Complete) isTransferFrame_Body() {}
+
+func (*TransferFrame_Result) isTransferFrame_Body() {}
+
+func (*TransferFrame_Cancel) isTransferFrame_Body() {}
+
+// FileOffer opens a transfer: sender → receiver.
 type FileOffer struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Random 128-bit transfer identifier (32 lowercase hex chars), unique per
+	// sender. A second offer for a live or known id is a protocol violation and
+	// is refused, which is the replay/duplicate guard (DEC-024).
+	TransferId string `protobuf:"bytes,1,opt,name=transfer_id,json=transferId,proto3" json:"transfer_id,omitempty"`
+	// Basename only. Path separators, NUL, "..", "." and over-length names are
+	// refused with CODE_UNSAFE_FILENAME; the receiver owns the directory choice
+	// and never accepts a sender-controlled path.
+	Filename string `protobuf:"bytes,2,opt,name=filename,proto3" json:"filename,omitempty"`
+	// Canonical MIME type when the sender knows it. Empty means "unknown".
+	MimeType string `protobuf:"bytes,3,opt,name=mime_type,json=mimeType,proto3" json:"mime_type,omitempty"`
+	// Exact byte length of the file. Used for progress, free-space preflight and
+	// completion validation (FileComplete.size_bytes must equal it).
+	SizeBytes uint64 `protobuf:"varint,4,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	// Optional 32-byte SHA-256 of the whole file declared before any chunk.
+	// Phase 4 senders leave this EMPTY and compute the digest in the same pass
+	// that sends the bytes (FileComplete always carries it), which keeps sending
+	// a single pass with no pre-hash and no staging copy. When present, the
+	// receiver compares the streamed digest against it as an extra check.
+	Sha256Digest []byte `protobuf:"bytes,5,opt,name=sha256_digest,json=sha256Digest,proto3" json:"sha256_digest,omitempty"`
+	// Chunk payload size the sender uses for every chunk except the last.
+	// MUST be 1..65536; a receiver refuses a larger value with
+	// CODE_INVALID_ARGUMENT before accepting the transfer.
+	ChunkSize uint32 `protobuf:"varint,6,opt,name=chunk_size,json=chunkSize,proto3" json:"chunk_size,omitempty"`
+	// Sender wall clock in milliseconds since Unix epoch (informational only;
+	// never used for ordering or trust).
+	CreatedAtMs   uint64 `protobuf:"varint,7,opt,name=created_at_ms,json=createdAtMs,proto3" json:"created_at_ms,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FileOffer) Reset() {
 	*x = FileOffer{}
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[17]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1646,7 +1791,7 @@ func (x *FileOffer) String() string {
 func (*FileOffer) ProtoMessage() {}
 
 func (x *FileOffer) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[17]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1659,18 +1804,76 @@ func (x *FileOffer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileOffer.ProtoReflect.Descriptor instead.
 func (*FileOffer) Descriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{17}
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{15}
 }
 
+func (x *FileOffer) GetTransferId() string {
+	if x != nil {
+		return x.TransferId
+	}
+	return ""
+}
+
+func (x *FileOffer) GetFilename() string {
+	if x != nil {
+		return x.Filename
+	}
+	return ""
+}
+
+func (x *FileOffer) GetMimeType() string {
+	if x != nil {
+		return x.MimeType
+	}
+	return ""
+}
+
+func (x *FileOffer) GetSizeBytes() uint64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
+func (x *FileOffer) GetSha256Digest() []byte {
+	if x != nil {
+		return x.Sha256Digest
+	}
+	return nil
+}
+
+func (x *FileOffer) GetChunkSize() uint32 {
+	if x != nil {
+		return x.ChunkSize
+	}
+	return 0
+}
+
+func (x *FileOffer) GetCreatedAtMs() uint64 {
+	if x != nil {
+		return x.CreatedAtMs
+	}
+	return 0
+}
+
+// FileAccept answers a FileOffer: receiver → sender. Exactly one per offer.
 type FileAccept struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	TransferId string                 `protobuf:"bytes,1,opt,name=transfer_id,json=transferId,proto3" json:"transfer_id,omitempty"`
+	// True when the receiver will accept chunks for this transfer.
+	Accept bool `protobuf:"varint,2,opt,name=accept,proto3" json:"accept,omitempty"`
+	// Set when accept is false: the typed reason (see Code). CODE_OK when the
+	// value is not meaningful.
+	Code Code `protobuf:"varint,3,opt,name=code,proto3,enum=phonebridge.v1.Code" json:"code,omitempty"`
+	// Human-readable detail for logs and UI; never parsed.
+	Reason        string `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FileAccept) Reset() {
 	*x = FileAccept{}
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[18]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1682,7 +1885,7 @@ func (x *FileAccept) String() string {
 func (*FileAccept) ProtoMessage() {}
 
 func (x *FileAccept) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[18]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1695,18 +1898,57 @@ func (x *FileAccept) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileAccept.ProtoReflect.Descriptor instead.
 func (*FileAccept) Descriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{18}
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{16}
 }
 
+func (x *FileAccept) GetTransferId() string {
+	if x != nil {
+		return x.TransferId
+	}
+	return ""
+}
+
+func (x *FileAccept) GetAccept() bool {
+	if x != nil {
+		return x.Accept
+	}
+	return false
+}
+
+func (x *FileAccept) GetCode() Code {
+	if x != nil {
+		return x.Code
+	}
+	return Code_CODE_UNSPECIFIED
+}
+
+func (x *FileAccept) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+// FileChunk carries one slice of the file: sender → receiver.
 type FileChunk struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	TransferId string                 `protobuf:"bytes,1,opt,name=transfer_id,json=transferId,proto3" json:"transfer_id,omitempty"`
+	// Zero-based chunk index. The reliable, ordered DataChannel delivers
+	// messages in order, so the receiver requires exactly the next expected
+	// index: a gap, duplicate or reorder is a protocol violation and aborts the
+	// transfer with CODE_INVALID_ARGUMENT.
+	ChunkIndex uint64 `protobuf:"varint,2,opt,name=chunk_index,json=chunkIndex,proto3" json:"chunk_index,omitempty"`
+	// Byte offset of data[0] in the file; MUST equal chunk_index * offer.chunk_size.
+	Offset uint64 `protobuf:"varint,3,opt,name=offset,proto3" json:"offset,omitempty"`
+	// The bytes. len(data) <= FileOffer.chunk_size.
+	Data          []byte `protobuf:"bytes,4,opt,name=data,proto3" json:"data,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FileChunk) Reset() {
 	*x = FileChunk{}
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[19]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1718,7 +1960,7 @@ func (x *FileChunk) String() string {
 func (*FileChunk) ProtoMessage() {}
 
 func (x *FileChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[19]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1731,18 +1973,53 @@ func (x *FileChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileChunk.ProtoReflect.Descriptor instead.
 func (*FileChunk) Descriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{19}
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{17}
 }
 
+func (x *FileChunk) GetTransferId() string {
+	if x != nil {
+		return x.TransferId
+	}
+	return ""
+}
+
+func (x *FileChunk) GetChunkIndex() uint64 {
+	if x != nil {
+		return x.ChunkIndex
+	}
+	return 0
+}
+
+func (x *FileChunk) GetOffset() uint64 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+func (x *FileChunk) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+// FileComplete is sent by the sender after the last chunk.
 type FileComplete struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	TransferId string                 `protobuf:"bytes,1,opt,name=transfer_id,json=transferId,proto3" json:"transfer_id,omitempty"`
+	// Bytes actually sent; MUST equal FileOffer.size_bytes.
+	SizeBytes uint64 `protobuf:"varint,2,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	// SHA-256 of exactly the bytes that were sent. When FileOffer declared a
+	// digest, both must match as well.
+	Sha256Digest  []byte `protobuf:"bytes,3,opt,name=sha256_digest,json=sha256Digest,proto3" json:"sha256_digest,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FileComplete) Reset() {
 	*x = FileComplete{}
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[20]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1754,7 +2031,7 @@ func (x *FileComplete) String() string {
 func (*FileComplete) ProtoMessage() {}
 
 func (x *FileComplete) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[20]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1767,18 +2044,132 @@ func (x *FileComplete) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileComplete.ProtoReflect.Descriptor instead.
 func (*FileComplete) Descriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{20}
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{18}
 }
 
+func (x *FileComplete) GetTransferId() string {
+	if x != nil {
+		return x.TransferId
+	}
+	return ""
+}
+
+func (x *FileComplete) GetSizeBytes() uint64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
+func (x *FileComplete) GetSha256Digest() []byte {
+	if x != nil {
+		return x.Sha256Digest
+	}
+	return nil
+}
+
+// FileResult is the receiver's terminal verdict and the sender's completion
+// ack: receiver → sender. Exactly one FileResult or FileCancel terminates a
+// transfer; the sender must not treat "no answer" as success.
+type FileResult struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	TransferId string                 `protobuf:"bytes,1,opt,name=transfer_id,json=transferId,proto3" json:"transfer_id,omitempty"`
+	// True only after every byte was written, the size and SHA-256 matched the
+	// offer, and the file was promoted to its final destination.
+	Committed bool `protobuf:"varint,2,opt,name=committed,proto3" json:"committed,omitempty"`
+	// Terminal code: CODE_OK when committed, a typed failure otherwise.
+	Code Code `protobuf:"varint,3,opt,name=code,proto3,enum=phonebridge.v1.Code" json:"code,omitempty"`
+	// Human-readable detail for logs and UI; never parsed.
+	Reason string `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
+	// Basename the receiver stored (after any collision rename). Never a path:
+	// the receiver's directory layout stays private.
+	SavedName     string `protobuf:"bytes,5,opt,name=saved_name,json=savedName,proto3" json:"saved_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileResult) Reset() {
+	*x = FileResult{}
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileResult) ProtoMessage() {}
+
+func (x *FileResult) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileResult.ProtoReflect.Descriptor instead.
+func (*FileResult) Descriptor() ([]byte, []int) {
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *FileResult) GetTransferId() string {
+	if x != nil {
+		return x.TransferId
+	}
+	return ""
+}
+
+func (x *FileResult) GetCommitted() bool {
+	if x != nil {
+		return x.Committed
+	}
+	return false
+}
+
+func (x *FileResult) GetCode() Code {
+	if x != nil {
+		return x.Code
+	}
+	return Code_CODE_UNSPECIFIED
+}
+
+func (x *FileResult) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *FileResult) GetSavedName() string {
+	if x != nil {
+		return x.SavedName
+	}
+	return ""
+}
+
+// FileCancel aborts a transfer: either side → the other, any time after the
+// offer. The receiver deletes its partial file; the sender stops reading.
 type FileCancel struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	TransferId string                 `protobuf:"bytes,1,opt,name=transfer_id,json=transferId,proto3" json:"transfer_id,omitempty"`
+	// Typed reason (CODE_TRANSFER_CANCELLED for a local user cancel, others for
+	// aborts discovered locally, e.g. CODE_STORAGE_FAILED).
+	Code Code `protobuf:"varint,2,opt,name=code,proto3,enum=phonebridge.v1.Code" json:"code,omitempty"`
+	// Human-readable detail for logs and UI; never parsed.
+	Reason        string `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FileCancel) Reset() {
 	*x = FileCancel{}
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[21]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1790,7 +2181,7 @@ func (x *FileCancel) String() string {
 func (*FileCancel) ProtoMessage() {}
 
 func (x *FileCancel) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[21]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1803,7 +2194,136 @@ func (x *FileCancel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileCancel.ProtoReflect.Descriptor instead.
 func (*FileCancel) Descriptor() ([]byte, []int) {
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *FileCancel) GetTransferId() string {
+	if x != nil {
+		return x.TransferId
+	}
+	return ""
+}
+
+func (x *FileCancel) GetCode() Code {
+	if x != nil {
+		return x.Code
+	}
+	return Code_CODE_UNSPECIFIED
+}
+
+func (x *FileCancel) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type NotificationEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NotificationEvent) Reset() {
+	*x = NotificationEvent{}
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NotificationEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NotificationEvent) ProtoMessage() {}
+
+func (x *NotificationEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NotificationEvent.ProtoReflect.Descriptor instead.
+func (*NotificationEvent) Descriptor() ([]byte, []int) {
 	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{21}
+}
+
+type NotificationAction struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NotificationAction) Reset() {
+	*x = NotificationAction{}
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NotificationAction) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NotificationAction) ProtoMessage() {}
+
+func (x *NotificationAction) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NotificationAction.ProtoReflect.Descriptor instead.
+func (*NotificationAction) Descriptor() ([]byte, []int) {
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{22}
+}
+
+type NotificationDismissed struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NotificationDismissed) Reset() {
+	*x = NotificationDismissed{}
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NotificationDismissed) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NotificationDismissed) ProtoMessage() {}
+
+func (x *NotificationDismissed) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NotificationDismissed.ProtoReflect.Descriptor instead.
+func (*NotificationDismissed) Descriptor() ([]byte, []int) {
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{23}
 }
 
 type ScreenStop struct {
@@ -1818,7 +2338,7 @@ type ScreenStop struct {
 
 func (x *ScreenStop) Reset() {
 	*x = ScreenStop{}
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[22]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1830,7 +2350,7 @@ func (x *ScreenStop) String() string {
 func (*ScreenStop) ProtoMessage() {}
 
 func (x *ScreenStop) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[22]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1843,7 +2363,7 @@ func (x *ScreenStop) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScreenStop.ProtoReflect.Descriptor instead.
 func (*ScreenStop) Descriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{22}
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ScreenStop) GetReasonCode() Code {
@@ -1868,7 +2388,7 @@ type InputKeyboard struct {
 
 func (x *InputKeyboard) Reset() {
 	*x = InputKeyboard{}
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[23]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1880,7 +2400,7 @@ func (x *InputKeyboard) String() string {
 func (*InputKeyboard) ProtoMessage() {}
 
 func (x *InputKeyboard) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[23]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1893,7 +2413,7 @@ func (x *InputKeyboard) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InputKeyboard.ProtoReflect.Descriptor instead.
 func (*InputKeyboard) Descriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{23}
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{25}
 }
 
 type InputMouse struct {
@@ -1904,7 +2424,7 @@ type InputMouse struct {
 
 func (x *InputMouse) Reset() {
 	*x = InputMouse{}
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[24]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1916,7 +2436,7 @@ func (x *InputMouse) String() string {
 func (*InputMouse) ProtoMessage() {}
 
 func (x *InputMouse) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[24]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1929,7 +2449,7 @@ func (x *InputMouse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InputMouse.ProtoReflect.Descriptor instead.
 func (*InputMouse) Descriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{24}
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{26}
 }
 
 type InputTouch struct {
@@ -1940,7 +2460,7 @@ type InputTouch struct {
 
 func (x *InputTouch) Reset() {
 	*x = InputTouch{}
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[25]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1952,7 +2472,7 @@ func (x *InputTouch) String() string {
 func (*InputTouch) ProtoMessage() {}
 
 func (x *InputTouch) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[25]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1965,7 +2485,7 @@ func (x *InputTouch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InputTouch.ProtoReflect.Descriptor instead.
 func (*InputTouch) Descriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{25}
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{27}
 }
 
 type DeviceStatus struct {
@@ -1976,7 +2496,7 @@ type DeviceStatus struct {
 
 func (x *DeviceStatus) Reset() {
 	*x = DeviceStatus{}
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[26]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1988,7 +2508,7 @@ func (x *DeviceStatus) String() string {
 func (*DeviceStatus) ProtoMessage() {}
 
 func (x *DeviceStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[26]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2001,7 +2521,7 @@ func (x *DeviceStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceStatus.ProtoReflect.Descriptor instead.
 func (*DeviceStatus) Descriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{26}
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{28}
 }
 
 var File_phonebridge_v1_phonebridge_proto protoreflect.FileDescriptor
@@ -2110,17 +2630,66 @@ const file_phonebridge_v1_phonebridge_proto_rawDesc = "" +
 	"\apayload\x18\x02 \x01(\fR\apayload\x12#\n" +
 	"\rsha256_digest\x18\x03 \x01(\fR\fsha256Digest\x12 \n" +
 	"\fcopied_at_ms\x18\x04 \x01(\x04R\n" +
-	"copiedAtMs\"\x13\n" +
+	"copiedAtMs\"\xf5\x02\n" +
+	"\rTransferFrame\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\rR\aversion\x121\n" +
+	"\x05offer\x18\n" +
+	" \x01(\v2\x19.phonebridge.v1.FileOfferH\x00R\x05offer\x124\n" +
+	"\x06accept\x18\v \x01(\v2\x1a.phonebridge.v1.FileAcceptH\x00R\x06accept\x121\n" +
+	"\x05chunk\x18\f \x01(\v2\x19.phonebridge.v1.FileChunkH\x00R\x05chunk\x12:\n" +
+	"\bcomplete\x18\r \x01(\v2\x1c.phonebridge.v1.FileCompleteH\x00R\bcomplete\x124\n" +
+	"\x06result\x18\x0e \x01(\v2\x1a.phonebridge.v1.FileResultH\x00R\x06result\x124\n" +
+	"\x06cancel\x18\x0f \x01(\v2\x1a.phonebridge.v1.FileCancelH\x00R\x06cancelB\x06\n" +
+	"\x04body\"\xec\x01\n" +
+	"\tFileOffer\x12\x1f\n" +
+	"\vtransfer_id\x18\x01 \x01(\tR\n" +
+	"transferId\x12\x1a\n" +
+	"\bfilename\x18\x02 \x01(\tR\bfilename\x12\x1b\n" +
+	"\tmime_type\x18\x03 \x01(\tR\bmimeType\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\x04 \x01(\x04R\tsizeBytes\x12#\n" +
+	"\rsha256_digest\x18\x05 \x01(\fR\fsha256Digest\x12\x1d\n" +
+	"\n" +
+	"chunk_size\x18\x06 \x01(\rR\tchunkSize\x12\"\n" +
+	"\rcreated_at_ms\x18\a \x01(\x04R\vcreatedAtMs\"\x87\x01\n" +
+	"\n" +
+	"FileAccept\x12\x1f\n" +
+	"\vtransfer_id\x18\x01 \x01(\tR\n" +
+	"transferId\x12\x16\n" +
+	"\x06accept\x18\x02 \x01(\bR\x06accept\x12(\n" +
+	"\x04code\x18\x03 \x01(\x0e2\x14.phonebridge.v1.CodeR\x04code\x12\x16\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\"y\n" +
+	"\tFileChunk\x12\x1f\n" +
+	"\vtransfer_id\x18\x01 \x01(\tR\n" +
+	"transferId\x12\x1f\n" +
+	"\vchunk_index\x18\x02 \x01(\x04R\n" +
+	"chunkIndex\x12\x16\n" +
+	"\x06offset\x18\x03 \x01(\x04R\x06offset\x12\x12\n" +
+	"\x04data\x18\x04 \x01(\fR\x04data\"s\n" +
+	"\fFileComplete\x12\x1f\n" +
+	"\vtransfer_id\x18\x01 \x01(\tR\n" +
+	"transferId\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\x02 \x01(\x04R\tsizeBytes\x12#\n" +
+	"\rsha256_digest\x18\x03 \x01(\fR\fsha256Digest\"\xac\x01\n" +
+	"\n" +
+	"FileResult\x12\x1f\n" +
+	"\vtransfer_id\x18\x01 \x01(\tR\n" +
+	"transferId\x12\x1c\n" +
+	"\tcommitted\x18\x02 \x01(\bR\tcommitted\x12(\n" +
+	"\x04code\x18\x03 \x01(\x0e2\x14.phonebridge.v1.CodeR\x04code\x12\x16\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\x12\x1d\n" +
+	"\n" +
+	"saved_name\x18\x05 \x01(\tR\tsavedName\"o\n" +
+	"\n" +
+	"FileCancel\x12\x1f\n" +
+	"\vtransfer_id\x18\x01 \x01(\tR\n" +
+	"transferId\x12(\n" +
+	"\x04code\x18\x02 \x01(\x0e2\x14.phonebridge.v1.CodeR\x04code\x12\x16\n" +
+	"\x06reason\x18\x03 \x01(\tR\x06reason\"\x13\n" +
 	"\x11NotificationEvent\"\x14\n" +
 	"\x12NotificationAction\"\x17\n" +
-	"\x15NotificationDismissed\"\v\n" +
-	"\tFileOffer\"\f\n" +
-	"\n" +
-	"FileAccept\"\v\n" +
-	"\tFileChunk\"\x0e\n" +
-	"\fFileComplete\"\f\n" +
-	"\n" +
-	"FileCancel\"[\n" +
+	"\x15NotificationDismissed\"[\n" +
 	"\n" +
 	"ScreenStop\x125\n" +
 	"\vreason_code\x18\x01 \x01(\x0e2\x14.phonebridge.v1.CodeR\n" +
@@ -2140,7 +2709,7 @@ const file_phonebridge_v1_phonebridge_proto_rawDesc = "" +
 	"\x18CAPABILITY_NOTIFICATIONS\x10\x03\x12\x15\n" +
 	"\x11CAPABILITY_SCREEN\x10\x04\x12\x14\n" +
 	"\x10CAPABILITY_INPUT\x10\x05\x12\x1c\n" +
-	"\x18CAPABILITY_DEVICE_STATUS\x10\x06*\xb0\x03\n" +
+	"\x18CAPABILITY_DEVICE_STATUS\x10\x06*\xec\x04\n" +
 	"\x04Code\x12\x14\n" +
 	"\x10CODE_UNSPECIFIED\x10\x00\x12\v\n" +
 	"\aCODE_OK\x10\x01\x12\x19\n" +
@@ -2159,7 +2728,14 @@ const file_phonebridge_v1_phonebridge_proto_rawDesc = "" +
 	"\x13CODE_CAPTURE_FAILED\x10\r\x12\x19\n" +
 	"\x15CODE_TRANSPORT_FAILED\x10\x0e\x12\x1a\n" +
 	"\x16CODE_RECONNECT_TIMEOUT\x10\x0f\x12\x15\n" +
-	"\x11CODE_SESSION_BUSY\x10\x10Bi\n" +
+	"\x11CODE_SESSION_BUSY\x10\x10\x12\x1d\n" +
+	"\x19CODE_TRANSFER_INTERRUPTED\x10\x11\x12\x1a\n" +
+	"\x16CODE_CHECKSUM_MISMATCH\x10\x12\x12\x17\n" +
+	"\x13CODE_STORAGE_FAILED\x10\x13\x12\x17\n" +
+	"\x13CODE_FILE_TOO_LARGE\x10\x14\x12\x18\n" +
+	"\x14CODE_UNSAFE_FILENAME\x10\x15\x12\x16\n" +
+	"\x12CODE_TRANSFER_BUSY\x10\x16\x12\x1b\n" +
+	"\x17CODE_TRANSFER_CANCELLED\x10\x17Bi\n" +
 	"\x18dev.phonebridge.proto.v1P\x01ZKgithub.com/om051p/phonebridge/core/pkg/protocol/phonebridgev1;phonebridgev1b\x06proto3"
 
 var (
@@ -2175,7 +2751,7 @@ func file_phonebridge_v1_phonebridge_proto_rawDescGZIP() []byte {
 }
 
 var file_phonebridge_v1_phonebridge_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_phonebridge_v1_phonebridge_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
+var file_phonebridge_v1_phonebridge_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
 var file_phonebridge_v1_phonebridge_proto_goTypes = []any{
 	(Capability)(0),               // 0: phonebridge.v1.Capability
 	(Code)(0),                     // 1: phonebridge.v1.Code
@@ -2193,20 +2769,22 @@ var file_phonebridge_v1_phonebridge_proto_goTypes = []any{
 	(*Error)(nil),                 // 13: phonebridge.v1.Error
 	(*ScreenStart)(nil),           // 14: phonebridge.v1.ScreenStart
 	(*ClipboardUpdate)(nil),       // 15: phonebridge.v1.ClipboardUpdate
-	(*NotificationEvent)(nil),     // 16: phonebridge.v1.NotificationEvent
-	(*NotificationAction)(nil),    // 17: phonebridge.v1.NotificationAction
-	(*NotificationDismissed)(nil), // 18: phonebridge.v1.NotificationDismissed
-	(*FileOffer)(nil),             // 19: phonebridge.v1.FileOffer
-	(*FileAccept)(nil),            // 20: phonebridge.v1.FileAccept
-	(*FileChunk)(nil),             // 21: phonebridge.v1.FileChunk
-	(*FileComplete)(nil),          // 22: phonebridge.v1.FileComplete
-	(*FileCancel)(nil),            // 23: phonebridge.v1.FileCancel
-	(*ScreenStop)(nil),            // 24: phonebridge.v1.ScreenStop
-	(*InputKeyboard)(nil),         // 25: phonebridge.v1.InputKeyboard
-	(*InputMouse)(nil),            // 26: phonebridge.v1.InputMouse
-	(*InputTouch)(nil),            // 27: phonebridge.v1.InputTouch
-	(*DeviceStatus)(nil),          // 28: phonebridge.v1.DeviceStatus
-	nil,                           // 29: phonebridge.v1.Error.DetailsEntry
+	(*TransferFrame)(nil),         // 16: phonebridge.v1.TransferFrame
+	(*FileOffer)(nil),             // 17: phonebridge.v1.FileOffer
+	(*FileAccept)(nil),            // 18: phonebridge.v1.FileAccept
+	(*FileChunk)(nil),             // 19: phonebridge.v1.FileChunk
+	(*FileComplete)(nil),          // 20: phonebridge.v1.FileComplete
+	(*FileResult)(nil),            // 21: phonebridge.v1.FileResult
+	(*FileCancel)(nil),            // 22: phonebridge.v1.FileCancel
+	(*NotificationEvent)(nil),     // 23: phonebridge.v1.NotificationEvent
+	(*NotificationAction)(nil),    // 24: phonebridge.v1.NotificationAction
+	(*NotificationDismissed)(nil), // 25: phonebridge.v1.NotificationDismissed
+	(*ScreenStop)(nil),            // 26: phonebridge.v1.ScreenStop
+	(*InputKeyboard)(nil),         // 27: phonebridge.v1.InputKeyboard
+	(*InputMouse)(nil),            // 28: phonebridge.v1.InputMouse
+	(*InputTouch)(nil),            // 29: phonebridge.v1.InputTouch
+	(*DeviceStatus)(nil),          // 30: phonebridge.v1.DeviceStatus
+	nil,                           // 31: phonebridge.v1.Error.DetailsEntry
 }
 var file_phonebridge_v1_phonebridge_proto_depIdxs = []int32{
 	3,  // 0: phonebridge.v1.Envelope.capabilities:type_name -> phonebridge.v1.CapabilitySet
@@ -2218,20 +2796,20 @@ var file_phonebridge_v1_phonebridge_proto_depIdxs = []int32{
 	10, // 6: phonebridge.v1.Envelope.pair_reject:type_name -> phonebridge.v1.PairReject
 	13, // 7: phonebridge.v1.Envelope.error:type_name -> phonebridge.v1.Error
 	15, // 8: phonebridge.v1.Envelope.clipboard_update:type_name -> phonebridge.v1.ClipboardUpdate
-	16, // 9: phonebridge.v1.Envelope.notification_event:type_name -> phonebridge.v1.NotificationEvent
-	17, // 10: phonebridge.v1.Envelope.notification_action:type_name -> phonebridge.v1.NotificationAction
-	18, // 11: phonebridge.v1.Envelope.notification_dismissed:type_name -> phonebridge.v1.NotificationDismissed
-	19, // 12: phonebridge.v1.Envelope.file_offer:type_name -> phonebridge.v1.FileOffer
-	20, // 13: phonebridge.v1.Envelope.file_accept:type_name -> phonebridge.v1.FileAccept
-	21, // 14: phonebridge.v1.Envelope.file_chunk:type_name -> phonebridge.v1.FileChunk
-	22, // 15: phonebridge.v1.Envelope.file_complete:type_name -> phonebridge.v1.FileComplete
-	23, // 16: phonebridge.v1.Envelope.file_cancel:type_name -> phonebridge.v1.FileCancel
+	23, // 9: phonebridge.v1.Envelope.notification_event:type_name -> phonebridge.v1.NotificationEvent
+	24, // 10: phonebridge.v1.Envelope.notification_action:type_name -> phonebridge.v1.NotificationAction
+	25, // 11: phonebridge.v1.Envelope.notification_dismissed:type_name -> phonebridge.v1.NotificationDismissed
+	17, // 12: phonebridge.v1.Envelope.file_offer:type_name -> phonebridge.v1.FileOffer
+	18, // 13: phonebridge.v1.Envelope.file_accept:type_name -> phonebridge.v1.FileAccept
+	19, // 14: phonebridge.v1.Envelope.file_chunk:type_name -> phonebridge.v1.FileChunk
+	20, // 15: phonebridge.v1.Envelope.file_complete:type_name -> phonebridge.v1.FileComplete
+	22, // 16: phonebridge.v1.Envelope.file_cancel:type_name -> phonebridge.v1.FileCancel
 	14, // 17: phonebridge.v1.Envelope.screen_start:type_name -> phonebridge.v1.ScreenStart
-	24, // 18: phonebridge.v1.Envelope.screen_stop:type_name -> phonebridge.v1.ScreenStop
-	25, // 19: phonebridge.v1.Envelope.input_keyboard:type_name -> phonebridge.v1.InputKeyboard
-	26, // 20: phonebridge.v1.Envelope.input_mouse:type_name -> phonebridge.v1.InputMouse
-	27, // 21: phonebridge.v1.Envelope.input_touch:type_name -> phonebridge.v1.InputTouch
-	28, // 22: phonebridge.v1.Envelope.device_status:type_name -> phonebridge.v1.DeviceStatus
+	26, // 18: phonebridge.v1.Envelope.screen_stop:type_name -> phonebridge.v1.ScreenStop
+	27, // 19: phonebridge.v1.Envelope.input_keyboard:type_name -> phonebridge.v1.InputKeyboard
+	28, // 20: phonebridge.v1.Envelope.input_mouse:type_name -> phonebridge.v1.InputMouse
+	29, // 21: phonebridge.v1.Envelope.input_touch:type_name -> phonebridge.v1.InputTouch
+	30, // 22: phonebridge.v1.Envelope.device_status:type_name -> phonebridge.v1.DeviceStatus
 	0,  // 23: phonebridge.v1.CapabilitySet.capabilities:type_name -> phonebridge.v1.Capability
 	4,  // 24: phonebridge.v1.DeviceHello.version_negotiation:type_name -> phonebridge.v1.VersionNegotiation
 	3,  // 25: phonebridge.v1.DeviceHello.capabilities:type_name -> phonebridge.v1.CapabilitySet
@@ -2240,15 +2818,24 @@ var file_phonebridge_v1_phonebridge_proto_depIdxs = []int32{
 	7,  // 28: phonebridge.v1.PairAccept.hello:type_name -> phonebridge.v1.DeviceHello
 	13, // 29: phonebridge.v1.PairReject.error:type_name -> phonebridge.v1.Error
 	1,  // 30: phonebridge.v1.Error.code:type_name -> phonebridge.v1.Code
-	29, // 31: phonebridge.v1.Error.details:type_name -> phonebridge.v1.Error.DetailsEntry
+	31, // 31: phonebridge.v1.Error.details:type_name -> phonebridge.v1.Error.DetailsEntry
 	5,  // 32: phonebridge.v1.ScreenStart.requested:type_name -> phonebridge.v1.MediaParams
 	5,  // 33: phonebridge.v1.ScreenStart.actual:type_name -> phonebridge.v1.MediaParams
-	1,  // 34: phonebridge.v1.ScreenStop.reason_code:type_name -> phonebridge.v1.Code
-	35, // [35:35] is the sub-list for method output_type
-	35, // [35:35] is the sub-list for method input_type
-	35, // [35:35] is the sub-list for extension type_name
-	35, // [35:35] is the sub-list for extension extendee
-	0,  // [0:35] is the sub-list for field type_name
+	17, // 34: phonebridge.v1.TransferFrame.offer:type_name -> phonebridge.v1.FileOffer
+	18, // 35: phonebridge.v1.TransferFrame.accept:type_name -> phonebridge.v1.FileAccept
+	19, // 36: phonebridge.v1.TransferFrame.chunk:type_name -> phonebridge.v1.FileChunk
+	20, // 37: phonebridge.v1.TransferFrame.complete:type_name -> phonebridge.v1.FileComplete
+	21, // 38: phonebridge.v1.TransferFrame.result:type_name -> phonebridge.v1.FileResult
+	22, // 39: phonebridge.v1.TransferFrame.cancel:type_name -> phonebridge.v1.FileCancel
+	1,  // 40: phonebridge.v1.FileAccept.code:type_name -> phonebridge.v1.Code
+	1,  // 41: phonebridge.v1.FileResult.code:type_name -> phonebridge.v1.Code
+	1,  // 42: phonebridge.v1.FileCancel.code:type_name -> phonebridge.v1.Code
+	1,  // 43: phonebridge.v1.ScreenStop.reason_code:type_name -> phonebridge.v1.Code
+	44, // [44:44] is the sub-list for method output_type
+	44, // [44:44] is the sub-list for method input_type
+	44, // [44:44] is the sub-list for extension type_name
+	44, // [44:44] is the sub-list for extension extendee
+	0,  // [0:44] is the sub-list for field type_name
 }
 
 func init() { file_phonebridge_v1_phonebridge_proto_init() }
@@ -2280,13 +2867,21 @@ func file_phonebridge_v1_phonebridge_proto_init() {
 		(*Envelope_InputTouch)(nil),
 		(*Envelope_DeviceStatus)(nil),
 	}
+	file_phonebridge_v1_phonebridge_proto_msgTypes[14].OneofWrappers = []any{
+		(*TransferFrame_Offer)(nil),
+		(*TransferFrame_Accept)(nil),
+		(*TransferFrame_Chunk)(nil),
+		(*TransferFrame_Complete)(nil),
+		(*TransferFrame_Result)(nil),
+		(*TransferFrame_Cancel)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_phonebridge_v1_phonebridge_proto_rawDesc), len(file_phonebridge_v1_phonebridge_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   28,
+			NumMessages:   30,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

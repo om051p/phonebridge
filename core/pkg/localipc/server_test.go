@@ -18,6 +18,7 @@ import (
 	"github.com/om051p/phonebridge/core/pkg/engine"
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgelocalipcv1"
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgev1"
+	"github.com/om051p/phonebridge/core/pkg/transfer"
 )
 
 func testSetup(t *testing.T) (string, string, string) {
@@ -470,6 +471,13 @@ type mockOrchestrator struct {
 	cbStatus    *phonebridgelocalipcv1.GetClipboardStatusResponse
 	cbErr       error
 	cbPullErr   error
+
+	lastSendFile  [3]string
+	sendFileID    string
+	sendFileErr   error
+	lastCancelled string
+	cancelErr     error
+	transfers     []transfer.Info
 }
 
 func (m *mockOrchestrator) StartSession(ctx context.Context, deviceID string, requested engine.MediaParams) (*engine.Session, error) {
@@ -527,6 +535,27 @@ func (m *mockOrchestrator) GetClipboardStatus(ctx context.Context) (*phonebridge
 
 func (m *mockOrchestrator) TriggerClipboardPull(ctx context.Context) error {
 	return m.cbPullErr
+}
+
+func (m *mockOrchestrator) SendFile(ctx context.Context, deviceID, localPath, filename string) (string, error) {
+	m.mu.Lock()
+	m.lastSendFile = [3]string{deviceID, localPath, filename}
+	m.mu.Unlock()
+	if m.sendFileErr != nil {
+		return "", m.sendFileErr
+	}
+	return m.sendFileID, nil
+}
+
+func (m *mockOrchestrator) CancelTransfer(ctx context.Context, transferID string) error {
+	m.mu.Lock()
+	m.lastCancelled = transferID
+	m.mu.Unlock()
+	return m.cancelErr
+}
+
+func (m *mockOrchestrator) ListTransfers() []transfer.Info {
+	return m.transfers
 }
 
 func TestMediaParamsConversions(t *testing.T) {

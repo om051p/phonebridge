@@ -13,11 +13,16 @@ import (
 	pion "github.com/pion/webrtc/v4"
 
 	"github.com/om051p/phonebridge/core/pkg/rtpmedia"
+	"github.com/om051p/phonebridge/core/pkg/transfer"
+	"github.com/om051p/phonebridge/core/pkg/transfer/rtcchannel"
 )
 
 const (
 	defaultFmtpLine = "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
 	defaultQueueCap = 128
+	// transferDC must match the label the driver creates in
+	// core/pkg/webrtc (DEC-024).
+	transferDC = "transfer"
 )
 
 // Config configures a production Linux Receiver.
@@ -44,6 +49,14 @@ type Config struct {
 	// OnClipboardOpen is called when the reliable ordered "clipboard" DataChannel
 	// transitions to open state.
 	OnClipboardOpen func()
+	// OnTransferMessage receives dedicated file-transfer frames (DEC-024).
+	OnTransferMessage func([]byte)
+	// OnTransferOpen is called when the reliable ordered "transfer" DataChannel
+	// transitions to open state.
+	OnTransferOpen func()
+	// OnTransferClose is called when that channel closes, so in-flight transfers
+	// are interrupted rather than left waiting out their timeouts.
+	OnTransferClose func()
 }
 
 // Receiver coordinates the WebRTC peer connection, RFC 6184 RTP depacketization,
@@ -57,6 +70,8 @@ type Receiver struct {
 	workerWg     sync.WaitGroup
 
 	clipboardDC atomic.Pointer[pion.DataChannel]
+	transferDC  atomic.Pointer[pion.DataChannel]
+	transferCh  atomic.Pointer[rtcchannel.Channel]
 
 	closed     atomic.Bool
 	droppedAUs atomic.Int64
@@ -118,6 +133,28 @@ func NewReceiver(cfg Config) (*Receiver, error) {
 			dc.OnMessage(func(msg pion.DataChannelMessage) {
 				if cfg.OnClipboardMessage != nil {
 					cfg.OnClipboardMessage(msg.Data)
+				}
+			})
+		case transferDC:
+			// Dedicated file-transfer channel (DEC-024): reliable, ordered, and
+			// independent of clipboard and control.
+			r.transferDC.Store(dc)
+			ch := rtcchannel.New(dc, transfer.DefaultLowWatermark)
+			r.transferCh.Store(ch)
+			dc.OnOpen(func() {
+				if cfg.OnTransferOpen != nil {
+					cfg.OnTransferOpen()
+				}
+			})
+			dc.OnMessage(func(msg pion.DataChannelMessage) {
+				if cfg.OnTransferMessage != nil {
+					cfg.OnTransferMessage(msg.Data)
+				}
+			})
+			dc.OnClose(func() {
+				ch.Close()
+				if cfg.OnTransferClose != nil {
+					cfg.OnTransferClose()
 				}
 			})
 		default:
@@ -242,6 +279,25 @@ func (r *Receiver) SendClipboard(data []byte) error {
 	return dc.Send(data)
 }
 
+// SendTransfer sends one encoded TransferFrame over the reliable ordered
+// "transfer" DataChannel.
+func (r *Receiver) SendTransfer(data []byte) error {
+	dc := r.transferDC.Load()
+	if dc == nil {
+		return errors.New("receiver: transfer datachannel not available")
+	}
+	return dc.Send(data)
+} // TransferChannel exposes the transfer channel adapter for the local transfer
+// engine (DEC-024). It returns nil until the peer opens the channel. The return
+// type is the engine's own port so callers never see Pion.
+func (r *Receiver) TransferChannel() transfer.Channel {
+	ch := r.transferCh.Load()
+	if ch == nil {
+		return nil
+	}
+	return ch
+}
+
 // Close terminates the receiver, closes network sockets, flushes the depacketizer,
 // drains worker queues, and closes the FrameSink.
 func (r *Receiver) Close() error {
@@ -250,6 +306,11 @@ func (r *Receiver) Close() error {
 	}
 
 	r.clipboardDC.Store(nil)
+	r.transferDC.Store(nil)
+	if ch := r.transferCh.Load(); ch != nil {
+		ch.Close()
+	}
+	r.transferCh.Store(nil)
 
 	var firstErr error
 	if err := r.pc.Close(); err != nil && firstErr == nil {

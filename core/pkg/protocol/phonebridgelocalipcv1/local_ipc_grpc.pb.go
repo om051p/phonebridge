@@ -3,6 +3,8 @@
 // Status: CONFIRMED (Phase 0) — contract ratified from Spike 01 (DEC-018).
 //         Session lifecycle extended in Phase 2 (DEC-022): requested/actual
 //         media parameters and typed session reason codes.
+//         Clipboard status/pull added in Phase 3 (DEC-023); file-transfer
+//         RPCs and events added in Phase 4 (DEC-024).
 // Source of truth for wire compatibility: this file + buf breaking checks.
 //
 // Scope and isolation rules (see docs/protocol.md):
@@ -92,6 +94,9 @@ const (
 	LocalEngineService_RevokeDevice_FullMethodName         = "/phonebridge.localipc.v1.LocalEngineService/RevokeDevice"
 	LocalEngineService_GetClipboardStatus_FullMethodName   = "/phonebridge.localipc.v1.LocalEngineService/GetClipboardStatus"
 	LocalEngineService_TriggerClipboardPull_FullMethodName = "/phonebridge.localipc.v1.LocalEngineService/TriggerClipboardPull"
+	LocalEngineService_SendFile_FullMethodName             = "/phonebridge.localipc.v1.LocalEngineService/SendFile"
+	LocalEngineService_CancelTransfer_FullMethodName       = "/phonebridge.localipc.v1.LocalEngineService/CancelTransfer"
+	LocalEngineService_ListTransfers_FullMethodName        = "/phonebridge.localipc.v1.LocalEngineService/ListTransfers"
 )
 
 // LocalEngineServiceClient is the client API for LocalEngineService service.
@@ -133,6 +138,17 @@ type LocalEngineServiceClient interface {
 	GetClipboardStatus(ctx context.Context, in *GetClipboardStatusRequest, opts ...grpc.CallOption) (*GetClipboardStatusResponse, error)
 	// TriggerClipboardPull reads the host clipboard and synchronizes it to the active peer.
 	TriggerClipboardPull(ctx context.Context, in *TriggerClipboardPullRequest, opts ...grpc.CallOption) (*TriggerClipboardPullResponse, error)
+	// SendFile offers a local file to the active peer over the session's
+	// dedicated "transfer" DataChannel (DEC-024). The daemon reads local_path
+	// itself: file bytes never cross this local boundary, and no whole file is
+	// buffered anywhere (streaming chunked I/O).
+	SendFile(ctx context.Context, in *SendFileRequest, opts ...grpc.CallOption) (*SendFileResponse, error)
+	// CancelTransfer aborts an in-flight transfer in either direction. The
+	// cancel frame goes to the peer and the partial file is deleted locally.
+	CancelTransfer(ctx context.Context, in *CancelTransferRequest, opts ...grpc.CallOption) (*CancelTransferResponse, error)
+	// ListTransfers returns in-flight transfers plus the recent in-memory
+	// history (Phase 4 does not persist history across daemon restarts).
+	ListTransfers(ctx context.Context, in *ListTransfersRequest, opts ...grpc.CallOption) (*ListTransfersResponse, error)
 }
 
 type localEngineServiceClient struct {
@@ -292,6 +308,36 @@ func (c *localEngineServiceClient) TriggerClipboardPull(ctx context.Context, in 
 	return out, nil
 }
 
+func (c *localEngineServiceClient) SendFile(ctx context.Context, in *SendFileRequest, opts ...grpc.CallOption) (*SendFileResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SendFileResponse)
+	err := c.cc.Invoke(ctx, LocalEngineService_SendFile_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *localEngineServiceClient) CancelTransfer(ctx context.Context, in *CancelTransferRequest, opts ...grpc.CallOption) (*CancelTransferResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CancelTransferResponse)
+	err := c.cc.Invoke(ctx, LocalEngineService_CancelTransfer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *localEngineServiceClient) ListTransfers(ctx context.Context, in *ListTransfersRequest, opts ...grpc.CallOption) (*ListTransfersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListTransfersResponse)
+	err := c.cc.Invoke(ctx, LocalEngineService_ListTransfers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LocalEngineServiceServer is the server API for LocalEngineService service.
 // All implementations should embed UnimplementedLocalEngineServiceServer
 // for forward compatibility.
@@ -331,6 +377,17 @@ type LocalEngineServiceServer interface {
 	GetClipboardStatus(context.Context, *GetClipboardStatusRequest) (*GetClipboardStatusResponse, error)
 	// TriggerClipboardPull reads the host clipboard and synchronizes it to the active peer.
 	TriggerClipboardPull(context.Context, *TriggerClipboardPullRequest) (*TriggerClipboardPullResponse, error)
+	// SendFile offers a local file to the active peer over the session's
+	// dedicated "transfer" DataChannel (DEC-024). The daemon reads local_path
+	// itself: file bytes never cross this local boundary, and no whole file is
+	// buffered anywhere (streaming chunked I/O).
+	SendFile(context.Context, *SendFileRequest) (*SendFileResponse, error)
+	// CancelTransfer aborts an in-flight transfer in either direction. The
+	// cancel frame goes to the peer and the partial file is deleted locally.
+	CancelTransfer(context.Context, *CancelTransferRequest) (*CancelTransferResponse, error)
+	// ListTransfers returns in-flight transfers plus the recent in-memory
+	// history (Phase 4 does not persist history across daemon restarts).
+	ListTransfers(context.Context, *ListTransfersRequest) (*ListTransfersResponse, error)
 }
 
 // UnimplementedLocalEngineServiceServer should be embedded to have
@@ -381,6 +438,15 @@ func (UnimplementedLocalEngineServiceServer) GetClipboardStatus(context.Context,
 }
 func (UnimplementedLocalEngineServiceServer) TriggerClipboardPull(context.Context, *TriggerClipboardPullRequest) (*TriggerClipboardPullResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method TriggerClipboardPull not implemented")
+}
+func (UnimplementedLocalEngineServiceServer) SendFile(context.Context, *SendFileRequest) (*SendFileResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SendFile not implemented")
+}
+func (UnimplementedLocalEngineServiceServer) CancelTransfer(context.Context, *CancelTransferRequest) (*CancelTransferResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CancelTransfer not implemented")
+}
+func (UnimplementedLocalEngineServiceServer) ListTransfers(context.Context, *ListTransfersRequest) (*ListTransfersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListTransfers not implemented")
 }
 func (UnimplementedLocalEngineServiceServer) testEmbeddedByValue() {}
 
@@ -647,6 +713,60 @@ func _LocalEngineService_TriggerClipboardPull_Handler(srv interface{}, ctx conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LocalEngineService_SendFile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SendFileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalEngineServiceServer).SendFile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalEngineService_SendFile_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalEngineServiceServer).SendFile(ctx, req.(*SendFileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LocalEngineService_CancelTransfer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CancelTransferRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalEngineServiceServer).CancelTransfer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalEngineService_CancelTransfer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalEngineServiceServer).CancelTransfer(ctx, req.(*CancelTransferRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LocalEngineService_ListTransfers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListTransfersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalEngineServiceServer).ListTransfers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalEngineService_ListTransfers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalEngineServiceServer).ListTransfers(ctx, req.(*ListTransfersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // LocalEngineService_ServiceDesc is the grpc.ServiceDesc for LocalEngineService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -705,6 +825,18 @@ var LocalEngineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "TriggerClipboardPull",
 			Handler:    _LocalEngineService_TriggerClipboardPull_Handler,
+		},
+		{
+			MethodName: "SendFile",
+			Handler:    _LocalEngineService_SendFile_Handler,
+		},
+		{
+			MethodName: "CancelTransfer",
+			Handler:    _LocalEngineService_CancelTransfer_Handler,
+		},
+		{
+			MethodName: "ListTransfers",
+			Handler:    _LocalEngineService_ListTransfers_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

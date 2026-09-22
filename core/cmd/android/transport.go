@@ -62,6 +62,7 @@ type MediaTransport struct {
 	retired  *webrtc.Sender // last stopped sender; counters stay readable for diagnostics
 	session  *webrtc.Session
 	lastPC   atomic.Pointer[string] // last PeerConnection state (diagnostics)
+	peerID   string                 // signaling target, for transfer attribution
 	queueAU  int
 	shaperKb int
 	shaperBk int
@@ -119,6 +120,27 @@ func (t *MediaTransport) MediaInit() error {
 				cb.OnDataChannelOpen()
 			}
 		},
+		// File transfer (DEC-024) rides its own DataChannel, independent of the
+		// clipboard channel and of the media plane.
+		OnTransferMessage: func(data []byte) {
+			if tb := currentTransferBridge(); tb != nil {
+				_ = tb.OnRemoteBytes(data)
+			}
+		},
+		OnTransferOpen: func() {
+			if tb := currentTransferBridge(); tb != nil {
+				if s := t.currentSession(); s != nil {
+					tb.OnChannelOpen(s.TransferChannel(), t.peerDeviceID())
+				}
+			}
+		},
+		OnTransferClose: func() {
+			if tb := currentTransferBridge(); tb != nil {
+				if s := t.currentSession(); s != nil {
+					tb.OnChannelClose(s.TransferChannel())
+				}
+			}
+		},
 	}
 	sess, err := webrtc.NewSession(cfg, sender)
 	if err != nil {
@@ -127,6 +149,28 @@ func (t *MediaTransport) MediaInit() error {
 	t.sender, t.session = sender, sess
 	t.state.Store(trInitialized)
 	return nil
+}
+
+// currentSession snapshots the live session under the transport lock, so the
+// Pion callbacks (which fire on SCTP goroutines) never race MediaStop.
+func (t *MediaTransport) currentSession() *webrtc.Session {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.session
+}
+
+// SetPeerDeviceID records which device this session targets, so transfer history
+// attributes files to a device (the Android side learns it from signaling).
+func (t *MediaTransport) SetPeerDeviceID(deviceID string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.peerID = deviceID
+}
+
+func (t *MediaTransport) peerDeviceID() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.peerID
 }
 
 // SendClipboard sends a clipboard update message over the active WebRTC clipboard DataChannel.

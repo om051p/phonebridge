@@ -334,6 +334,52 @@ class LocalIpcClient {
       .where((event) => event.hasClipboardEvent())
       .map((event) => event.clipboardEvent);
 
+  /// Pushed stream of file-transfer transitions (DEC-024). Every state and
+  /// progress change for a transfer arrives here, so the UI never polls.
+  Stream<TransferEvent> get onTransferEvents => streamEvents()
+      .where((event) => event.hasTransferEvent())
+      .map((event) => event.transferEvent);
+
+  /// Offers a local file to the active peer over the session's "transfer"
+  /// DataChannel. [deviceId] empty means "the active session's peer"; the
+  /// daemon reads [localPath] itself, so file bytes never cross local IPC.
+  Future<SendFileResponse> sendFile({
+    String deviceId = '',
+    required String localPath,
+    String filename = '',
+  }) async {
+    return _callWithAuth(
+      (opts) => _service.sendFile(
+        SendFileRequest(
+          deviceId: deviceId,
+          localPath: localPath,
+          filename: filename,
+        ),
+        options: opts,
+      ),
+    );
+  }
+
+  /// Aborts an in-flight transfer in either direction.
+  Future<CancelTransferResponse> cancelTransfer(String transferId) async {
+    return _callWithAuth(
+      (opts) => _service.cancelTransfer(
+        CancelTransferRequest(transferId: transferId),
+        options: opts,
+      ),
+    );
+  }
+
+  /// In-flight transfers plus the recent in-memory history, newest first.
+  Future<ListTransfersResponse> listTransfers() async {
+    return _callWithAuth(
+      (opts) => _service.listTransfers(
+        ListTransfersRequest(),
+        options: opts,
+      ),
+    );
+  }
+
   /// Subscribes to relayed device events via server streaming.
   /// Automatically attempts resubscription with backoff on disconnect.
   Stream<StreamEventsResponse> streamEvents({

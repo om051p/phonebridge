@@ -4,6 +4,7 @@ import '../models/device_state.dart';
 import '../models/capture_stats.dart';
 import '../models/trusted_device.dart';
 import '../models/clipboard_status.dart';
+import '../models/transfer_item.dart';
 
 class PhoneBridgeChannel {
   static const MethodChannel _control = MethodChannel('dev.phonebridge/control');
@@ -137,4 +138,79 @@ class PhoneBridgeChannel {
   Stream<Map<dynamic, dynamic>> get rawEventsStream {
     return _events.receiveBroadcastStream().where((event) => event is Map).cast<Map<dynamic, dynamic>>();
   }
+
+  // -------------------------------------------------------------------------
+  // File transfers (DEC-024, Phase 4)
+  // -------------------------------------------------------------------------
+  //
+  // Pass-through only: GoBridge.transferSend/List/Stats exist in Kotlin but are
+  // not exposed on this control channel yet, so these calls currently fall
+  // through to the graceful "unavailable" results. They are implemented (and
+  // covered by tests) so that wiring the channel is a Kotlin-only change.
+
+  /// Native-pushed transfer transitions. The bridge is expected to push the
+  /// same event-map shape as the other events (key `transfer`); the stream stays
+  /// silent until MainActivity emits them.
+  Stream<TransferItem> get transferStream => rawEventsStream
+      .where((event) => event['transfer'] != null)
+      .map((event) => _toTransferItem(event['transfer']))
+      .where((item) => item != null)
+      .cast<TransferItem>();
+
+  Future<List<TransferItem>> listTransfers() async {
+    try {
+      final res = await _control.invokeMethod<List<dynamic>>('listTransfers');
+      return _toTransferItems(res);
+    } on MissingPluginException {
+      return const <TransferItem>[];
+    } on PlatformException {
+      return const <TransferItem>[];
+    }
+  }
+
+  Future<TransferSendResult> sendFile({
+    required String localPath,
+    String filename = '',
+    String deviceId = '',
+  }) async {
+    try {
+      final res = await _control.invokeMethod<Map<dynamic, dynamic>>('sendFile', {
+        'localPath': localPath,
+        if (filename.isNotEmpty) 'filename': filename,
+        if (deviceId.isNotEmpty) 'deviceId': deviceId,
+      });
+      if (res != null) {
+        return TransferSendResult.fromMap(res);
+      }
+      return TransferSendResult.failure(kTransferUnavailableMessage);
+    } on MissingPluginException {
+      return TransferSendResult.failure(kTransferUnavailableMessage);
+    } on PlatformException catch (e) {
+      return TransferSendResult.failure(e.message ?? e.code);
+    }
+  }
+
+  Future<bool> cancelTransfer(String transferId) async {
+    try {
+      final res = await _control.invokeMethod<bool>('cancelTransfer', {
+        'transferId': transferId,
+      });
+      return res ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+}
+
+TransferItem? _toTransferItem(Object? raw) {
+  if (raw is TransferItem) return raw;
+  if (raw is Map) return TransferItem.fromMap(raw);
+  return null;
+}
+
+List<TransferItem> _toTransferItems(List<dynamic>? raw) {
+  if (raw == null) return const <TransferItem>[];
+  return raw.whereType<Map<dynamic, dynamic>>().map(TransferItem.fromMap).toList();
 }

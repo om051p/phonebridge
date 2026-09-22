@@ -18,6 +18,7 @@ import (
 	"github.com/om051p/phonebridge/core/pkg/crypto"
 	"github.com/om051p/phonebridge/core/pkg/discovery"
 	"github.com/om051p/phonebridge/core/pkg/receiver"
+	"github.com/om051p/phonebridge/core/pkg/transfer"
 )
 
 // mockPlatformAdapter records items written to the host clipboard.
@@ -63,6 +64,8 @@ type testLinuxNode struct {
 	trustStore *crypto.TrustStore
 	adapter    *mockPlatformAdapter
 	engine     *clipboard.Engine
+	transfer   *transfer.Engine
+	downloads  string
 	manager    *SessionManager
 	sigServer  *SignalingServer
 	discovery  *discovery.Discovery
@@ -93,16 +96,34 @@ func createTestNode(t *testing.T, tmpDir, name string) *testLinuxNode {
 		t.Fatalf("clipboard engine %s: %v", name, err)
 	}
 
+	// A real transfer engine with a real destination directory: the file
+	// transfer E2E asserts bytes on disk, not just engine state.
+	downloads := filepath.Join(tmpDir, name+"_downloads")
+	dest, err := transfer.NewFileDestination(transfer.FileDestinationConfig{Dir: downloads})
+	if err != nil {
+		t.Fatalf("transfer destination %s: %v", name, err)
+	}
+	xfer, err := transfer.NewEngine(transfer.Config{
+		LocalPeerID: ident.DeviceID,
+		Destination: dest,
+		ChunkSize:   32 * 1024,
+	})
+	if err != nil {
+		t.Fatalf("transfer engine %s: %v", name, err)
+	}
+
 	cfg := DefaultSessionConfig()
 	cfg.Identity = ident
 	cfg.TrustStore = ts
 	cfg.ClipboardEngine = eng
+	cfg.TransferEngine = xfer
 	cfg.ConnectTimeout = 4 * time.Second
 
 	mgr := NewSessionManager(cfg, nil, receiver.NewNullSink(), nil)
 	mgr.SetIdentity(ident)
 	mgr.SetTrustStore(ts)
 	mgr.SetClipboardEngine(eng)
+	mgr.SetTransferEngine(xfer)
 
 	sigSrv := NewSignalingServer(SignalingServerConfig{
 		Port:       0,
@@ -149,6 +170,8 @@ func createTestNode(t *testing.T, tmpDir, name string) *testLinuxNode {
 		trustStore: ts,
 		adapter:    adapter,
 		engine:     eng,
+		transfer:   xfer,
+		downloads:  downloads,
 		manager:    mgr,
 		sigServer:  sigSrv,
 		discovery:  disc,
@@ -162,6 +185,9 @@ func (n *testLinuxNode) Close() {
 	}
 	if n.sigServer != nil {
 		_ = n.sigServer.Close()
+	}
+	if n.transfer != nil {
+		n.transfer.Close()
 	}
 }
 

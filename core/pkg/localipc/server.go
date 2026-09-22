@@ -27,6 +27,7 @@ import (
 	"github.com/om051p/phonebridge/core/pkg/engine"
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgelocalipcv1"
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgev1"
+	"github.com/om051p/phonebridge/core/pkg/transfer"
 )
 
 // Default paths per DEC-018.
@@ -77,6 +78,13 @@ type SessionOrchestrator interface {
 	RevokeDevice(deviceID string) error
 	GetClipboardStatus(ctx context.Context) (*phonebridgelocalipcv1.GetClipboardStatusResponse, error)
 	TriggerClipboardPull(ctx context.Context) error
+	// SendFile offers a local file to the active session's peer and returns the
+	// new transfer id (DEC-024).
+	SendFile(ctx context.Context, deviceID, localPath, filename string) (string, error)
+	// CancelTransfer aborts an in-flight transfer in either direction.
+	CancelTransfer(ctx context.Context, transferID string) error
+	// ListTransfers returns in-flight transfers plus the recent history.
+	ListTransfers() []transfer.Info
 }
 
 // Config configures the production local IPC server.
@@ -117,6 +125,7 @@ type eventPayload struct {
 	envelope       *phonebridgev1.Envelope
 	sessionEvent   *phonebridgelocalipcv1.SessionEvent
 	clipboardEvent *phonebridgelocalipcv1.ClipboardStatusEvent
+	transferEvent  *phonebridgelocalipcv1.TransferEvent
 }
 
 // NewServer creates a new local IPC server with sensible defaults.
@@ -405,6 +414,7 @@ func (s *Server) StreamEvents(_ *phonebridgelocalipcv1.StreamEventsRequest, stre
 				Envelope:         item.envelope,
 				SessionEvent:     item.sessionEvent,
 				ClipboardEvent:   item.clipboardEvent,
+				TransferEvent:    item.transferEvent,
 			}
 			if err := stream.Send(resp); err != nil {
 				return err
@@ -453,6 +463,15 @@ func (s *Server) BroadcastClipboardEvent(event *phonebridgelocalipcv1.ClipboardS
 		return
 	}
 	s.broadcastItem(&eventPayload{clipboardEvent: event})
+}
+
+// BroadcastTransferEvent pushes a file-transfer transition to all active
+// StreamEvents streams (DEC-024).
+func (s *Server) BroadcastTransferEvent(event *phonebridgelocalipcv1.TransferEvent) {
+	if event == nil {
+		return
+	}
+	s.broadcastItem(&eventPayload{transferEvent: event})
 }
 
 // StartSession initiates a session targeting the given device ID.
@@ -695,6 +714,170 @@ func (s *Server) TriggerClipboardPull(ctx context.Context, _ *phonebridgelocalip
 	return &phonebridgelocalipcv1.TriggerClipboardPullResponse{
 		Success: true,
 	}, nil
+}
+
+// SendFile offers a local file to the active session's peer. The engine's own
+// validation errors are mapped onto the typed reason enum and returned in the
+// response rather than as a gRPC status, because "this file is too large" is a
+// user-facing outcome, not a transport failure (DEC-024).
+func (s *Server) SendFile(ctx context.Context, req *phonebridgelocalipcv1.SendFileRequest) (*phonebridgelocalipcv1.SendFileResponse, error) {
+	if s.closed.Load() {
+		return nil, status.Error(codes.Unavailable, "daemon is shutting down")
+	}
+	if s.orchestrator == nil {
+		return nil, status.Error(codes.FailedPrecondition, "session orchestrator not configured")
+	}
+	if req.GetLocalPath() == "" {
+		return nil, status.Error(codes.InvalidArgument, "local_path cannot be empty")
+	}
+
+	transferID, err := s.orchestrator.SendFile(ctx, req.GetDeviceId(), req.GetLocalPath(), req.GetFilename())
+	if err != nil {
+		reason := transfer.ReasonUnspecified
+		if failure, ok := transfer.IsFailure(err); ok {
+			reason = failure.Reason
+		} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			reason = transfer.ReasonNoSession
+		}
+		return &phonebridgelocalipcv1.SendFileResponse{
+			ReasonCode:   ToProtoTransferReason(reason),
+			ErrorMessage: err.Error(),
+		}, nil
+	}
+	return &phonebridgelocalipcv1.SendFileResponse{
+		TransferId: transferID,
+		State:      phonebridgelocalipcv1.TransferState_TRANSFER_STATE_PENDING,
+		ReasonCode: phonebridgelocalipcv1.TransferReason_TRANSFER_REASON_NONE,
+	}, nil
+}
+
+// CancelTransfer aborts an in-flight transfer in either direction.
+func (s *Server) CancelTransfer(ctx context.Context, req *phonebridgelocalipcv1.CancelTransferRequest) (*phonebridgelocalipcv1.CancelTransferResponse, error) {
+	if s.closed.Load() {
+		return nil, status.Error(codes.Unavailable, "daemon is shutting down")
+	}
+	if s.orchestrator == nil {
+		return nil, status.Error(codes.FailedPrecondition, "session orchestrator not configured")
+	}
+	if req.GetTransferId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "transfer_id cannot be empty")
+	}
+	if err := s.orchestrator.CancelTransfer(ctx, req.GetTransferId()); err != nil {
+		return &phonebridgelocalipcv1.CancelTransferResponse{
+			TransferId:   req.GetTransferId(),
+			Cancelled:    false,
+			ErrorMessage: err.Error(),
+		}, nil
+	}
+	return &phonebridgelocalipcv1.CancelTransferResponse{
+		TransferId: req.GetTransferId(),
+		Cancelled:  true,
+	}, nil
+}
+
+// ListTransfers returns in-flight transfers plus the recent in-memory history,
+// newest first.
+func (s *Server) ListTransfers(_ context.Context, _ *phonebridgelocalipcv1.ListTransfersRequest) (*phonebridgelocalipcv1.ListTransfersResponse, error) {
+	if s.closed.Load() {
+		return nil, status.Error(codes.Unavailable, "daemon is shutting down")
+	}
+	if s.orchestrator == nil {
+		return nil, status.Error(codes.FailedPrecondition, "session orchestrator not configured")
+	}
+	infos := s.orchestrator.ListTransfers()
+	out := &phonebridgelocalipcv1.ListTransfersResponse{Transfers: make([]*phonebridgelocalipcv1.TransferInfo, 0, len(infos))}
+	for _, info := range infos {
+		out.Transfers = append(out.Transfers, ToProtoTransferInfo(info))
+	}
+	return out, nil
+}
+
+// ToProtoTransferInfo converts an engine transfer snapshot to the wire shape.
+// A mapping, not a translation: the two taxonomies are defined field-for-field
+// alike, so a new state or reason must be added to both.
+func ToProtoTransferInfo(info transfer.Info) *phonebridgelocalipcv1.TransferInfo {
+	return &phonebridgelocalipcv1.TransferInfo{
+		TransferId:       info.TransferID,
+		Direction:        ToProtoTransferDirection(info.Direction),
+		State:            ToProtoTransferState(info.State),
+		PeerDeviceId:     info.PeerDeviceID,
+		Filename:         info.Filename,
+		MimeType:         info.MimeType,
+		SizeBytes:        info.SizeBytes,
+		BytesTransferred: info.BytesTransferred,
+		StartedAtMs:      info.StartedAtMs,
+		FinishedAtMs:     info.FinishedAtMs,
+		ReasonCode:       ToProtoTransferReason(info.ReasonCode),
+		ErrorMessage:     info.ErrorMessage,
+		SavedName:        info.SavedName,
+	}
+}
+
+// ToProtoTransferDirection maps the engine's direction enum onto the wire enum.
+func ToProtoTransferDirection(d transfer.Direction) phonebridgelocalipcv1.TransferDirection {
+	switch d {
+	case transfer.DirectionOutbound:
+		return phonebridgelocalipcv1.TransferDirection_TRANSFER_DIRECTION_OUTBOUND
+	case transfer.DirectionInbound:
+		return phonebridgelocalipcv1.TransferDirection_TRANSFER_DIRECTION_INBOUND
+	default:
+		return phonebridgelocalipcv1.TransferDirection_TRANSFER_DIRECTION_UNSPECIFIED
+	}
+}
+
+// ToProtoTransferState maps the engine's lifecycle state onto the wire enum.
+func ToProtoTransferState(st transfer.State) phonebridgelocalipcv1.TransferState {
+	switch st {
+	case transfer.StatePending:
+		return phonebridgelocalipcv1.TransferState_TRANSFER_STATE_PENDING
+	case transfer.StateActive:
+		return phonebridgelocalipcv1.TransferState_TRANSFER_STATE_ACTIVE
+	case transfer.StateVerifying:
+		return phonebridgelocalipcv1.TransferState_TRANSFER_STATE_VERIFYING
+	case transfer.StateComplete:
+		return phonebridgelocalipcv1.TransferState_TRANSFER_STATE_COMPLETE
+	case transfer.StateCancelled:
+		return phonebridgelocalipcv1.TransferState_TRANSFER_STATE_CANCELLED
+	case transfer.StateFailed:
+		return phonebridgelocalipcv1.TransferState_TRANSFER_STATE_FAILED
+	default:
+		return phonebridgelocalipcv1.TransferState_TRANSFER_STATE_UNSPECIFIED
+	}
+}
+
+// ToProtoTransferReason maps the engine's typed reason onto the wire enum. An
+// unknown reason stays UNSPECIFIED: the UI shows the message, never a guess.
+func ToProtoTransferReason(r transfer.Reason) phonebridgelocalipcv1.TransferReason {
+	switch r {
+	case transfer.ReasonNone:
+		return phonebridgelocalipcv1.TransferReason_TRANSFER_REASON_NONE
+	case transfer.ReasonNoSession:
+		return phonebridgelocalipcv1.TransferReason_TRANSFER_REASON_NO_SESSION
+	case transfer.ReasonUnsupportedPeer:
+		return phonebridgelocalipcv1.TransferReason_TRANSFER_REASON_UNSUPPORTED_PEER
+	case transfer.ReasonBusy:
+		return phonebridgelocalipcv1.TransferReason_TRANSFER_REASON_BUSY
+	case transfer.ReasonUnsafeFilename:
+		return phonebridgelocalipcv1.TransferReason_TRANSFER_REASON_UNSAFE_FILENAME
+	case transfer.ReasonTooLarge:
+		return phonebridgelocalipcv1.TransferReason_TRANSFER_REASON_TOO_LARGE
+	case transfer.ReasonChecksumMismatch:
+		return phonebridgelocalipcv1.TransferReason_TRANSFER_REASON_CHECKSUM_MISMATCH
+	case transfer.ReasonStorageFailed:
+		return phonebridgelocalipcv1.TransferReason_TRANSFER_REASON_STORAGE_FAILED
+	case transfer.ReasonInterrupted:
+		return phonebridgelocalipcv1.TransferReason_TRANSFER_REASON_INTERRUPTED
+	case transfer.ReasonCancelledByPeer:
+		return phonebridgelocalipcv1.TransferReason_TRANSFER_REASON_CANCELLED_BY_PEER
+	case transfer.ReasonCancelledByUser:
+		return phonebridgelocalipcv1.TransferReason_TRANSFER_REASON_CANCELLED_BY_USER
+	case transfer.ReasonProtocolError:
+		return phonebridgelocalipcv1.TransferReason_TRANSFER_REASON_PROTOCOL_ERROR
+	case transfer.ReasonIncompatibleVersion:
+		return phonebridgelocalipcv1.TransferReason_TRANSFER_REASON_INCOMPATIBLE_VERSION
+	default:
+		return phonebridgelocalipcv1.TransferReason_TRANSFER_REASON_UNSPECIFIED
+	}
 }
 
 // ToProtoSessionReason converts an internal engine.SessionReason to the wire enum.

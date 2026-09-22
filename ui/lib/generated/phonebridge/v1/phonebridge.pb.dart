@@ -48,7 +48,12 @@ enum Envelope_Payload {
 }
 
 /// ---------------------------------------------------------------------------
-/// Envelope — top-level framing for every message on the wire.
+/// Envelope — top-level framing for session-level control messages and for the
+/// local IPC relay (DEC-018). Feature DataChannels carry their own feature
+/// message directly (the shipped Phase 3 clipboard DataChannel carries a bare
+/// ClipboardUpdate; the Phase 4 "transfer" DataChannel carries a bare
+/// TransferFrame — see DEC-024), so the Envelope feature branches below are
+/// retained for wire compatibility but are not sent by current peers.
 /// ---------------------------------------------------------------------------
 class Envelope extends $pb.GeneratedMessage {
   factory Envelope({
@@ -502,6 +507,10 @@ class Envelope extends $pb.GeneratedMessage {
   @$pb.TagNumber(23)
   NotificationDismissed ensureNotificationDismissed() => $_ensure(17);
 
+  /// File transfer. The messages are real as of Phase 4 (DEC-024) but they
+  /// travel inside TransferFrame on the "transfer" DataChannel; these
+  /// Envelope branches exist for wire compatibility and are never sent by
+  /// current peers. Removing them would be a breaking proto change.
   @$pb.TagNumber(24)
   FileOffer get fileOffer => $_getN(18);
   @$pb.TagNumber(24)
@@ -1635,8 +1644,9 @@ class ScreenStart extends $pb.GeneratedMessage {
 /// Feature payloads
 /// ---------------------------------------------------------------------------
 /// ClipboardUpdate conveys a discrete clipboard state change between paired peers
-/// (ratified by DEC-023, Phase 3). Transported inside Envelope over a dedicated,
-/// reliable, ordered WebRTC DataChannel ("clipboard").
+/// (ratified by DEC-023, Phase 3). Transported as a bare message over a
+/// dedicated, reliable, ordered WebRTC DataChannel ("clipboard") — NOT inside
+/// Envelope; see the Envelope comment above and DEC-024.
 class ClipboardUpdate extends $pb.GeneratedMessage {
   factory ClipboardUpdate({
     $core.String? mimeType,
@@ -1740,6 +1750,844 @@ class ClipboardUpdate extends $pb.GeneratedMessage {
   $core.bool hasCopiedAtMs() => $_has(3);
   @$pb.TagNumber(4)
   void clearCopiedAtMs() => $_clearField(4);
+}
+
+enum TransferFrame_Body {
+  offer,
+  accept,
+  chunk,
+  complete,
+  result,
+  cancel,
+  notSet
+}
+
+/// ---------------------------------------------------------------------------
+/// File transfer (DEC-012 → DEC-024, Phase 4)
+/// ---------------------------------------------------------------------------
+/// One dedicated, reliable, ordered WebRTC DataChannel ("transfer", created by
+/// the same side that creates "control" and "clipboard"). Every DataChannel
+/// message is exactly one TransferFrame, so each frame is self-describing
+/// without an Envelope (the shipped Phase 3 clipboard DataChannel works the
+/// same way with a bare ClipboardUpdate).
+///
+/// Lifecycle, in order:
+///   1. sender   → receiver: FileOffer
+///   2. receiver → sender:   FileAccept        (exactly one per offer)
+///   3. sender   → receiver: FileChunk × N     (only after an accepted offer)
+///   4. sender   → receiver: FileComplete
+///   5. receiver → sender:   FileResult        (terminal verdict = the sender's ack)
+/// FileCancel may replace any remaining step after the offer. At most one
+/// outbound and one inbound transfer is active per session (DEC-024), so chunks
+/// of one transfer are never interleaved with another's; TransferFrame carries
+/// transfer_id in every branch anyway so a future interleaved mode is additive.
+class TransferFrame extends $pb.GeneratedMessage {
+  factory TransferFrame({
+    $core.int? version,
+    FileOffer? offer,
+    FileAccept? accept,
+    FileChunk? chunk,
+    FileComplete? complete,
+    FileResult? result,
+    FileCancel? cancel,
+  }) {
+    final result$ = TransferFrame._();
+    if (version != null) result$.version = version;
+    if (offer != null) result$.offer = offer;
+    if (accept != null) result$.accept = accept;
+    if (chunk != null) result$.chunk = chunk;
+    if (complete != null) result$.complete = complete;
+    if (result != null) result$.result = result;
+    if (cancel != null) result$.cancel = cancel;
+    return result$;
+  }
+
+  TransferFrame._();
+
+  factory TransferFrame.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      TransferFrame()..mergeFromBuffer(data, registry);
+  factory TransferFrame.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      TransferFrame()..mergeFromJson(json, registry);
+
+  static const $core.Map<$core.int, TransferFrame_Body>
+      _TransferFrame_BodyByTag = {
+    10: TransferFrame_Body.offer,
+    11: TransferFrame_Body.accept,
+    12: TransferFrame_Body.chunk,
+    13: TransferFrame_Body.complete,
+    14: TransferFrame_Body.result,
+    15: TransferFrame_Body.cancel,
+    0: TransferFrame_Body.notSet
+  };
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'TransferFrame',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
+      createEmptyInstance: TransferFrame.$_createMessage)
+    ..oo(0, [10, 11, 12, 13, 14, 15])
+    ..aI(1, _omitFieldNames ? '' : 'version', fieldType: $pb.PbFieldType.OU3)
+    ..aOM<FileOffer>(10, _omitFieldNames ? '' : 'offer',
+        subBuilder: FileOffer.$_createMessage)
+    ..aOM<FileAccept>(11, _omitFieldNames ? '' : 'accept',
+        subBuilder: FileAccept.$_createMessage)
+    ..aOM<FileChunk>(12, _omitFieldNames ? '' : 'chunk',
+        subBuilder: FileChunk.$_createMessage)
+    ..aOM<FileComplete>(13, _omitFieldNames ? '' : 'complete',
+        subBuilder: FileComplete.$_createMessage)
+    ..aOM<FileResult>(14, _omitFieldNames ? '' : 'result',
+        subBuilder: FileResult.$_createMessage)
+    ..aOM<FileCancel>(15, _omitFieldNames ? '' : 'cancel',
+        subBuilder: FileCancel.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TransferFrame clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TransferFrame copyWith(void Function(TransferFrame) updates) =>
+      super.copyWith((message) => updates(message as TransferFrame))
+          as TransferFrame;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use TransferFrame() / TransferFrame.new instead')
+  static TransferFrame create() => TransferFrame._();
+  static $pb.GeneratedMessage $_createMessage() => TransferFrame._();
+  @$core.override
+  TransferFrame createEmptyInstance() => TransferFrame._();
+  @$core.pragma('dart2js:noInline')
+  static TransferFrame getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<TransferFrame>(
+          TransferFrame.$_createMessage);
+  static TransferFrame? _defaultInstance;
+
+  @$pb.TagNumber(10)
+  @$pb.TagNumber(11)
+  @$pb.TagNumber(12)
+  @$pb.TagNumber(13)
+  @$pb.TagNumber(14)
+  @$pb.TagNumber(15)
+  TransferFrame_Body whichBody() => _TransferFrame_BodyByTag[$_whichOneof(0)]!;
+  @$pb.TagNumber(10)
+  @$pb.TagNumber(11)
+  @$pb.TagNumber(12)
+  @$pb.TagNumber(13)
+  @$pb.TagNumber(14)
+  @$pb.TagNumber(15)
+  void clearBody() => $_clearField($_whichOneof(0));
+
+  /// Frame format version. v1 = 1. A receiver refuses an unknown version with
+  /// CODE_INCOMPATIBLE_VERSION instead of guessing field semantics.
+  @$pb.TagNumber(1)
+  $core.int get version => $_getIZ(0);
+  @$pb.TagNumber(1)
+  set version($core.int value) => $_setUnsignedInt32(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasVersion() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearVersion() => $_clearField(1);
+
+  @$pb.TagNumber(10)
+  FileOffer get offer => $_getN(1);
+  @$pb.TagNumber(10)
+  set offer(FileOffer value) => $_setField(10, value);
+  @$pb.TagNumber(10)
+  $core.bool hasOffer() => $_has(1);
+  @$pb.TagNumber(10)
+  void clearOffer() => $_clearField(10);
+  @$pb.TagNumber(10)
+  FileOffer ensureOffer() => $_ensure(1);
+
+  @$pb.TagNumber(11)
+  FileAccept get accept => $_getN(2);
+  @$pb.TagNumber(11)
+  set accept(FileAccept value) => $_setField(11, value);
+  @$pb.TagNumber(11)
+  $core.bool hasAccept() => $_has(2);
+  @$pb.TagNumber(11)
+  void clearAccept() => $_clearField(11);
+  @$pb.TagNumber(11)
+  FileAccept ensureAccept() => $_ensure(2);
+
+  @$pb.TagNumber(12)
+  FileChunk get chunk => $_getN(3);
+  @$pb.TagNumber(12)
+  set chunk(FileChunk value) => $_setField(12, value);
+  @$pb.TagNumber(12)
+  $core.bool hasChunk() => $_has(3);
+  @$pb.TagNumber(12)
+  void clearChunk() => $_clearField(12);
+  @$pb.TagNumber(12)
+  FileChunk ensureChunk() => $_ensure(3);
+
+  @$pb.TagNumber(13)
+  FileComplete get complete => $_getN(4);
+  @$pb.TagNumber(13)
+  set complete(FileComplete value) => $_setField(13, value);
+  @$pb.TagNumber(13)
+  $core.bool hasComplete() => $_has(4);
+  @$pb.TagNumber(13)
+  void clearComplete() => $_clearField(13);
+  @$pb.TagNumber(13)
+  FileComplete ensureComplete() => $_ensure(4);
+
+  @$pb.TagNumber(14)
+  FileResult get result => $_getN(5);
+  @$pb.TagNumber(14)
+  set result(FileResult value) => $_setField(14, value);
+  @$pb.TagNumber(14)
+  $core.bool hasResult() => $_has(5);
+  @$pb.TagNumber(14)
+  void clearResult() => $_clearField(14);
+  @$pb.TagNumber(14)
+  FileResult ensureResult() => $_ensure(5);
+
+  @$pb.TagNumber(15)
+  FileCancel get cancel => $_getN(6);
+  @$pb.TagNumber(15)
+  set cancel(FileCancel value) => $_setField(15, value);
+  @$pb.TagNumber(15)
+  $core.bool hasCancel() => $_has(6);
+  @$pb.TagNumber(15)
+  void clearCancel() => $_clearField(15);
+  @$pb.TagNumber(15)
+  FileCancel ensureCancel() => $_ensure(6);
+}
+
+/// FileOffer opens a transfer: sender → receiver.
+class FileOffer extends $pb.GeneratedMessage {
+  factory FileOffer({
+    $core.String? transferId,
+    $core.String? filename,
+    $core.String? mimeType,
+    $fixnum.Int64? sizeBytes,
+    $core.List<$core.int>? sha256Digest,
+    $core.int? chunkSize,
+    $fixnum.Int64? createdAtMs,
+  }) {
+    final result = FileOffer._();
+    if (transferId != null) result.transferId = transferId;
+    if (filename != null) result.filename = filename;
+    if (mimeType != null) result.mimeType = mimeType;
+    if (sizeBytes != null) result.sizeBytes = sizeBytes;
+    if (sha256Digest != null) result.sha256Digest = sha256Digest;
+    if (chunkSize != null) result.chunkSize = chunkSize;
+    if (createdAtMs != null) result.createdAtMs = createdAtMs;
+    return result;
+  }
+
+  FileOffer._();
+
+  factory FileOffer.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      FileOffer()..mergeFromBuffer(data, registry);
+  factory FileOffer.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      FileOffer()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'FileOffer',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
+      createEmptyInstance: FileOffer.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'transferId')
+    ..aOS(2, _omitFieldNames ? '' : 'filename')
+    ..aOS(3, _omitFieldNames ? '' : 'mimeType')
+    ..a<$fixnum.Int64>(
+        4, _omitFieldNames ? '' : 'sizeBytes', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..a<$core.List<$core.int>>(
+        5, _omitFieldNames ? '' : 'sha256Digest', $pb.PbFieldType.OY)
+    ..aI(6, _omitFieldNames ? '' : 'chunkSize', fieldType: $pb.PbFieldType.OU3)
+    ..a<$fixnum.Int64>(
+        7, _omitFieldNames ? '' : 'createdAtMs', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  FileOffer clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  FileOffer copyWith(void Function(FileOffer) updates) =>
+      super.copyWith((message) => updates(message as FileOffer)) as FileOffer;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use FileOffer() / FileOffer.new instead')
+  static FileOffer create() => FileOffer._();
+  static $pb.GeneratedMessage $_createMessage() => FileOffer._();
+  @$core.override
+  FileOffer createEmptyInstance() => FileOffer._();
+  @$core.pragma('dart2js:noInline')
+  static FileOffer getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<FileOffer>(FileOffer.$_createMessage);
+  static FileOffer? _defaultInstance;
+
+  /// Random 128-bit transfer identifier (32 lowercase hex chars), unique per
+  /// sender. A second offer for a live or known id is a protocol violation and
+  /// is refused, which is the replay/duplicate guard (DEC-024).
+  @$pb.TagNumber(1)
+  $core.String get transferId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set transferId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasTransferId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearTransferId() => $_clearField(1);
+
+  /// Basename only. Path separators, NUL, "..", "." and over-length names are
+  /// refused with CODE_UNSAFE_FILENAME; the receiver owns the directory choice
+  /// and never accepts a sender-controlled path.
+  @$pb.TagNumber(2)
+  $core.String get filename => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set filename($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasFilename() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearFilename() => $_clearField(2);
+
+  /// Canonical MIME type when the sender knows it. Empty means "unknown".
+  @$pb.TagNumber(3)
+  $core.String get mimeType => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set mimeType($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasMimeType() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearMimeType() => $_clearField(3);
+
+  /// Exact byte length of the file. Used for progress, free-space preflight and
+  /// completion validation (FileComplete.size_bytes must equal it).
+  @$pb.TagNumber(4)
+  $fixnum.Int64 get sizeBytes => $_getI64(3);
+  @$pb.TagNumber(4)
+  set sizeBytes($fixnum.Int64 value) => $_setInt64(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasSizeBytes() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearSizeBytes() => $_clearField(4);
+
+  /// Optional 32-byte SHA-256 of the whole file declared before any chunk.
+  /// Phase 4 senders leave this EMPTY and compute the digest in the same pass
+  /// that sends the bytes (FileComplete always carries it), which keeps sending
+  /// a single pass with no pre-hash and no staging copy. When present, the
+  /// receiver compares the streamed digest against it as an extra check.
+  @$pb.TagNumber(5)
+  $core.List<$core.int> get sha256Digest => $_getN(4);
+  @$pb.TagNumber(5)
+  set sha256Digest($core.List<$core.int> value) => $_setBytes(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasSha256Digest() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearSha256Digest() => $_clearField(5);
+
+  /// Chunk payload size the sender uses for every chunk except the last.
+  /// MUST be 1..65536; a receiver refuses a larger value with
+  /// CODE_INVALID_ARGUMENT before accepting the transfer.
+  @$pb.TagNumber(6)
+  $core.int get chunkSize => $_getIZ(5);
+  @$pb.TagNumber(6)
+  set chunkSize($core.int value) => $_setUnsignedInt32(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasChunkSize() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearChunkSize() => $_clearField(6);
+
+  /// Sender wall clock in milliseconds since Unix epoch (informational only;
+  /// never used for ordering or trust).
+  @$pb.TagNumber(7)
+  $fixnum.Int64 get createdAtMs => $_getI64(6);
+  @$pb.TagNumber(7)
+  set createdAtMs($fixnum.Int64 value) => $_setInt64(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasCreatedAtMs() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearCreatedAtMs() => $_clearField(7);
+}
+
+/// FileAccept answers a FileOffer: receiver → sender. Exactly one per offer.
+class FileAccept extends $pb.GeneratedMessage {
+  factory FileAccept({
+    $core.String? transferId,
+    $core.bool? accept,
+    Code? code,
+    $core.String? reason,
+  }) {
+    final result = FileAccept._();
+    if (transferId != null) result.transferId = transferId;
+    if (accept != null) result.accept = accept;
+    if (code != null) result.code = code;
+    if (reason != null) result.reason = reason;
+    return result;
+  }
+
+  FileAccept._();
+
+  factory FileAccept.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      FileAccept()..mergeFromBuffer(data, registry);
+  factory FileAccept.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      FileAccept()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'FileAccept',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
+      createEmptyInstance: FileAccept.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'transferId')
+    ..aOB(2, _omitFieldNames ? '' : 'accept')
+    ..aE<Code>(3, _omitFieldNames ? '' : 'code', enumValues: Code.values)
+    ..aOS(4, _omitFieldNames ? '' : 'reason')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  FileAccept clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  FileAccept copyWith(void Function(FileAccept) updates) =>
+      super.copyWith((message) => updates(message as FileAccept)) as FileAccept;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use FileAccept() / FileAccept.new instead')
+  static FileAccept create() => FileAccept._();
+  static $pb.GeneratedMessage $_createMessage() => FileAccept._();
+  @$core.override
+  FileAccept createEmptyInstance() => FileAccept._();
+  @$core.pragma('dart2js:noInline')
+  static FileAccept getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<FileAccept>(FileAccept.$_createMessage);
+  static FileAccept? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get transferId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set transferId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasTransferId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearTransferId() => $_clearField(1);
+
+  /// True when the receiver will accept chunks for this transfer.
+  @$pb.TagNumber(2)
+  $core.bool get accept => $_getBF(1);
+  @$pb.TagNumber(2)
+  set accept($core.bool value) => $_setBool(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasAccept() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearAccept() => $_clearField(2);
+
+  /// Set when accept is false: the typed reason (see Code). CODE_OK when the
+  /// value is not meaningful.
+  @$pb.TagNumber(3)
+  Code get code => $_getN(2);
+  @$pb.TagNumber(3)
+  set code(Code value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasCode() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearCode() => $_clearField(3);
+
+  /// Human-readable detail for logs and UI; never parsed.
+  @$pb.TagNumber(4)
+  $core.String get reason => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set reason($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasReason() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearReason() => $_clearField(4);
+}
+
+/// FileChunk carries one slice of the file: sender → receiver.
+class FileChunk extends $pb.GeneratedMessage {
+  factory FileChunk({
+    $core.String? transferId,
+    $fixnum.Int64? chunkIndex,
+    $fixnum.Int64? offset,
+    $core.List<$core.int>? data,
+  }) {
+    final result = FileChunk._();
+    if (transferId != null) result.transferId = transferId;
+    if (chunkIndex != null) result.chunkIndex = chunkIndex;
+    if (offset != null) result.offset = offset;
+    if (data != null) result.data = data;
+    return result;
+  }
+
+  FileChunk._();
+
+  factory FileChunk.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      FileChunk()..mergeFromBuffer(data, registry);
+  factory FileChunk.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      FileChunk()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'FileChunk',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
+      createEmptyInstance: FileChunk.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'transferId')
+    ..a<$fixnum.Int64>(
+        2, _omitFieldNames ? '' : 'chunkIndex', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..a<$fixnum.Int64>(3, _omitFieldNames ? '' : 'offset', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..a<$core.List<$core.int>>(
+        4, _omitFieldNames ? '' : 'data', $pb.PbFieldType.OY)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  FileChunk clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  FileChunk copyWith(void Function(FileChunk) updates) =>
+      super.copyWith((message) => updates(message as FileChunk)) as FileChunk;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use FileChunk() / FileChunk.new instead')
+  static FileChunk create() => FileChunk._();
+  static $pb.GeneratedMessage $_createMessage() => FileChunk._();
+  @$core.override
+  FileChunk createEmptyInstance() => FileChunk._();
+  @$core.pragma('dart2js:noInline')
+  static FileChunk getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<FileChunk>(FileChunk.$_createMessage);
+  static FileChunk? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get transferId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set transferId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasTransferId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearTransferId() => $_clearField(1);
+
+  /// Zero-based chunk index. The reliable, ordered DataChannel delivers
+  /// messages in order, so the receiver requires exactly the next expected
+  /// index: a gap, duplicate or reorder is a protocol violation and aborts the
+  /// transfer with CODE_INVALID_ARGUMENT.
+  @$pb.TagNumber(2)
+  $fixnum.Int64 get chunkIndex => $_getI64(1);
+  @$pb.TagNumber(2)
+  set chunkIndex($fixnum.Int64 value) => $_setInt64(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasChunkIndex() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearChunkIndex() => $_clearField(2);
+
+  /// Byte offset of data[0] in the file; MUST equal chunk_index * offer.chunk_size.
+  @$pb.TagNumber(3)
+  $fixnum.Int64 get offset => $_getI64(2);
+  @$pb.TagNumber(3)
+  set offset($fixnum.Int64 value) => $_setInt64(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasOffset() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearOffset() => $_clearField(3);
+
+  /// The bytes. len(data) <= FileOffer.chunk_size.
+  @$pb.TagNumber(4)
+  $core.List<$core.int> get data => $_getN(3);
+  @$pb.TagNumber(4)
+  set data($core.List<$core.int> value) => $_setBytes(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasData() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearData() => $_clearField(4);
+}
+
+/// FileComplete is sent by the sender after the last chunk.
+class FileComplete extends $pb.GeneratedMessage {
+  factory FileComplete({
+    $core.String? transferId,
+    $fixnum.Int64? sizeBytes,
+    $core.List<$core.int>? sha256Digest,
+  }) {
+    final result = FileComplete._();
+    if (transferId != null) result.transferId = transferId;
+    if (sizeBytes != null) result.sizeBytes = sizeBytes;
+    if (sha256Digest != null) result.sha256Digest = sha256Digest;
+    return result;
+  }
+
+  FileComplete._();
+
+  factory FileComplete.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      FileComplete()..mergeFromBuffer(data, registry);
+  factory FileComplete.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      FileComplete()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'FileComplete',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
+      createEmptyInstance: FileComplete.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'transferId')
+    ..a<$fixnum.Int64>(
+        2, _omitFieldNames ? '' : 'sizeBytes', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..a<$core.List<$core.int>>(
+        3, _omitFieldNames ? '' : 'sha256Digest', $pb.PbFieldType.OY)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  FileComplete clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  FileComplete copyWith(void Function(FileComplete) updates) =>
+      super.copyWith((message) => updates(message as FileComplete))
+          as FileComplete;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use FileComplete() / FileComplete.new instead')
+  static FileComplete create() => FileComplete._();
+  static $pb.GeneratedMessage $_createMessage() => FileComplete._();
+  @$core.override
+  FileComplete createEmptyInstance() => FileComplete._();
+  @$core.pragma('dart2js:noInline')
+  static FileComplete getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<FileComplete>(
+          FileComplete.$_createMessage);
+  static FileComplete? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get transferId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set transferId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasTransferId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearTransferId() => $_clearField(1);
+
+  /// Bytes actually sent; MUST equal FileOffer.size_bytes.
+  @$pb.TagNumber(2)
+  $fixnum.Int64 get sizeBytes => $_getI64(1);
+  @$pb.TagNumber(2)
+  set sizeBytes($fixnum.Int64 value) => $_setInt64(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasSizeBytes() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearSizeBytes() => $_clearField(2);
+
+  /// SHA-256 of exactly the bytes that were sent. When FileOffer declared a
+  /// digest, both must match as well.
+  @$pb.TagNumber(3)
+  $core.List<$core.int> get sha256Digest => $_getN(2);
+  @$pb.TagNumber(3)
+  set sha256Digest($core.List<$core.int> value) => $_setBytes(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasSha256Digest() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearSha256Digest() => $_clearField(3);
+}
+
+/// FileResult is the receiver's terminal verdict and the sender's completion
+/// ack: receiver → sender. Exactly one FileResult or FileCancel terminates a
+/// transfer; the sender must not treat "no answer" as success.
+class FileResult extends $pb.GeneratedMessage {
+  factory FileResult({
+    $core.String? transferId,
+    $core.bool? committed,
+    Code? code,
+    $core.String? reason,
+    $core.String? savedName,
+  }) {
+    final result = FileResult._();
+    if (transferId != null) result.transferId = transferId;
+    if (committed != null) result.committed = committed;
+    if (code != null) result.code = code;
+    if (reason != null) result.reason = reason;
+    if (savedName != null) result.savedName = savedName;
+    return result;
+  }
+
+  FileResult._();
+
+  factory FileResult.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      FileResult()..mergeFromBuffer(data, registry);
+  factory FileResult.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      FileResult()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'FileResult',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
+      createEmptyInstance: FileResult.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'transferId')
+    ..aOB(2, _omitFieldNames ? '' : 'committed')
+    ..aE<Code>(3, _omitFieldNames ? '' : 'code', enumValues: Code.values)
+    ..aOS(4, _omitFieldNames ? '' : 'reason')
+    ..aOS(5, _omitFieldNames ? '' : 'savedName')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  FileResult clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  FileResult copyWith(void Function(FileResult) updates) =>
+      super.copyWith((message) => updates(message as FileResult)) as FileResult;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use FileResult() / FileResult.new instead')
+  static FileResult create() => FileResult._();
+  static $pb.GeneratedMessage $_createMessage() => FileResult._();
+  @$core.override
+  FileResult createEmptyInstance() => FileResult._();
+  @$core.pragma('dart2js:noInline')
+  static FileResult getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<FileResult>(FileResult.$_createMessage);
+  static FileResult? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get transferId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set transferId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasTransferId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearTransferId() => $_clearField(1);
+
+  /// True only after every byte was written, the size and SHA-256 matched the
+  /// offer, and the file was promoted to its final destination.
+  @$pb.TagNumber(2)
+  $core.bool get committed => $_getBF(1);
+  @$pb.TagNumber(2)
+  set committed($core.bool value) => $_setBool(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasCommitted() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearCommitted() => $_clearField(2);
+
+  /// Terminal code: CODE_OK when committed, a typed failure otherwise.
+  @$pb.TagNumber(3)
+  Code get code => $_getN(2);
+  @$pb.TagNumber(3)
+  set code(Code value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasCode() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearCode() => $_clearField(3);
+
+  /// Human-readable detail for logs and UI; never parsed.
+  @$pb.TagNumber(4)
+  $core.String get reason => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set reason($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasReason() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearReason() => $_clearField(4);
+
+  /// Basename the receiver stored (after any collision rename). Never a path:
+  /// the receiver's directory layout stays private.
+  @$pb.TagNumber(5)
+  $core.String get savedName => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set savedName($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasSavedName() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearSavedName() => $_clearField(5);
+}
+
+/// FileCancel aborts a transfer: either side → the other, any time after the
+/// offer. The receiver deletes its partial file; the sender stops reading.
+class FileCancel extends $pb.GeneratedMessage {
+  factory FileCancel({
+    $core.String? transferId,
+    Code? code,
+    $core.String? reason,
+  }) {
+    final result = FileCancel._();
+    if (transferId != null) result.transferId = transferId;
+    if (code != null) result.code = code;
+    if (reason != null) result.reason = reason;
+    return result;
+  }
+
+  FileCancel._();
+
+  factory FileCancel.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      FileCancel()..mergeFromBuffer(data, registry);
+  factory FileCancel.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      FileCancel()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'FileCancel',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
+      createEmptyInstance: FileCancel.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'transferId')
+    ..aE<Code>(2, _omitFieldNames ? '' : 'code', enumValues: Code.values)
+    ..aOS(3, _omitFieldNames ? '' : 'reason')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  FileCancel clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  FileCancel copyWith(void Function(FileCancel) updates) =>
+      super.copyWith((message) => updates(message as FileCancel)) as FileCancel;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use FileCancel() / FileCancel.new instead')
+  static FileCancel create() => FileCancel._();
+  static $pb.GeneratedMessage $_createMessage() => FileCancel._();
+  @$core.override
+  FileCancel createEmptyInstance() => FileCancel._();
+  @$core.pragma('dart2js:noInline')
+  static FileCancel getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<FileCancel>(FileCancel.$_createMessage);
+  static FileCancel? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get transferId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set transferId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasTransferId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearTransferId() => $_clearField(1);
+
+  /// Typed reason (CODE_TRANSFER_CANCELLED for a local user cancel, others for
+  /// aborts discovered locally, e.g. CODE_STORAGE_FAILED).
+  @$pb.TagNumber(2)
+  Code get code => $_getN(1);
+  @$pb.TagNumber(2)
+  set code(Code value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasCode() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearCode() => $_clearField(2);
+
+  /// Human-readable detail for logs and UI; never parsed.
+  @$pb.TagNumber(3)
+  $core.String get reason => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set reason($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasReason() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearReason() => $_clearField(3);
 }
 
 class NotificationEvent extends $pb.GeneratedMessage {
@@ -1865,203 +2713,6 @@ class NotificationDismissed extends $pb.GeneratedMessage {
       $pb.GeneratedMessage.$_defaultFor<NotificationDismissed>(
           NotificationDismissed.$_createMessage);
   static NotificationDismissed? _defaultInstance;
-}
-
-class FileOffer extends $pb.GeneratedMessage {
-  factory FileOffer() => FileOffer._();
-
-  FileOffer._();
-
-  factory FileOffer.fromBuffer($core.List<$core.int> data,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      FileOffer()..mergeFromBuffer(data, registry);
-  factory FileOffer.fromJson($core.String json,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      FileOffer()..mergeFromJson(json, registry);
-
-  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'FileOffer',
-      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
-      createEmptyInstance: FileOffer.$_createMessage)
-    ..hasRequiredFields = false;
-
-  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  FileOffer clone() => deepCopy();
-  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  FileOffer copyWith(void Function(FileOffer) updates) =>
-      super.copyWith((message) => updates(message as FileOffer)) as FileOffer;
-
-  @$core.override
-  $pb.BuilderInfo get info_ => _i;
-
-  @$core.pragma('dart2js:noInline')
-  @$core.Deprecated('Use FileOffer() / FileOffer.new instead')
-  static FileOffer create() => FileOffer._();
-  static $pb.GeneratedMessage $_createMessage() => FileOffer._();
-  @$core.override
-  FileOffer createEmptyInstance() => FileOffer._();
-  @$core.pragma('dart2js:noInline')
-  static FileOffer getDefault() => _defaultInstance ??=
-      $pb.GeneratedMessage.$_defaultFor<FileOffer>(FileOffer.$_createMessage);
-  static FileOffer? _defaultInstance;
-}
-
-class FileAccept extends $pb.GeneratedMessage {
-  factory FileAccept() => FileAccept._();
-
-  FileAccept._();
-
-  factory FileAccept.fromBuffer($core.List<$core.int> data,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      FileAccept()..mergeFromBuffer(data, registry);
-  factory FileAccept.fromJson($core.String json,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      FileAccept()..mergeFromJson(json, registry);
-
-  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'FileAccept',
-      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
-      createEmptyInstance: FileAccept.$_createMessage)
-    ..hasRequiredFields = false;
-
-  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  FileAccept clone() => deepCopy();
-  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  FileAccept copyWith(void Function(FileAccept) updates) =>
-      super.copyWith((message) => updates(message as FileAccept)) as FileAccept;
-
-  @$core.override
-  $pb.BuilderInfo get info_ => _i;
-
-  @$core.pragma('dart2js:noInline')
-  @$core.Deprecated('Use FileAccept() / FileAccept.new instead')
-  static FileAccept create() => FileAccept._();
-  static $pb.GeneratedMessage $_createMessage() => FileAccept._();
-  @$core.override
-  FileAccept createEmptyInstance() => FileAccept._();
-  @$core.pragma('dart2js:noInline')
-  static FileAccept getDefault() => _defaultInstance ??=
-      $pb.GeneratedMessage.$_defaultFor<FileAccept>(FileAccept.$_createMessage);
-  static FileAccept? _defaultInstance;
-}
-
-class FileChunk extends $pb.GeneratedMessage {
-  factory FileChunk() => FileChunk._();
-
-  FileChunk._();
-
-  factory FileChunk.fromBuffer($core.List<$core.int> data,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      FileChunk()..mergeFromBuffer(data, registry);
-  factory FileChunk.fromJson($core.String json,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      FileChunk()..mergeFromJson(json, registry);
-
-  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'FileChunk',
-      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
-      createEmptyInstance: FileChunk.$_createMessage)
-    ..hasRequiredFields = false;
-
-  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  FileChunk clone() => deepCopy();
-  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  FileChunk copyWith(void Function(FileChunk) updates) =>
-      super.copyWith((message) => updates(message as FileChunk)) as FileChunk;
-
-  @$core.override
-  $pb.BuilderInfo get info_ => _i;
-
-  @$core.pragma('dart2js:noInline')
-  @$core.Deprecated('Use FileChunk() / FileChunk.new instead')
-  static FileChunk create() => FileChunk._();
-  static $pb.GeneratedMessage $_createMessage() => FileChunk._();
-  @$core.override
-  FileChunk createEmptyInstance() => FileChunk._();
-  @$core.pragma('dart2js:noInline')
-  static FileChunk getDefault() => _defaultInstance ??=
-      $pb.GeneratedMessage.$_defaultFor<FileChunk>(FileChunk.$_createMessage);
-  static FileChunk? _defaultInstance;
-}
-
-class FileComplete extends $pb.GeneratedMessage {
-  factory FileComplete() => FileComplete._();
-
-  FileComplete._();
-
-  factory FileComplete.fromBuffer($core.List<$core.int> data,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      FileComplete()..mergeFromBuffer(data, registry);
-  factory FileComplete.fromJson($core.String json,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      FileComplete()..mergeFromJson(json, registry);
-
-  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'FileComplete',
-      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
-      createEmptyInstance: FileComplete.$_createMessage)
-    ..hasRequiredFields = false;
-
-  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  FileComplete clone() => deepCopy();
-  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  FileComplete copyWith(void Function(FileComplete) updates) =>
-      super.copyWith((message) => updates(message as FileComplete))
-          as FileComplete;
-
-  @$core.override
-  $pb.BuilderInfo get info_ => _i;
-
-  @$core.pragma('dart2js:noInline')
-  @$core.Deprecated('Use FileComplete() / FileComplete.new instead')
-  static FileComplete create() => FileComplete._();
-  static $pb.GeneratedMessage $_createMessage() => FileComplete._();
-  @$core.override
-  FileComplete createEmptyInstance() => FileComplete._();
-  @$core.pragma('dart2js:noInline')
-  static FileComplete getDefault() =>
-      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<FileComplete>(
-          FileComplete.$_createMessage);
-  static FileComplete? _defaultInstance;
-}
-
-class FileCancel extends $pb.GeneratedMessage {
-  factory FileCancel() => FileCancel._();
-
-  FileCancel._();
-
-  factory FileCancel.fromBuffer($core.List<$core.int> data,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      FileCancel()..mergeFromBuffer(data, registry);
-  factory FileCancel.fromJson($core.String json,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      FileCancel()..mergeFromJson(json, registry);
-
-  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'FileCancel',
-      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
-      createEmptyInstance: FileCancel.$_createMessage)
-    ..hasRequiredFields = false;
-
-  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  FileCancel clone() => deepCopy();
-  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  FileCancel copyWith(void Function(FileCancel) updates) =>
-      super.copyWith((message) => updates(message as FileCancel)) as FileCancel;
-
-  @$core.override
-  $pb.BuilderInfo get info_ => _i;
-
-  @$core.pragma('dart2js:noInline')
-  @$core.Deprecated('Use FileCancel() / FileCancel.new instead')
-  static FileCancel create() => FileCancel._();
-  static $pb.GeneratedMessage $_createMessage() => FileCancel._();
-  @$core.override
-  FileCancel createEmptyInstance() => FileCancel._();
-  @$core.pragma('dart2js:noInline')
-  static FileCancel getDefault() => _defaultInstance ??=
-      $pb.GeneratedMessage.$_defaultFor<FileCancel>(FileCancel.$_createMessage);
-  static FileCancel? _defaultInstance;
 }
 
 class ScreenStop extends $pb.GeneratedMessage {

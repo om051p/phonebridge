@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../controllers/phonebridge_controller.dart';
 import '../models/activity_event.dart';
+import '../ui/transfer_views.dart';
 
 class ActivityScreen extends StatefulWidget {
   const ActivityScreen({
@@ -28,26 +29,39 @@ class _ActivityScreenState extends State<ActivityScreen> {
             ? allEvents
             : allEvents.where((e) => e.category == _selectedFilter).toList();
 
-        return Column(
+        // One scroll surface: the transfers section (live progress plus the
+        // send-file action) sits above the activity log, so file transfer is not
+        // hidden behind a mode the user has to discover first.
+        return ListView(
+          padding: const EdgeInsets.only(bottom: 16),
           children: [
+            const SizedBox(height: 16),
+            TransfersSection(controller: widget.controller.transfers),
+            const SizedBox(height: 16),
+            const Divider(height: 1),
             _buildFilterBar(theme),
-            Expanded(
-              child: filteredEvents.isEmpty
-                  ? _buildEmptyView(theme)
-                  : ListView.separated(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      itemCount: filteredEvents.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
-                      itemBuilder: (context, index) {
-                        final event = filteredEvents[index];
-                        return _buildEventTile(theme, event);
-                      },
-                    ),
-            ),
+            if (filteredEvents.isEmpty)
+              _buildEmptyView(theme)
+            else
+              ..._buildEventRows(theme, filteredEvents),
           ],
         );
       },
     );
+  }
+
+  List<Widget> _buildEventRows(ThemeData theme, List<ActivityEvent> events) {
+    final rows = <Widget>[];
+    for (var i = 0; i < events.length; i++) {
+      if (i > 0) rows.add(const Divider(height: 1));
+      rows.add(
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: _buildEventTile(theme, events[i]),
+        ),
+      );
+    }
+    return rows;
   }
 
   Widget _buildFilterBar(ThemeData theme) {
@@ -143,7 +157,8 @@ class _ActivityScreenState extends State<ActivityScreen> {
   }
 
   Widget _buildEmptyView(ThemeData theme) {
-    return Center(
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 48),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -161,7 +176,8 @@ class _ActivityScreenState extends State<ActivityScreen> {
           ),
           const SizedBox(height: 4),
           Text(
-            'Events such as screen sharing and clipboard sync will appear here.',
+            'Events such as screen sharing, clipboard sync and file transfers '
+            'will appear here.',
             textAlign: TextAlign.center,
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,

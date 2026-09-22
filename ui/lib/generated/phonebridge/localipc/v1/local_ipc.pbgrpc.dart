@@ -152,6 +152,35 @@ class LocalEngineServiceClient extends $grpc.Client {
     return $createUnaryCall(_$triggerClipboardPull, request, options: options);
   }
 
+  /// SendFile offers a local file to the active peer over the session's
+  /// dedicated "transfer" DataChannel (DEC-024). The daemon reads local_path
+  /// itself: file bytes never cross this local boundary, and no whole file is
+  /// buffered anywhere (streaming chunked I/O).
+  $grpc.ResponseFuture<$0.SendFileResponse> sendFile(
+    $0.SendFileRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$sendFile, request, options: options);
+  }
+
+  /// CancelTransfer aborts an in-flight transfer in either direction. The
+  /// cancel frame goes to the peer and the partial file is deleted locally.
+  $grpc.ResponseFuture<$0.CancelTransferResponse> cancelTransfer(
+    $0.CancelTransferRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$cancelTransfer, request, options: options);
+  }
+
+  /// ListTransfers returns in-flight transfers plus the recent in-memory
+  /// history (Phase 4 does not persist history across daemon restarts).
+  $grpc.ResponseFuture<$0.ListTransfersResponse> listTransfers(
+    $0.ListTransfersRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$listTransfers, request, options: options);
+  }
+
   // method descriptors
 
   static final _$handshake =
@@ -223,6 +252,21 @@ class LocalEngineServiceClient extends $grpc.Client {
       '/phonebridge.localipc.v1.LocalEngineService/TriggerClipboardPull',
       ($0.TriggerClipboardPullRequest value) => value.writeToBuffer(),
       $0.TriggerClipboardPullResponse.fromBuffer);
+  static final _$sendFile =
+      $grpc.ClientMethod<$0.SendFileRequest, $0.SendFileResponse>(
+          '/phonebridge.localipc.v1.LocalEngineService/SendFile',
+          ($0.SendFileRequest value) => value.writeToBuffer(),
+          $0.SendFileResponse.fromBuffer);
+  static final _$cancelTransfer =
+      $grpc.ClientMethod<$0.CancelTransferRequest, $0.CancelTransferResponse>(
+          '/phonebridge.localipc.v1.LocalEngineService/CancelTransfer',
+          ($0.CancelTransferRequest value) => value.writeToBuffer(),
+          $0.CancelTransferResponse.fromBuffer);
+  static final _$listTransfers =
+      $grpc.ClientMethod<$0.ListTransfersRequest, $0.ListTransfersResponse>(
+          '/phonebridge.localipc.v1.LocalEngineService/ListTransfers',
+          ($0.ListTransfersRequest value) => value.writeToBuffer(),
+          $0.ListTransfersResponse.fromBuffer);
 }
 
 @$pb.GrpcServiceName('phonebridge.localipc.v1.LocalEngineService')
@@ -348,6 +392,31 @@ abstract class LocalEngineServiceBase extends $grpc.Service {
         ($core.List<$core.int> value) =>
             $0.TriggerClipboardPullRequest.fromBuffer(value),
         ($0.TriggerClipboardPullResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.SendFileRequest, $0.SendFileResponse>(
+        'SendFile',
+        sendFile_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) => $0.SendFileRequest.fromBuffer(value),
+        ($0.SendFileResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.CancelTransferRequest,
+            $0.CancelTransferResponse>(
+        'CancelTransfer',
+        cancelTransfer_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) =>
+            $0.CancelTransferRequest.fromBuffer(value),
+        ($0.CancelTransferResponse value) => value.writeToBuffer()));
+    $addMethod(
+        $grpc.ServiceMethod<$0.ListTransfersRequest, $0.ListTransfersResponse>(
+            'ListTransfers',
+            listTransfers_Pre,
+            false,
+            false,
+            ($core.List<$core.int> value) =>
+                $0.ListTransfersRequest.fromBuffer(value),
+            ($0.ListTransfersResponse value) => value.writeToBuffer()));
   }
 
   $async.Future<$0.HandshakeResponse> handshake_Pre($grpc.ServiceCall $call,
@@ -469,4 +538,30 @@ abstract class LocalEngineServiceBase extends $grpc.Service {
 
   $async.Future<$0.TriggerClipboardPullResponse> triggerClipboardPull(
       $grpc.ServiceCall call, $0.TriggerClipboardPullRequest request);
+
+  $async.Future<$0.SendFileResponse> sendFile_Pre($grpc.ServiceCall $call,
+      $async.Future<$0.SendFileRequest> $request) async {
+    return sendFile($call, await $request);
+  }
+
+  $async.Future<$0.SendFileResponse> sendFile(
+      $grpc.ServiceCall call, $0.SendFileRequest request);
+
+  $async.Future<$0.CancelTransferResponse> cancelTransfer_Pre(
+      $grpc.ServiceCall $call,
+      $async.Future<$0.CancelTransferRequest> $request) async {
+    return cancelTransfer($call, await $request);
+  }
+
+  $async.Future<$0.CancelTransferResponse> cancelTransfer(
+      $grpc.ServiceCall call, $0.CancelTransferRequest request);
+
+  $async.Future<$0.ListTransfersResponse> listTransfers_Pre(
+      $grpc.ServiceCall $call,
+      $async.Future<$0.ListTransfersRequest> $request) async {
+    return listTransfers($call, await $request);
+  }
+
+  $async.Future<$0.ListTransfersResponse> listTransfers(
+      $grpc.ServiceCall call, $0.ListTransfersRequest request);
 }

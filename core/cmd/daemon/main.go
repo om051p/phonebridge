@@ -20,6 +20,7 @@ import (
 	"github.com/om051p/phonebridge/core/pkg/engine"
 	"github.com/om051p/phonebridge/core/pkg/localipc"
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgelocalipcv1"
+	"github.com/om051p/phonebridge/core/pkg/transfer"
 )
 
 var version = "0.1.0"
@@ -31,6 +32,8 @@ func main() {
 		socketPath    = flag.String("socket", "", "UDS socket path (default: $XDG_RUNTIME_DIR/phonebridge/engine.sock)")
 		tokenPath     = flag.String("token-file", "", "Bearer token file path (default: $XDG_RUNTIME_DIR/phonebridge/token)")
 		signalingPort = flag.Int("signaling-port", engine.DefaultSignalingPort, "TCP port for LAN signaling server (0 for ephemeral)")
+		downloadDir   = flag.String("download-dir", "", "Directory for received files (default: $XDG_DOWNLOAD_DIR or ~/Downloads)")
+		maxFileSize   = flag.Int64("max-file-size", int64(transfer.DefaultMaxFileSize), "Largest file this device accepts, in bytes")
 	)
 	flag.Parse()
 
@@ -219,6 +222,47 @@ func main() {
 				log.Printf("warning: clipboard adapter start failed: %v", err)
 			}
 			defer clipboardAdapter.Stop()
+		}
+	}
+
+	// Initialize the file-transfer subsystem (DEC-024). The destination is a real
+	// directory the user can see, never a hidden cache: a received file that the
+	// user cannot find is indistinguishable from a failed transfer.
+	destDir := *downloadDir
+	if envDir := os.Getenv("PHONEBRIDGE_DOWNLOAD_DIR"); destDir == "" && envDir != "" {
+		destDir = envDir
+	}
+	if destDir == "" {
+		destDir = transfer.DefaultDownloadDir()
+	}
+
+	destination, err := transfer.NewFileDestination(transfer.FileDestinationConfig{Dir: destDir})
+	if err != nil {
+		log.Printf("warning: file transfer disabled: cannot prepare destination %s: %v", destDir, err)
+	} else {
+		if err := destination.SweepPartial(); err != nil {
+			log.Printf("warning: file transfer: stale staging cleanup failed: %v", err)
+		}
+		maxSize := uint64(*maxFileSize)
+		if maxSize == 0 {
+			maxSize = transfer.DefaultMaxFileSize
+		}
+		transferEngine, err := transfer.NewEngine(transfer.Config{
+			LocalPeerID: identity.DeviceID,
+			Destination: destination,
+			MaxFileSize: maxSize,
+			OnEvent: func(evt transfer.Event) {
+				srv.BroadcastTransferEvent(&phonebridgelocalipcv1.TransferEvent{
+					Transfer: localipc.ToProtoTransferInfo(evt.Info),
+				})
+			},
+		})
+		if err != nil {
+			log.Printf("warning: file transfer disabled: %v", err)
+		} else {
+			mgr.SetTransferEngine(transferEngine)
+			defer transferEngine.Close()
+			log.Printf("File transfer: receiving into %s (max %d bytes)", destination.Dir(), maxSize)
 		}
 	}
 

@@ -11,6 +11,7 @@ import '../services/phonebridge_channel.dart';
 import '../services/platform_bridge_service.dart';
 import '../services/android_bridge_service.dart';
 import '../services/linux_bridge_service.dart';
+import 'transfer_controller.dart';
 
 class PhoneBridgeController extends ChangeNotifier {
   PhoneBridgeController({
@@ -30,6 +31,13 @@ class PhoneBridgeController extends ChangeNotifier {
 
   final PlatformBridgeService _service;
   PlatformBridgeService get service => _service;
+
+  /// File-transfer history and live progress (DEC-024). Shares [_service] with
+  /// this controller: the service is owned and disposed here, not by the
+  /// transfer controller.
+  late final TransferController _transfers =
+      TransferController(backend: _service);
+  TransferController get transfers => _transfers;
 
   DeviceState _deviceState = DeviceState.initial;
   CaptureStats _captureStats = CaptureStats.initial;
@@ -75,11 +83,16 @@ class PhoneBridgeController extends ChangeNotifier {
   void initialize() {
     refreshAll();
     _subscribeEvents();
+    // Subscribes to the live transfer stream and loads the recent history. The
+    // transfers surface has its own retry affordance, so this never blocks the
+    // rest of the dashboard.
+    _transfers.initialize();
   }
 
   @override
   void dispose() {
     _rawEventsSub?.cancel();
+    _transfers.dispose();
     _service.dispose();
     super.dispose();
   }

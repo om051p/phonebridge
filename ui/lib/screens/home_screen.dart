@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../controllers/phonebridge_controller.dart';
 import '../models/activity_event.dart';
+import '../ui/transfer_views.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({
@@ -39,6 +40,11 @@ class HomeScreen extends StatelessWidget {
           _buildScreenShareHeroCard(context, theme, isCapturing, stats),
           const SizedBox(height: 16),
           _buildClipboardQuickCard(context, theme, clipboard),
+          const SizedBox(height: 16),
+          TransferSummaryCard(
+            controller: controller.transfers,
+            onOpen: () => onNavigateToTab(4), // Transfers live in Activity
+          ),
           const SizedBox(height: 16),
           _buildRecentActivitySection(context, theme, recentEvents),
         ],

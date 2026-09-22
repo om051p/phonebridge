@@ -6,6 +6,7 @@ import 'package:phonebridge_ui/models/capture_stats.dart';
 import 'package:phonebridge_ui/models/clipboard_status.dart';
 import 'package:phonebridge_ui/models/device_state.dart';
 import 'package:phonebridge_ui/models/discovered_device.dart';
+import 'package:phonebridge_ui/models/transfer_item.dart';
 import 'package:phonebridge_ui/models/trusted_device.dart';
 import 'package:phonebridge_ui/screens/app_scaffold.dart';
 import 'package:phonebridge_ui/screens/clipboard_screen.dart';
@@ -144,6 +145,39 @@ class MockPlatformBridgeService implements PlatformBridgeService {
   @override
   Stream<Map<dynamic, dynamic>> get rawEventsStream => _rawEventsCtrl.stream;
 
+  // ---- File transfers (DEC-024) -------------------------------------------
+  // The desktop (Linux) bridge is the platform that supports transfers; the
+  // values below are the smallest fakes that keep the interface honest.
+
+  final StreamController<TransferItem> _transferCtrl =
+      StreamController<TransferItem>.broadcast();
+
+  List<TransferItem> transferHistory = [];
+
+  String? lastSentPath;
+
+  @override
+  bool get supportsFileTransfer => isLinuxMode;
+
+  @override
+  Stream<TransferItem> get transferStream => _transferCtrl.stream;
+
+  @override
+  Future<List<TransferItem>> listTransfers() async => transferHistory;
+
+  @override
+  Future<TransferSendResult> sendFile({
+    required String localPath,
+    String filename = '',
+    String deviceId = '',
+  }) async {
+    lastSentPath = localPath;
+    return const TransferSendResult(transferId: 'sent-transfer-1');
+  }
+
+  @override
+  Future<bool> cancelTransfer(String transferId) async => true;
+
   @override
   void setNativeCallHandler(Future<dynamic> Function(dynamic call)? handler) {}
 
@@ -151,6 +185,7 @@ class MockPlatformBridgeService implements PlatformBridgeService {
   void dispose() {
     _statsCtrl.close();
     _rawEventsCtrl.close();
+    _transferCtrl.close();
   }
 }
 

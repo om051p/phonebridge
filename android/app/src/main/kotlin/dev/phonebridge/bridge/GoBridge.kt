@@ -204,6 +204,70 @@ object GoBridge {
         return nativeClipboardStats()
     }
 
+    // ------------------------------------------------------------------
+    // File transfer plane (DEC-024, Phase 4 Step 4).
+    // Kotlin owns storage (MediaStore IS_PENDING / direct Downloads fallback);
+    // Go writes bytes through the descriptor the host hands over and asks the
+    // host to publish or delete the entry. init/stop register and release the
+    // host; send/cancel/list/stats ride the generic invoke("transfer:*")
+    // control plane, because they are low-frequency request/response calls.
+    // ------------------------------------------------------------------
+
+    /**
+     * Registers [host] as the storage side of the transfer plane and builds
+     * the Go engine. [peerDeviceId] attributes subsequent transfers in the
+     * activity history (empty until a session targets a device).
+     */
+    fun transferInit(host: TransferHostCallback, peerDeviceId: String): Boolean {
+        check(isLoaded) { "libphonebridge_core.so is not loaded" }
+        return nativeTransferInit(host, peerDeviceId)
+    }
+
+    /** Releases the host and interrupts in-flight transfers (DEC-024: no resume). */
+    fun transferStop() {
+        if (isLoaded) {
+            nativeTransferStop()
+        }
+    }
+
+    /** Records the signaling target so transfer history shows who sent what. */
+    fun transferSetPeer(peerDeviceId: String): Boolean {
+        if (!isLoaded) return false
+        return nativeTransferSetPeer(peerDeviceId)
+    }
+
+    /** Offers a local file to the peer; returns JSON {transfer_id|error,reason}. */
+    fun transferSend(path: String, filename: String? = null): ByteArray? {
+        if (!isLoaded) return null
+        val body = buildString {
+            append("{")
+            append("\"path\":\"").append(path.replace("\\", "\\\\").replace("\"", "\\\"")).append("\"")
+            if (!filename.isNullOrEmpty()) {
+                append(",\"filename\":\"").append(filename.replace("\\", "\\\\").replace("\"", "\\\"")).append("\"")
+            }
+            append("}")
+        }
+        return invoke("transfer:send", body.toByteArray(Charsets.UTF_8))
+    }
+
+    /** Cancels an in-flight transfer; returns JSON {cancelled|error}. */
+    fun transferCancel(transferId: String): ByteArray? {
+        if (!isLoaded) return null
+        return invoke("transfer:cancel", "{\"transfer_id\":\"$transferId\"}".toByteArray(Charsets.UTF_8))
+    }
+
+    /** Lists in-flight transfers plus history as a JSON array. */
+    fun transferList(): ByteArray? {
+        if (!isLoaded) return null
+        return invoke("transfer:list")
+    }
+
+    /** Returns the diagnostic snapshot as JSON. */
+    fun transferStats(): ByteArray? {
+        if (!isLoaded) return null
+        return invoke("transfer:stats")
+    }
+
     @JvmStatic
     private external fun nativeStart(storageDir: String?): Boolean
 
@@ -248,7 +312,7 @@ object GoBridge {
     @JvmStatic
     private external fun nativeMediaStats(): ByteArray?
 
-    // Clipboard plane natives (implemented in core/cmd/android/main.go)
+    // Clipboard plane natives (implemented in core/cmd/android/transfer_jni.go)
     @JvmStatic
     private external fun nativeClipboardInit(callback: ClipboardHostCallback): Boolean
 
@@ -263,6 +327,60 @@ object GoBridge {
 
     @JvmStatic
     private external fun nativeClipboardStats(): ByteArray?
+
+    // Transfer plane natives (implemented in core/cmd/android/transfer_jni.go;
+    // names AND return types must match the exported JNI symbols exactly).
+    @JvmStatic
+    private external fun nativeTransferInit(host: TransferHostCallback, peerDeviceId: String): Boolean
+
+    @JvmStatic
+    private external fun nativeTransferStop()
+
+    @JvmStatic
+    private external fun nativeTransferSetPeer(peerDeviceId: String): Boolean
+}
+
+/**
+ * TransferHostCallback is the storage side of the file-transfer plane (DEC-024).
+ * Kotlin owns where a received file lands (MediaStore IS_PENDING on API 29+,
+ * direct Downloads writes on 26-28); Go writes bytes through the descriptor
+ * [onOpenPendingFd] returns and never loads the whole file into memory.
+ *
+ * Method names and signatures are pinned by the JNI glue in
+ * core/cmd/android/transfer_jni.go — renaming either side breaks the plane.
+ */
+interface TransferHostCallback {
+    /**
+     * Creates the pending destination entry and returns its handle (an opaque
+     * string), or null when the platform refuses the download.
+     */
+    fun onBeginDownload(filename: String, mimeType: String, sizeBytes: Long): String?
+
+    /**
+     * Opens the pending entry for writing and returns a ParcelFileDescriptor
+     * detaching an int fd. The Go side dups the descriptor and owns its copy;
+     * this fd must be closed here as soon as the call returns.
+     */
+    fun onOpenPendingFd(handle: String): Int
+
+    /**
+     * Publishes the finished file (IS_PENDING=0) and returns the user-visible
+     * display name, or null when the publish failed (the Go side then asks for
+     * the entry to be deleted).
+     */
+    fun onCommitDownload(handle: String): String?
+
+    /** Deletes the pending entry and everything written to it. Must be idempotent. */
+    fun onAbortDownload(handle: String)
+
+    /**
+     * Free space on the destination volume, or a negative value when unknown
+     * (the Go free-space policy is then skipped rather than guessed).
+     */
+    fun onFreeSpaceBytes(): Long
+
+    /** Reports a frame larger than the protocol limit (peer misbehaviour). */
+    fun onOversizedFrame(size: Int)
 }
 
 interface ClipboardHostCallback {

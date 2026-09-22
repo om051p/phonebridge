@@ -14,6 +14,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import dev.phonebridge.bridge.GoBridge
 import dev.phonebridge.clipboard.AndroidClipboardAdapter
+import dev.phonebridge.transfer.AndroidTransferHostRegistry
 import dev.phonebridge.capture.CaptureConfig
 import dev.phonebridge.capture.CodecSelector
 import dev.phonebridge.capture.ScreenCaptureEngine
@@ -247,6 +248,7 @@ class PhoneBridgeService : Service() {
         stopCaptureInternal("service_destroyed")
         stopLanServices()
         stopGoEngine()
+        AndroidTransferHostRegistry.release()
         super.onDestroy()
     }
 
@@ -377,11 +379,13 @@ class PhoneBridgeService : Service() {
             val storageDir = filesDir.absolutePath
             GoBridge.start(storageDir)
             AndroidClipboardAdapter.start(applicationContext)
+            AndroidTransferHostRegistry.ensureStarted(applicationContext)
         }
     }
 
     private fun stopGoEngine() {
         if (GoBridge.loaded) {
+            AndroidTransferHostRegistry.stopIfStarted()
             AndroidClipboardAdapter.stop()
             GoBridge.mediaStop()
             GoBridge.mediaRelease()

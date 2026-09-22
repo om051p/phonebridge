@@ -4,6 +4,7 @@ import '../models/capture_stats.dart';
 import '../models/clipboard_status.dart';
 import '../models/device_state.dart';
 import '../models/discovered_device.dart';
+import '../models/transfer_item.dart';
 import '../models/trusted_device.dart';
 import 'local_ipc_client.dart';
 import 'platform_bridge_service.dart';
@@ -19,6 +20,8 @@ class LinuxBridgeService implements PlatformBridgeService {
       StreamController<Map<dynamic, dynamic>>.broadcast();
   final StreamController<CaptureStats> _statsController =
       StreamController<CaptureStats>.broadcast();
+  final StreamController<TransferItem> _transferController =
+      StreamController<TransferItem>.broadcast();
 
   StreamSubscription<ipc.StreamEventsResponse>? _streamSub;
   String? _activeSessionId;
@@ -61,6 +64,17 @@ class LinuxBridgeService implements PlatformBridgeService {
           final ce = resp.clipboardEvent;
           _lastClipboardState = ce.state;
           map['clipboardState'] = ce.state;
+        }
+
+        if (resp.hasTransferEvent()) {
+          final te = resp.transferEvent;
+          if (te.hasTransfer()) {
+            final item = TransferItem.fromProto(te.transfer);
+            map['transfer'] = item;
+            if (!_transferController.isClosed) {
+              _transferController.add(item);
+            }
+          }
         }
 
         if (map.isNotEmpty) {
@@ -277,6 +291,54 @@ class LinuxBridgeService implements PlatformBridgeService {
   }
 
   @override
+  bool get supportsFileTransfer => true;
+
+  /// Transfer history as the daemon sees it. Unlike the other read paths this
+  /// one rethrows, because the UI must tell "no transfers yet" apart from
+  /// "daemon unreachable / transfer engine disabled".
+  @override
+  Future<List<TransferItem>> listTransfers() async {
+    final resp = await _client.listTransfers();
+    return resp.transfers.map(TransferItem.fromProto).toList();
+  }
+
+  @override
+  Future<TransferSendResult> sendFile({
+    required String localPath,
+    String filename = '',
+    String deviceId = '',
+  }) async {
+    try {
+      final resp = await _client.sendFile(
+        deviceId: deviceId,
+        localPath: localPath,
+        filename: filename,
+      );
+      return TransferSendResult(
+        transferId: resp.transferId,
+        state: resp.state,
+        reasonCode: resp.reasonCode,
+        errorMessage: resp.errorMessage,
+      );
+    } catch (e) {
+      return TransferSendResult.failure(e.toString());
+    }
+  }
+
+  @override
+  Future<bool> cancelTransfer(String transferId) async {
+    try {
+      final resp = await _client.cancelTransfer(transferId);
+      return resp.cancelled;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Stream<TransferItem> get transferStream => _transferController.stream;
+
+  @override
   Stream<CaptureStats> get statsStream => _statsController.stream;
 
   @override
@@ -292,6 +354,7 @@ class LinuxBridgeService implements PlatformBridgeService {
     _streamSub?.cancel();
     _rawEventsController.close();
     _statsController.close();
+    _transferController.close();
     _client.shutdown();
   }
 }

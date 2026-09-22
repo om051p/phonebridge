@@ -14,6 +14,8 @@ import (
 
 	"github.com/om051p/phonebridge/core/pkg/clipboard"
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgev1"
+	"github.com/om051p/phonebridge/core/pkg/transfer"
+	"github.com/om051p/phonebridge/core/pkg/transfer/rtcchannel"
 )
 
 // InboundSessionConfig configures an inbound WebRTC responder session.
@@ -23,6 +25,7 @@ type InboundSessionConfig struct {
 	IncludeLoopback bool
 	PeerDeviceID    string
 	ClipboardEngine *clipboard.Engine
+	TransferEngine  *transfer.Engine
 	OnStateChange   func(pion.PeerConnectionState)
 }
 
@@ -32,8 +35,11 @@ type InboundSession struct {
 	cfg             InboundSessionConfig
 	pc              *pion.PeerConnection
 	cbDC            *pion.DataChannel
+	trDC            *pion.DataChannel
+	trCh            *rtcchannel.Channel
 	ctrlDC          *pion.DataChannel
 	clipboardEngine *clipboard.Engine
+	transferEngine  *transfer.Engine
 	ctx             context.Context
 	cancel          context.CancelFunc
 	closed          bool
@@ -81,12 +87,28 @@ func NewInboundSession(cfg InboundSessionConfig) (*InboundSession, error) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// Dedicated file-transfer DataChannel (DEC-024): reliable, ordered, and
+	// independent of clipboard and control.
+	trDC, err := pc.CreateDataChannel("transfer", &pion.DataChannelInit{
+		Ordered: &cbOrdered,
+	})
+	if err != nil {
+		cancel()
+		_ = pc.Close()
+		return nil, fmt.Errorf("inbound: transfer datachannel: %w", err)
+	}
+	trCh := rtcchannel.New(trDC, transfer.DefaultLowWatermark)
+
 	sess := &InboundSession{
 		cfg:             cfg,
 		pc:              pc,
 		cbDC:            cbDC,
+		trDC:            trDC,
+		trCh:            trCh,
 		ctrlDC:          ctrlDC,
 		clipboardEngine: cfg.ClipboardEngine,
+		transferEngine:  cfg.TransferEngine,
 		ctx:             ctx,
 		cancel:          cancel,
 	}
@@ -101,6 +123,20 @@ func NewInboundSession(cfg InboundSessionConfig) (*InboundSession, error) {
 
 	cbDC.OnMessage(func(msg pion.DataChannelMessage) {
 		sess.handleClipboardMessage(msg.Data)
+	})
+
+	trCh2 := trCh
+	trDC.OnOpen(func() {
+		sess.handleTransferOpen(trCh2)
+	})
+
+	trDC.OnMessage(func(msg pion.DataChannelMessage) {
+		sess.handleTransferMessage(msg.Data)
+	})
+
+	trDC.OnClose(func() {
+		trCh2.Close()
+		sess.handleTransferClose()
 	})
 
 	return sess, nil
@@ -149,6 +185,22 @@ func (s *InboundSession) SendClipboard(data []byte) error {
 	return s.cbDC.Send(data)
 }
 
+// SendTransfer transmits one encoded TransferFrame over the reliable ordered
+// "transfer" DataChannel.
+func (s *InboundSession) SendTransfer(data []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed || s.trDC == nil {
+		return errors.New("inbound: transfer datachannel not available")
+	}
+	return s.trDC.Send(data)
+}
+
+// TransferChannel exposes the transfer channel adapter for the local transfer
+// engine (DEC-024).
+func (s *InboundSession) TransferChannel() *rtcchannel.Channel { return s.trCh }
+
 // IsClosed returns whether the session has been closed.
 func (s *InboundSession) IsClosed() bool {
 	s.mu.Lock()
@@ -167,6 +219,8 @@ func (s *InboundSession) Close() error {
 	cancel := s.cancel
 	pc := s.pc
 	eng := s.clipboardEngine
+	trEng := s.transferEngine
+	ch := s.trCh
 	s.mu.Unlock()
 
 	if cancel != nil {
@@ -174,6 +228,15 @@ func (s *InboundSession) Close() error {
 	}
 	if eng != nil {
 		eng.SetTransport(nil)
+	}
+	if ch != nil {
+		ch.Close()
+	}
+	if trEng != nil {
+		// No resume (DEC-024): an interrupted transfer fails and is reported to
+		// the user rather than silently waiting. DetachChannelIf keeps a session
+		// being torn down from interrupting its successor's transfers.
+		trEng.DetachChannelIf(ch, transfer.ReasonInterrupted, "session closed")
 	}
 	if pc != nil {
 		return pc.Close()
@@ -213,6 +276,45 @@ func (s *InboundSession) handleClipboardMessage(data []byte) {
 	}
 
 	_ = eng.OnRemoteBytes(ctx, data)
+}
+
+// handleTransferOpen binds the freshly opened transfer DataChannel to the local
+// transfer engine for the lifetime of this session.
+func (s *InboundSession) handleTransferOpen(ch *rtcchannel.Channel) {
+	s.mu.Lock()
+	eng := s.transferEngine
+	peer := s.cfg.PeerDeviceID
+	s.mu.Unlock()
+
+	if eng == nil || ch == nil {
+		return
+	}
+
+	eng.SetPeerDeviceID(peer)
+	eng.AttachChannel(ch)
+}
+
+func (s *InboundSession) handleTransferMessage(data []byte) {
+	s.mu.Lock()
+	eng := s.transferEngine
+	s.mu.Unlock()
+
+	if eng == nil {
+		return
+	}
+	eng.OnFrame(data)
+}
+
+func (s *InboundSession) handleTransferClose() {
+	s.mu.Lock()
+	eng := s.transferEngine
+	ch := s.trCh
+	s.mu.Unlock()
+
+	if eng == nil {
+		return
+	}
+	eng.DetachChannelIf(ch, transfer.ReasonInterrupted, "transfer channel closed")
 }
 
 func (s *InboundSession) gatherComplete(timeout time.Duration) {

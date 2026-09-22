@@ -21,7 +21,9 @@ import (
 	"github.com/om051p/phonebridge/core/pkg/crypto"
 	"github.com/om051p/phonebridge/core/pkg/discovery"
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgelocalipcv1"
+	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgev1"
 	"github.com/om051p/phonebridge/core/pkg/receiver"
+	"github.com/om051p/phonebridge/core/pkg/transfer"
 )
 
 // SessionEvent models an event emitted by SessionManager.
@@ -62,6 +64,7 @@ type SessionManager struct {
 	identity         *crypto.DeviceIdentity
 	trustStore       *crypto.TrustStore
 	clipboardEngine  *clipboard.Engine
+	transferEngine   *transfer.Engine
 	clipboardAdapter clipboard.PlatformAdapter
 	pendingPairings  map[string]*pendingPairing
 	httpClient       *http.Client
@@ -127,6 +130,25 @@ func (m *SessionManager) ClipboardEngine() *clipboard.Engine {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.clipboardEngine
+}
+
+// SetTransferEngine configures the file-transfer engine for all managed
+// sessions, outbound and inbound (DEC-024).
+func (m *SessionManager) SetTransferEngine(eng *transfer.Engine) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.transferEngine = eng
+	m.cfg.TransferEngine = eng
+	if m.activeSess != nil {
+		m.activeSess.SetTransferEngine(eng)
+	}
+}
+
+// TransferEngine returns the configured file-transfer engine.
+func (m *SessionManager) TransferEngine() *transfer.Engine {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.transferEngine
 }
 
 // SetClipboardAdapter configures the platform clipboard adapter.
@@ -198,6 +220,66 @@ func (m *SessionManager) TriggerClipboardPull(ctx context.Context) error {
 		return eng.OnLocalClipboard(ctx, cur)
 	}
 	return nil
+}
+
+// SendFile offers a local file to the peer of the active session (DEC-024).
+//
+// The target is checked against the live session rather than the discovery
+// registry: file transfer runs on the session's own DataChannel, so offering a
+// file to a device that is merely discovered would be a promise the transport
+// cannot keep (and the engine's CODE_UNAVAILABLE is the honest answer).
+func (m *SessionManager) SendFile(ctx context.Context, deviceID, localPath, filename string) (string, error) {
+	eng := m.TransferEngine()
+	if eng == nil {
+		return "", transfer.NewFailure(phonebridgev1.Code_CODE_UNAVAILABLE, transfer.ReasonUnsupportedPeer,
+			"file transfer is not configured on this device")
+	}
+
+	m.mu.RLock()
+	sess := m.activeSess
+	m.mu.RUnlock()
+
+	if sess == nil {
+		return "", transfer.NewFailure(phonebridgev1.Code_CODE_UNAVAILABLE, transfer.ReasonNoSession,
+			"no active session: connect to a device before sending a file")
+	}
+	if target := sess.Snapshot().TargetDevice.ID; deviceID != "" && deviceID != target {
+		return "", transfer.NewFailure(phonebridgev1.Code_CODE_INVALID_ARGUMENT, transfer.ReasonNoSession,
+			"device %s is not the active session's peer (%s)", deviceID, target)
+	}
+	if !sess.TransferReady() {
+		return "", transfer.NewFailure(phonebridgev1.Code_CODE_UNAVAILABLE, transfer.ReasonNoSession,
+			"the peer has not opened the transfer channel yet")
+	}
+	return eng.SendFile(ctx, localPath, filename)
+}
+
+// CancelTransfer aborts an in-flight transfer in either direction.
+func (m *SessionManager) CancelTransfer(ctx context.Context, transferID string) error {
+	eng := m.TransferEngine()
+	if eng == nil {
+		return errors.New("file transfer is not configured on this device")
+	}
+	return eng.Cancel(ctx, transferID)
+}
+
+// ListTransfers returns in-flight transfers plus the recent history, newest
+// first.
+func (m *SessionManager) ListTransfers() []transfer.Info {
+	eng := m.TransferEngine()
+	if eng == nil {
+		return nil
+	}
+	return eng.List()
+}
+
+// TransferEngineReady reports whether the active session has a usable transfer
+// channel; it is used to gate the UI's "send file" affordance.
+func (m *SessionManager) TransferEngineReady() bool {
+	m.mu.RLock()
+	sess := m.activeSess
+	m.mu.RUnlock()
+	return sess != nil && sess.TransferReady()
 }
 
 // TrustStore returns the active trust store.
@@ -602,6 +684,7 @@ func (m *SessionManager) HandleInboundOffer(req NegotiationRequest) (Negotiation
 		IncludeLoopback: true,
 		PeerDeviceID:    req.PeerDeviceID,
 		ClipboardEngine: m.clipboardEngine,
+		TransferEngine:  m.transferEngine,
 	})
 	if err != nil {
 		return NegotiationResponse{}, fmt.Errorf("create inbound session: %w", err)

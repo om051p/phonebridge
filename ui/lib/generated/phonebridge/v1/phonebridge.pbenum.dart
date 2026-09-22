@@ -105,6 +105,39 @@ class Code extends $pb.ProtobufEnum {
   static const Code CODE_SESSION_BUSY =
       Code._(16, _omitEnumNames ? '' : 'CODE_SESSION_BUSY');
 
+  /// File-transfer failures (DEC-024). Appended, never renumbered.
+  /// The transfer DataChannel or session went away mid-transfer. Restart from
+  /// zero after reconnect: Phase 4 has no resume (see DEC-024).
+  static const Code CODE_TRANSFER_INTERRUPTED =
+      Code._(17, _omitEnumNames ? '' : 'CODE_TRANSFER_INTERRUPTED');
+
+  /// The received bytes did not match the declared size or SHA-256 digest.
+  static const Code CODE_CHECKSUM_MISMATCH =
+      Code._(18, _omitEnumNames ? '' : 'CODE_CHECKSUM_MISMATCH');
+
+  /// The receiver could not write or promote the file (no space, permissions,
+  /// MediaStore/SAF failure).
+  static const Code CODE_STORAGE_FAILED =
+      Code._(19, _omitEnumNames ? '' : 'CODE_STORAGE_FAILED');
+
+  /// The file exceeds the receiving side's file-size policy.
+  static const Code CODE_FILE_TOO_LARGE =
+      Code._(20, _omitEnumNames ? '' : 'CODE_FILE_TOO_LARGE');
+
+  /// The proposed filename is not a plain basename (separator, NUL, "..",
+  /// over-length). The receiver never accepts a sender-controlled path.
+  static const Code CODE_UNSAFE_FILENAME =
+      Code._(21, _omitEnumNames ? '' : 'CODE_UNSAFE_FILENAME');
+
+  /// The receiver already has a transfer in flight (DEC-024 allows one inbound
+  /// and one outbound transfer per session).
+  static const Code CODE_TRANSFER_BUSY =
+      Code._(22, _omitEnumNames ? '' : 'CODE_TRANSFER_BUSY');
+
+  /// The local user cancelled the transfer.
+  static const Code CODE_TRANSFER_CANCELLED =
+      Code._(23, _omitEnumNames ? '' : 'CODE_TRANSFER_CANCELLED');
+
   static const $core.List<Code> values = <Code>[
     CODE_UNSPECIFIED,
     CODE_OK,
@@ -123,10 +156,17 @@ class Code extends $pb.ProtobufEnum {
     CODE_TRANSPORT_FAILED,
     CODE_RECONNECT_TIMEOUT,
     CODE_SESSION_BUSY,
+    CODE_TRANSFER_INTERRUPTED,
+    CODE_CHECKSUM_MISMATCH,
+    CODE_STORAGE_FAILED,
+    CODE_FILE_TOO_LARGE,
+    CODE_UNSAFE_FILENAME,
+    CODE_TRANSFER_BUSY,
+    CODE_TRANSFER_CANCELLED,
   ];
 
   static final $core.List<Code?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 16);
+      $pb.ProtobufEnum.$_initByValueList(values, 23);
   static Code? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

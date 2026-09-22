@@ -366,6 +366,7 @@ class StreamEventsResponse extends $pb.GeneratedMessage {
     $1.Envelope? envelope,
     SessionEvent? sessionEvent,
     ClipboardStatusEvent? clipboardEvent,
+    TransferEvent? transferEvent,
   }) {
     final result = StreamEventsResponse._();
     if (seq != null) result.seq = seq;
@@ -373,6 +374,7 @@ class StreamEventsResponse extends $pb.GeneratedMessage {
     if (envelope != null) result.envelope = envelope;
     if (sessionEvent != null) result.sessionEvent = sessionEvent;
     if (clipboardEvent != null) result.clipboardEvent = clipboardEvent;
+    if (transferEvent != null) result.transferEvent = transferEvent;
     return result;
   }
 
@@ -401,6 +403,8 @@ class StreamEventsResponse extends $pb.GeneratedMessage {
         subBuilder: SessionEvent.$_createMessage)
     ..aOM<ClipboardStatusEvent>(5, _omitFieldNames ? '' : 'clipboardEvent',
         subBuilder: ClipboardStatusEvent.$_createMessage)
+    ..aOM<TransferEvent>(6, _omitFieldNames ? '' : 'transferEvent',
+        subBuilder: TransferEvent.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -488,6 +492,18 @@ class StreamEventsResponse extends $pb.GeneratedMessage {
   void clearClipboardEvent() => $_clearField(5);
   @$pb.TagNumber(5)
   ClipboardStatusEvent ensureClipboardEvent() => $_ensure(4);
+
+  /// File-transfer state/progress transitions (DEC-024).
+  @$pb.TagNumber(6)
+  TransferEvent get transferEvent => $_getN(5);
+  @$pb.TagNumber(6)
+  set transferEvent(TransferEvent value) => $_setField(6, value);
+  @$pb.TagNumber(6)
+  $core.bool hasTransferEvent() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearTransferEvent() => $_clearField(6);
+  @$pb.TagNumber(6)
+  TransferEvent ensureTransferEvent() => $_ensure(5);
 }
 
 /// LocalEvent represents a pushed local event containing the relayed device envelope.
@@ -500,6 +516,7 @@ class LocalEvent extends $pb.GeneratedMessage {
     $1.Envelope? envelope,
     SessionEvent? sessionEvent,
     ClipboardStatusEvent? clipboardEvent,
+    TransferEvent? transferEvent,
   }) {
     final result = LocalEvent._();
     if (seq != null) result.seq = seq;
@@ -507,6 +524,7 @@ class LocalEvent extends $pb.GeneratedMessage {
     if (envelope != null) result.envelope = envelope;
     if (sessionEvent != null) result.sessionEvent = sessionEvent;
     if (clipboardEvent != null) result.clipboardEvent = clipboardEvent;
+    if (transferEvent != null) result.transferEvent = transferEvent;
     return result;
   }
 
@@ -535,6 +553,8 @@ class LocalEvent extends $pb.GeneratedMessage {
         subBuilder: SessionEvent.$_createMessage)
     ..aOM<ClipboardStatusEvent>(5, _omitFieldNames ? '' : 'clipboardEvent',
         subBuilder: ClipboardStatusEvent.$_createMessage)
+    ..aOM<TransferEvent>(6, _omitFieldNames ? '' : 'transferEvent',
+        subBuilder: TransferEvent.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -612,6 +632,18 @@ class LocalEvent extends $pb.GeneratedMessage {
   void clearClipboardEvent() => $_clearField(5);
   @$pb.TagNumber(5)
   ClipboardStatusEvent ensureClipboardEvent() => $_ensure(4);
+
+  /// File-transfer state/progress transitions (DEC-024).
+  @$pb.TagNumber(6)
+  TransferEvent get transferEvent => $_getN(5);
+  @$pb.TagNumber(6)
+  set transferEvent(TransferEvent value) => $_setField(6, value);
+  @$pb.TagNumber(6)
+  $core.bool hasTransferEvent() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearTransferEvent() => $_clearField(6);
+  @$pb.TagNumber(6)
+  TransferEvent ensureTransferEvent() => $_ensure(5);
 }
 
 /// HealthRequest is empty.
@@ -2891,6 +2923,727 @@ class ClipboardStatusEvent extends $pb.GeneratedMessage {
   $core.bool hasMaxPayloadSize() => $_has(4);
   @$pb.TagNumber(5)
   void clearMaxPayloadSize() => $_clearField(5);
+}
+
+/// TransferInfo is the UI-facing snapshot of one transfer (in-flight or in the
+/// recent history).
+class TransferInfo extends $pb.GeneratedMessage {
+  factory TransferInfo({
+    $core.String? transferId,
+    TransferDirection? direction,
+    TransferState? state,
+    $core.String? peerDeviceId,
+    $core.String? filename,
+    $core.String? mimeType,
+    $fixnum.Int64? sizeBytes,
+    $fixnum.Int64? bytesTransferred,
+    $fixnum.Int64? startedAtMs,
+    $fixnum.Int64? finishedAtMs,
+    TransferReason? reasonCode,
+    $core.String? errorMessage,
+    $core.String? savedName,
+  }) {
+    final result = TransferInfo._();
+    if (transferId != null) result.transferId = transferId;
+    if (direction != null) result.direction = direction;
+    if (state != null) result.state = state;
+    if (peerDeviceId != null) result.peerDeviceId = peerDeviceId;
+    if (filename != null) result.filename = filename;
+    if (mimeType != null) result.mimeType = mimeType;
+    if (sizeBytes != null) result.sizeBytes = sizeBytes;
+    if (bytesTransferred != null) result.bytesTransferred = bytesTransferred;
+    if (startedAtMs != null) result.startedAtMs = startedAtMs;
+    if (finishedAtMs != null) result.finishedAtMs = finishedAtMs;
+    if (reasonCode != null) result.reasonCode = reasonCode;
+    if (errorMessage != null) result.errorMessage = errorMessage;
+    if (savedName != null) result.savedName = savedName;
+    return result;
+  }
+
+  TransferInfo._();
+
+  factory TransferInfo.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      TransferInfo()..mergeFromBuffer(data, registry);
+  factory TransferInfo.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      TransferInfo()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'TransferInfo',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: TransferInfo.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'transferId')
+    ..aE<TransferDirection>(2, _omitFieldNames ? '' : 'direction',
+        enumValues: TransferDirection.values)
+    ..aE<TransferState>(3, _omitFieldNames ? '' : 'state',
+        enumValues: TransferState.values)
+    ..aOS(4, _omitFieldNames ? '' : 'peerDeviceId')
+    ..aOS(5, _omitFieldNames ? '' : 'filename')
+    ..aOS(6, _omitFieldNames ? '' : 'mimeType')
+    ..a<$fixnum.Int64>(
+        7, _omitFieldNames ? '' : 'sizeBytes', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..a<$fixnum.Int64>(
+        8, _omitFieldNames ? '' : 'bytesTransferred', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..a<$fixnum.Int64>(
+        9, _omitFieldNames ? '' : 'startedAtMs', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..a<$fixnum.Int64>(
+        10, _omitFieldNames ? '' : 'finishedAtMs', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..aE<TransferReason>(11, _omitFieldNames ? '' : 'reasonCode',
+        enumValues: TransferReason.values)
+    ..aOS(12, _omitFieldNames ? '' : 'errorMessage')
+    ..aOS(13, _omitFieldNames ? '' : 'savedName')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TransferInfo clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TransferInfo copyWith(void Function(TransferInfo) updates) =>
+      super.copyWith((message) => updates(message as TransferInfo))
+          as TransferInfo;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use TransferInfo() / TransferInfo.new instead')
+  static TransferInfo create() => TransferInfo._();
+  static $pb.GeneratedMessage $_createMessage() => TransferInfo._();
+  @$core.override
+  TransferInfo createEmptyInstance() => TransferInfo._();
+  @$core.pragma('dart2js:noInline')
+  static TransferInfo getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<TransferInfo>(
+          TransferInfo.$_createMessage);
+  static TransferInfo? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get transferId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set transferId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasTransferId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearTransferId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  TransferDirection get direction => $_getN(1);
+  @$pb.TagNumber(2)
+  set direction(TransferDirection value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasDirection() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearDirection() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  TransferState get state => $_getN(2);
+  @$pb.TagNumber(3)
+  set state(TransferState value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasState() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearState() => $_clearField(3);
+
+  /// Peer device identity this transfer belongs to.
+  @$pb.TagNumber(4)
+  $core.String get peerDeviceId => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set peerDeviceId($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasPeerDeviceId() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearPeerDeviceId() => $_clearField(4);
+
+  /// Original filename proposed by the sender (basename).
+  @$pb.TagNumber(5)
+  $core.String get filename => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set filename($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasFilename() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearFilename() => $_clearField(5);
+
+  /// Canonical MIME type when known; empty otherwise.
+  @$pb.TagNumber(6)
+  $core.String get mimeType => $_getSZ(5);
+  @$pb.TagNumber(6)
+  set mimeType($core.String value) => $_setString(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasMimeType() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearMimeType() => $_clearField(6);
+
+  /// Total bytes (0 while unknown for an inbound offer that was never parsed).
+  @$pb.TagNumber(7)
+  $fixnum.Int64 get sizeBytes => $_getI64(6);
+  @$pb.TagNumber(7)
+  set sizeBytes($fixnum.Int64 value) => $_setInt64(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasSizeBytes() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearSizeBytes() => $_clearField(7);
+
+  /// Bytes transferred so far (clamped to size_bytes).
+  @$pb.TagNumber(8)
+  $fixnum.Int64 get bytesTransferred => $_getI64(7);
+  @$pb.TagNumber(8)
+  set bytesTransferred($fixnum.Int64 value) => $_setInt64(7, value);
+  @$pb.TagNumber(8)
+  $core.bool hasBytesTransferred() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearBytesTransferred() => $_clearField(8);
+
+  @$pb.TagNumber(9)
+  $fixnum.Int64 get startedAtMs => $_getI64(8);
+  @$pb.TagNumber(9)
+  set startedAtMs($fixnum.Int64 value) => $_setInt64(8, value);
+  @$pb.TagNumber(9)
+  $core.bool hasStartedAtMs() => $_has(8);
+  @$pb.TagNumber(9)
+  void clearStartedAtMs() => $_clearField(9);
+
+  /// 0 while in flight.
+  @$pb.TagNumber(10)
+  $fixnum.Int64 get finishedAtMs => $_getI64(9);
+  @$pb.TagNumber(10)
+  set finishedAtMs($fixnum.Int64 value) => $_setInt64(9, value);
+  @$pb.TagNumber(10)
+  $core.bool hasFinishedAtMs() => $_has(9);
+  @$pb.TagNumber(10)
+  void clearFinishedAtMs() => $_clearField(10);
+
+  @$pb.TagNumber(11)
+  TransferReason get reasonCode => $_getN(10);
+  @$pb.TagNumber(11)
+  set reasonCode(TransferReason value) => $_setField(11, value);
+  @$pb.TagNumber(11)
+  $core.bool hasReasonCode() => $_has(10);
+  @$pb.TagNumber(11)
+  void clearReasonCode() => $_clearField(11);
+
+  /// Human-readable detail for logs and UI; never parsed.
+  @$pb.TagNumber(12)
+  $core.String get errorMessage => $_getSZ(11);
+  @$pb.TagNumber(12)
+  set errorMessage($core.String value) => $_setString(11, value);
+  @$pb.TagNumber(12)
+  $core.bool hasErrorMessage() => $_has(11);
+  @$pb.TagNumber(12)
+  void clearErrorMessage() => $_clearField(12);
+
+  /// Basename the receiving side stored (post collision rename); empty for
+  /// outbound transfers and until commit.
+  @$pb.TagNumber(13)
+  $core.String get savedName => $_getSZ(12);
+  @$pb.TagNumber(13)
+  set savedName($core.String value) => $_setString(12, value);
+  @$pb.TagNumber(13)
+  $core.bool hasSavedName() => $_has(12);
+  @$pb.TagNumber(13)
+  void clearSavedName() => $_clearField(13);
+}
+
+/// SendFileRequest offers a local file to the currently connected peer.
+class SendFileRequest extends $pb.GeneratedMessage {
+  factory SendFileRequest({
+    $core.String? deviceId,
+    $core.String? localPath,
+    $core.String? filename,
+  }) {
+    final result = SendFileRequest._();
+    if (deviceId != null) result.deviceId = deviceId;
+    if (localPath != null) result.localPath = localPath;
+    if (filename != null) result.filename = filename;
+    return result;
+  }
+
+  SendFileRequest._();
+
+  factory SendFileRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SendFileRequest()..mergeFromBuffer(data, registry);
+  factory SendFileRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SendFileRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'SendFileRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: SendFileRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'deviceId')
+    ..aOS(2, _omitFieldNames ? '' : 'localPath')
+    ..aOS(3, _omitFieldNames ? '' : 'filename')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SendFileRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SendFileRequest copyWith(void Function(SendFileRequest) updates) =>
+      super.copyWith((message) => updates(message as SendFileRequest))
+          as SendFileRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use SendFileRequest() / SendFileRequest.new instead')
+  static SendFileRequest create() => SendFileRequest._();
+  static $pb.GeneratedMessage $_createMessage() => SendFileRequest._();
+  @$core.override
+  SendFileRequest createEmptyInstance() => SendFileRequest._();
+  @$core.pragma('dart2js:noInline')
+  static SendFileRequest getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<SendFileRequest>(
+          SendFileRequest.$_createMessage);
+  static SendFileRequest? _defaultInstance;
+
+  /// Target device id. Empty means "the active session's peer" — accepted only
+  /// when a session is active, so the UI cannot accidentally target a device
+  /// that is merely discovered.
+  @$pb.TagNumber(1)
+  $core.String get deviceId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set deviceId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasDeviceId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearDeviceId() => $_clearField(1);
+
+  /// Absolute local path of a regular, readable file (Linux). The daemon reads
+  /// it directly; it is never transferred over local IPC.
+  @$pb.TagNumber(2)
+  $core.String get localPath => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set localPath($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasLocalPath() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearLocalPath() => $_clearField(2);
+
+  /// Optional display name override; empty means "use the file's basename".
+  @$pb.TagNumber(3)
+  $core.String get filename => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set filename($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasFilename() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearFilename() => $_clearField(3);
+}
+
+/// SendFileResponse returns the new transfer identity.
+class SendFileResponse extends $pb.GeneratedMessage {
+  factory SendFileResponse({
+    $core.String? transferId,
+    TransferState? state,
+    TransferReason? reasonCode,
+    $core.String? errorMessage,
+  }) {
+    final result = SendFileResponse._();
+    if (transferId != null) result.transferId = transferId;
+    if (state != null) result.state = state;
+    if (reasonCode != null) result.reasonCode = reasonCode;
+    if (errorMessage != null) result.errorMessage = errorMessage;
+    return result;
+  }
+
+  SendFileResponse._();
+
+  factory SendFileResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SendFileResponse()..mergeFromBuffer(data, registry);
+  factory SendFileResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SendFileResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'SendFileResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: SendFileResponse.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'transferId')
+    ..aE<TransferState>(2, _omitFieldNames ? '' : 'state',
+        enumValues: TransferState.values)
+    ..aE<TransferReason>(3, _omitFieldNames ? '' : 'reasonCode',
+        enumValues: TransferReason.values)
+    ..aOS(4, _omitFieldNames ? '' : 'errorMessage')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SendFileResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SendFileResponse copyWith(void Function(SendFileResponse) updates) =>
+      super.copyWith((message) => updates(message as SendFileResponse))
+          as SendFileResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use SendFileResponse() / SendFileResponse.new instead')
+  static SendFileResponse create() => SendFileResponse._();
+  static $pb.GeneratedMessage $_createMessage() => SendFileResponse._();
+  @$core.override
+  SendFileResponse createEmptyInstance() => SendFileResponse._();
+  @$core.pragma('dart2js:noInline')
+  static SendFileResponse getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<SendFileResponse>(
+          SendFileResponse.$_createMessage);
+  static SendFileResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get transferId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set transferId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasTransferId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearTransferId() => $_clearField(1);
+
+  /// First state of the transfer (PENDING in the normal case).
+  @$pb.TagNumber(2)
+  TransferState get state => $_getN(1);
+  @$pb.TagNumber(2)
+  set state(TransferState value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasState() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearState() => $_clearField(2);
+
+  /// Typed failure when the offer could not be started.
+  @$pb.TagNumber(3)
+  TransferReason get reasonCode => $_getN(2);
+  @$pb.TagNumber(3)
+  set reasonCode(TransferReason value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasReasonCode() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearReasonCode() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.String get errorMessage => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set errorMessage($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasErrorMessage() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearErrorMessage() => $_clearField(4);
+}
+
+/// CancelTransferRequest aborts an in-flight transfer.
+class CancelTransferRequest extends $pb.GeneratedMessage {
+  factory CancelTransferRequest({
+    $core.String? transferId,
+  }) {
+    final result = CancelTransferRequest._();
+    if (transferId != null) result.transferId = transferId;
+    return result;
+  }
+
+  CancelTransferRequest._();
+
+  factory CancelTransferRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      CancelTransferRequest()..mergeFromBuffer(data, registry);
+  factory CancelTransferRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      CancelTransferRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'CancelTransferRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: CancelTransferRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'transferId')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CancelTransferRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CancelTransferRequest copyWith(
+          void Function(CancelTransferRequest) updates) =>
+      super.copyWith((message) => updates(message as CancelTransferRequest))
+          as CancelTransferRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use CancelTransferRequest() / CancelTransferRequest.new instead')
+  static CancelTransferRequest create() => CancelTransferRequest._();
+  static $pb.GeneratedMessage $_createMessage() => CancelTransferRequest._();
+  @$core.override
+  CancelTransferRequest createEmptyInstance() => CancelTransferRequest._();
+  @$core.pragma('dart2js:noInline')
+  static CancelTransferRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<CancelTransferRequest>(
+          CancelTransferRequest.$_createMessage);
+  static CancelTransferRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get transferId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set transferId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasTransferId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearTransferId() => $_clearField(1);
+}
+
+/// CancelTransferResponse confirms the cancellation request was handled.
+class CancelTransferResponse extends $pb.GeneratedMessage {
+  factory CancelTransferResponse({
+    $core.String? transferId,
+    $core.bool? cancelled,
+    $core.String? errorMessage,
+  }) {
+    final result = CancelTransferResponse._();
+    if (transferId != null) result.transferId = transferId;
+    if (cancelled != null) result.cancelled = cancelled;
+    if (errorMessage != null) result.errorMessage = errorMessage;
+    return result;
+  }
+
+  CancelTransferResponse._();
+
+  factory CancelTransferResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      CancelTransferResponse()..mergeFromBuffer(data, registry);
+  factory CancelTransferResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      CancelTransferResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'CancelTransferResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: CancelTransferResponse.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'transferId')
+    ..aOB(2, _omitFieldNames ? '' : 'cancelled')
+    ..aOS(3, _omitFieldNames ? '' : 'errorMessage')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CancelTransferResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CancelTransferResponse copyWith(
+          void Function(CancelTransferResponse) updates) =>
+      super.copyWith((message) => updates(message as CancelTransferResponse))
+          as CancelTransferResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use CancelTransferResponse() / CancelTransferResponse.new instead')
+  static CancelTransferResponse create() => CancelTransferResponse._();
+  static $pb.GeneratedMessage $_createMessage() => CancelTransferResponse._();
+  @$core.override
+  CancelTransferResponse createEmptyInstance() => CancelTransferResponse._();
+  @$core.pragma('dart2js:noInline')
+  static CancelTransferResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<CancelTransferResponse>(
+          CancelTransferResponse.$_createMessage);
+  static CancelTransferResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get transferId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set transferId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasTransferId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearTransferId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.bool get cancelled => $_getBF(1);
+  @$pb.TagNumber(2)
+  set cancelled($core.bool value) => $_setBool(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasCancelled() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearCancelled() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get errorMessage => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set errorMessage($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasErrorMessage() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearErrorMessage() => $_clearField(3);
+}
+
+/// ListTransfersRequest is empty.
+class ListTransfersRequest extends $pb.GeneratedMessage {
+  factory ListTransfersRequest() => ListTransfersRequest._();
+
+  ListTransfersRequest._();
+
+  factory ListTransfersRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListTransfersRequest()..mergeFromBuffer(data, registry);
+  factory ListTransfersRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListTransfersRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListTransfersRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: ListTransfersRequest.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListTransfersRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListTransfersRequest copyWith(void Function(ListTransfersRequest) updates) =>
+      super.copyWith((message) => updates(message as ListTransfersRequest))
+          as ListTransfersRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListTransfersRequest() / ListTransfersRequest.new instead')
+  static ListTransfersRequest create() => ListTransfersRequest._();
+  static $pb.GeneratedMessage $_createMessage() => ListTransfersRequest._();
+  @$core.override
+  ListTransfersRequest createEmptyInstance() => ListTransfersRequest._();
+  @$core.pragma('dart2js:noInline')
+  static ListTransfersRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListTransfersRequest>(
+          ListTransfersRequest.$_createMessage);
+  static ListTransfersRequest? _defaultInstance;
+}
+
+/// ListTransfersResponse returns in-flight transfers and the recent history,
+/// newest first.
+class ListTransfersResponse extends $pb.GeneratedMessage {
+  factory ListTransfersResponse({
+    $core.Iterable<TransferInfo>? transfers,
+  }) {
+    final result = ListTransfersResponse._();
+    if (transfers != null) result.transfers.addAll(transfers);
+    return result;
+  }
+
+  ListTransfersResponse._();
+
+  factory ListTransfersResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListTransfersResponse()..mergeFromBuffer(data, registry);
+  factory ListTransfersResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListTransfersResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListTransfersResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: ListTransfersResponse.$_createMessage)
+    ..pPM<TransferInfo>(1, _omitFieldNames ? '' : 'transfers',
+        subBuilder: TransferInfo.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListTransfersResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListTransfersResponse copyWith(
+          void Function(ListTransfersResponse) updates) =>
+      super.copyWith((message) => updates(message as ListTransfersResponse))
+          as ListTransfersResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListTransfersResponse() / ListTransfersResponse.new instead')
+  static ListTransfersResponse create() => ListTransfersResponse._();
+  static $pb.GeneratedMessage $_createMessage() => ListTransfersResponse._();
+  @$core.override
+  ListTransfersResponse createEmptyInstance() => ListTransfersResponse._();
+  @$core.pragma('dart2js:noInline')
+  static ListTransfersResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListTransfersResponse>(
+          ListTransfersResponse.$_createMessage);
+  static ListTransfersResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $pb.PbList<TransferInfo> get transfers => $_getList(0);
+}
+
+/// TransferEvent is one pushed transfer transition on StreamEvents.
+class TransferEvent extends $pb.GeneratedMessage {
+  factory TransferEvent({
+    TransferInfo? transfer,
+  }) {
+    final result = TransferEvent._();
+    if (transfer != null) result.transfer = transfer;
+    return result;
+  }
+
+  TransferEvent._();
+
+  factory TransferEvent.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      TransferEvent()..mergeFromBuffer(data, registry);
+  factory TransferEvent.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      TransferEvent()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'TransferEvent',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: TransferEvent.$_createMessage)
+    ..aOM<TransferInfo>(1, _omitFieldNames ? '' : 'transfer',
+        subBuilder: TransferInfo.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TransferEvent clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TransferEvent copyWith(void Function(TransferEvent) updates) =>
+      super.copyWith((message) => updates(message as TransferEvent))
+          as TransferEvent;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use TransferEvent() / TransferEvent.new instead')
+  static TransferEvent create() => TransferEvent._();
+  static $pb.GeneratedMessage $_createMessage() => TransferEvent._();
+  @$core.override
+  TransferEvent createEmptyInstance() => TransferEvent._();
+  @$core.pragma('dart2js:noInline')
+  static TransferEvent getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<TransferEvent>(
+          TransferEvent.$_createMessage);
+  static TransferEvent? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  TransferInfo get transfer => $_getN(0);
+  @$pb.TagNumber(1)
+  set transfer(TransferInfo value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasTransfer() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearTransfer() => $_clearField(1);
+  @$pb.TagNumber(1)
+  TransferInfo ensureTransfer() => $_ensure(0);
 }
 
 const $core.bool _omitFieldNames =

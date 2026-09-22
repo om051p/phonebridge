@@ -9,6 +9,9 @@ import (
 	"github.com/pion/interceptor"
 	"github.com/pion/rtp"
 	pion "github.com/pion/webrtc/v4"
+
+	"github.com/om051p/phonebridge/core/pkg/transfer"
+	"github.com/om051p/phonebridge/core/pkg/transfer/rtcchannel"
 )
 
 // Pion PeerConnection session for the Android→Linux H.264 transport
@@ -39,6 +42,10 @@ const (
 	DefaultStreamID  = "phonebridge"
 	defaultFmtpLine  = "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
 	defaultControlDC = "control"
+	// transferDC carries phonebridge.v1.TransferFrame messages for file transfer
+	// (DEC-024). It is created by the offerer, like control and clipboard, and
+	// stays independent of the clipboard channel.
+	transferDC = "transfer"
 	// controlMaxRetrans = 0 means unordered-safe, no-retransmit control
 	// messages: freshest stats wins, stale samples are worthless.
 	controlMaxRetrans = 0
@@ -67,6 +74,15 @@ type SessionConfig struct {
 	// OnClipboardOpen is called when the reliable ordered "clipboard" DataChannel
 	// transitions to open state.
 	OnClipboardOpen func()
+	// OnTransferMessage receives transfer frames (from the Pion receive
+	// goroutine — must not block).
+	OnTransferMessage func([]byte)
+	// OnTransferOpen is called when the reliable ordered "transfer" DataChannel
+	// transitions to open state.
+	OnTransferOpen func()
+	// OnTransferClose is called when it closes, so in-flight transfers are
+	// interrupted instead of waiting out their timeouts (DEC-024 has no resume).
+	OnTransferClose func()
 }
 
 // Session couples one Sender to one Pion PeerConnection + H.264 track.
@@ -78,6 +94,8 @@ type Session struct {
 	track  *pion.TrackLocalStaticRTP
 	dc     *pion.DataChannel
 	cbDC   *pion.DataChannel
+	trDC   *pion.DataChannel
+	trCh   *rtcchannel.Channel
 	sender *Sender
 }
 
@@ -160,6 +178,28 @@ func NewSession(cfg SessionConfig, sender *Sender) (*Session, error) {
 		cbDC.OnOpen(cfg.OnClipboardOpen)
 	}
 
+	// Dedicated file-transfer DataChannel (DEC-024): reliable, ordered, and
+	// independent of the clipboard channel. The engine attaches to it through
+	// TransferChannel() once it opens.
+	trOrdered := true
+	trDC, err := pc.CreateDataChannel(transferDC, &pion.DataChannelInit{
+		Ordered: &trOrdered,
+	})
+	if err != nil {
+		_ = pc.Close()
+		return nil, fmt.Errorf("webrtc: transfer datachannel: %w", err)
+	}
+	trCh := rtcchannel.New(trDC, transfer.DefaultLowWatermark)
+	if cfg.OnTransferMessage != nil {
+		trDC.OnMessage(func(msg pion.DataChannelMessage) { cfg.OnTransferMessage(msg.Data) })
+	}
+	if cfg.OnTransferOpen != nil {
+		trDC.OnOpen(cfg.OnTransferOpen)
+	}
+	if cfg.OnTransferClose != nil {
+		trDC.OnClose(cfg.OnTransferClose)
+	}
+
 	if cfg.OnStateChange != nil {
 		pc.OnConnectionStateChange(cfg.OnStateChange)
 	}
@@ -170,7 +210,7 @@ func NewSession(cfg SessionConfig, sender *Sender) (*Session, error) {
 		return track.WriteRTP(&pkt)
 	}))
 
-	return &Session{pc: pc, track: track, dc: dc, cbDC: cbDC, sender: sender}, nil
+	return &Session{pc: pc, track: track, dc: dc, cbDC: cbDC, trDC: trDC, trCh: trCh, sender: sender}, nil
 }
 
 // Track exposes the underlying track (stats/diagnostics).
@@ -249,6 +289,20 @@ func (s *Session) SendClipboard(data []byte) error {
 	}
 	return s.cbDC.Send(data)
 }
+
+// SendTransfer sends one encoded phonebridge.v1.TransferFrame on the reliable
+// ordered "transfer" DataChannel.
+func (s *Session) SendTransfer(data []byte) error {
+	if s.trDC == nil {
+		return errors.New("webrtc: transfer datachannel not available")
+	}
+	return s.trDC.Send(data)
+}
+
+// TransferChannel exposes the transfer channel adapter for the transfer engine
+// (DEC-024). It is non-nil for the lifetime of the session, because this is the
+// side that created the channel.
+func (s *Session) TransferChannel() *rtcchannel.Channel { return s.trCh }
 
 // WaitForState polls until the PeerConnection reaches want or the timeout
 // elapses (diagnostic convenience; polling is fine at handshake scale).

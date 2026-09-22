@@ -19,6 +19,7 @@ import (
 	"github.com/om051p/phonebridge/core/pkg/discovery"
 	"github.com/om051p/phonebridge/core/pkg/receiver"
 	"github.com/om051p/phonebridge/core/pkg/rtpmedia"
+	"github.com/om051p/phonebridge/core/pkg/transfer"
 )
 
 // ---------------------------------------------------------------- fake phone
@@ -155,6 +156,10 @@ type fakeTransport struct {
 	closeCount int
 	stats      rtpmedia.StreamStats
 
+	// transferCh is set by tests that exercise the file-transfer wiring; nil
+	// otherwise, which is how a peer without the "transfer" channel looks.
+	transferCh transfer.Channel
+
 	// scripted behaviour for this attempt
 	setOfferErr error
 	connectOn   bool
@@ -182,6 +187,15 @@ func (f *fakeTransport) WaitForTrack(timeout time.Duration) error {
 		return errors.New("fake transport: no track")
 	}
 	return nil
+}
+
+// TransferChannel returns the fake transfer channel this transport exposes, if a
+// test installed one. Returning the engine's port (not a Pion type) is exactly
+// what the real transport does, so the wiring under test is the production one.
+func (f *fakeTransport) TransferChannel() transfer.Channel {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.transferCh
 }
 
 func (f *fakeTransport) Stats() (rtpmedia.StreamStats, int64) {

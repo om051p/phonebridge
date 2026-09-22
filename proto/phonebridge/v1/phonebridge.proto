@@ -2,12 +2,17 @@
 // Package: phonebridge.v1
 // Status: CONFIRMED (Phase 2, DEC-022) for the device handshake (DeviceHello
 // version/capability exchange) and screen-session parameter negotiation
-// (ScreenStart/ScreenStop). All other feature payloads remain stubs until
-// their own phases.
+// (ScreenStart/ScreenStop). CONFIRMED (Phase 3, DEC-023) for ClipboardUpdate.
+// CONFIRMED (Phase 4, DEC-024) for file transfer (TransferFrame and the
+// FileOffer/FileAccept/FileChunk/FileComplete/FileResult/FileCancel family).
+// Notification, input and device-status payloads remain stubs until their own
+// phases.
 // Source of truth for wire compatibility: this file + buf breaking checks.
 //
 // Conventions (see docs/protocol.md):
-// - Every application message is framed as Envelope.
+// - Session-level control messages are framed as Envelope; feature
+//   DataChannels carry their own feature message (clipboard: ClipboardUpdate,
+//   transfer: TransferFrame — DEC-024).
 // - version/capabilities negotiated via DeviceHello handshake.
 // - sequence + nonce provide replay protection per session_id.
 // - New fields are optional; removed fields are reserved. New oneof branches
@@ -21,7 +26,12 @@ option java_multiple_files = true;
 option java_package = "dev.phonebridge.proto.v1";
 
 // ---------------------------------------------------------------------------
-// Envelope — top-level framing for every message on the wire.
+// Envelope — top-level framing for session-level control messages and for the
+// local IPC relay (DEC-018). Feature DataChannels carry their own feature
+// message directly (the shipped Phase 3 clipboard DataChannel carries a bare
+// ClipboardUpdate; the Phase 4 "transfer" DataChannel carries a bare
+// TransferFrame — see DEC-024), so the Envelope feature branches below are
+// retained for wire compatibility but are not sent by current peers.
 // ---------------------------------------------------------------------------
 message Envelope {
   // Protocol version (monotonic uint32). Negotiated via VersionNegotiation.
@@ -61,11 +71,15 @@ message Envelope {
     NotificationEvent notification_event = 21; // PLANNED
     NotificationAction notification_action = 22; // PLANNED
     NotificationDismissed notification_dismissed = 23; // PLANNED
-    FileOffer file_offer = 24; // PLANNED
-    FileAccept file_accept = 25; // PLANNED
-    FileChunk file_chunk = 26; // PLANNED
-    FileComplete file_complete = 27; // PLANNED
-    FileCancel file_cancel = 28; // PLANNED
+    // File transfer. The messages are real as of Phase 4 (DEC-024) but they
+    // travel inside TransferFrame on the "transfer" DataChannel; these
+    // Envelope branches exist for wire compatibility and are never sent by
+    // current peers. Removing them would be a breaking proto change.
+    FileOffer file_offer = 24;
+    FileAccept file_accept = 25;
+    FileChunk file_chunk = 26;
+    FileComplete file_complete = 27;
+    FileCancel file_cancel = 28;
     // Screen session negotiation — ratified by DEC-022 (Phase 2).
     ScreenStart screen_start = 29;
     ScreenStop screen_stop = 30;
@@ -213,6 +227,25 @@ enum Code {
   CODE_RECONNECT_TIMEOUT = 15;
   // The device already has an active session.
   CODE_SESSION_BUSY = 16;
+  // File-transfer failures (DEC-024). Appended, never renumbered.
+  // The transfer DataChannel or session went away mid-transfer. Restart from
+  // zero after reconnect: Phase 4 has no resume (see DEC-024).
+  CODE_TRANSFER_INTERRUPTED = 17;
+  // The received bytes did not match the declared size or SHA-256 digest.
+  CODE_CHECKSUM_MISMATCH = 18;
+  // The receiver could not write or promote the file (no space, permissions,
+  // MediaStore/SAF failure).
+  CODE_STORAGE_FAILED = 19;
+  // The file exceeds the receiving side's file-size policy.
+  CODE_FILE_TOO_LARGE = 20;
+  // The proposed filename is not a plain basename (separator, NUL, "..",
+  // over-length). The receiver never accepts a sender-controlled path.
+  CODE_UNSAFE_FILENAME = 21;
+  // The receiver already has a transfer in flight (DEC-024 allows one inbound
+  // and one outbound transfer per session).
+  CODE_TRANSFER_BUSY = 22;
+  // The local user cancelled the transfer.
+  CODE_TRANSFER_CANCELLED = 23;
 }
 
 message Error {
@@ -258,8 +291,9 @@ message ScreenStart {
 // Feature payloads
 // ---------------------------------------------------------------------------
 // ClipboardUpdate conveys a discrete clipboard state change between paired peers
-// (ratified by DEC-023, Phase 3). Transported inside Envelope over a dedicated,
-// reliable, ordered WebRTC DataChannel ("clipboard").
+// (ratified by DEC-023, Phase 3). Transported as a bare message over a
+// dedicated, reliable, ordered WebRTC DataChannel ("clipboard") — NOT inside
+// Envelope; see the Envelope comment above and DEC-024.
 message ClipboardUpdate {
   // Canonical MIME type of the payload.
   // V1 scope: "text/plain;charset=utf-8" and "text/plain".
@@ -277,14 +311,158 @@ message ClipboardUpdate {
   // Used exclusively for offline/reconnect conflict arbitration ("newer wins").
   uint64 copied_at_ms = 4;
 }
+// ---------------------------------------------------------------------------
+// File transfer (DEC-012 → DEC-024, Phase 4)
+// ---------------------------------------------------------------------------
+// One dedicated, reliable, ordered WebRTC DataChannel ("transfer", created by
+// the same side that creates "control" and "clipboard"). Every DataChannel
+// message is exactly one TransferFrame, so each frame is self-describing
+// without an Envelope (the shipped Phase 3 clipboard DataChannel works the
+// same way with a bare ClipboardUpdate).
+//
+// Lifecycle, in order:
+//   1. sender   → receiver: FileOffer
+//   2. receiver → sender:   FileAccept        (exactly one per offer)
+//   3. sender   → receiver: FileChunk × N     (only after an accepted offer)
+//   4. sender   → receiver: FileComplete
+//   5. receiver → sender:   FileResult        (terminal verdict = the sender's ack)
+// FileCancel may replace any remaining step after the offer. At most one
+// outbound and one inbound transfer is active per session (DEC-024), so chunks
+// of one transfer are never interleaved with another's; TransferFrame carries
+// transfer_id in every branch anyway so a future interleaved mode is additive.
+message TransferFrame {
+  // Frame format version. v1 = 1. A receiver refuses an unknown version with
+  // CODE_INCOMPATIBLE_VERSION instead of guessing field semantics.
+  uint32 version = 1;
+
+  // Exactly one body. Unknown branches must be ignored by older peers.
+  oneof body {
+    FileOffer offer = 10;
+    FileAccept accept = 11;
+    FileChunk chunk = 12;
+    FileComplete complete = 13;
+    FileResult result = 14;
+    FileCancel cancel = 15;
+  }
+}
+
+// FileOffer opens a transfer: sender → receiver.
+message FileOffer {
+  // Random 128-bit transfer identifier (32 lowercase hex chars), unique per
+  // sender. A second offer for a live or known id is a protocol violation and
+  // is refused, which is the replay/duplicate guard (DEC-024).
+  string transfer_id = 1;
+
+  // Basename only. Path separators, NUL, "..", "." and over-length names are
+  // refused with CODE_UNSAFE_FILENAME; the receiver owns the directory choice
+  // and never accepts a sender-controlled path.
+  string filename = 2;
+
+  // Canonical MIME type when the sender knows it. Empty means "unknown".
+  string mime_type = 3;
+
+  // Exact byte length of the file. Used for progress, free-space preflight and
+  // completion validation (FileComplete.size_bytes must equal it).
+  uint64 size_bytes = 4;
+
+  // Optional 32-byte SHA-256 of the whole file declared before any chunk.
+  // Phase 4 senders leave this EMPTY and compute the digest in the same pass
+  // that sends the bytes (FileComplete always carries it), which keeps sending
+  // a single pass with no pre-hash and no staging copy. When present, the
+  // receiver compares the streamed digest against it as an extra check.
+  bytes sha256_digest = 5;
+
+  // Chunk payload size the sender uses for every chunk except the last.
+  // MUST be 1..65536; a receiver refuses a larger value with
+  // CODE_INVALID_ARGUMENT before accepting the transfer.
+  uint32 chunk_size = 6;
+
+  // Sender wall clock in milliseconds since Unix epoch (informational only;
+  // never used for ordering or trust).
+  uint64 created_at_ms = 7;
+}
+
+// FileAccept answers a FileOffer: receiver → sender. Exactly one per offer.
+message FileAccept {
+  string transfer_id = 1;
+
+  // True when the receiver will accept chunks for this transfer.
+  bool accept = 2;
+
+  // Set when accept is false: the typed reason (see Code). CODE_OK when the
+  // value is not meaningful.
+  Code code = 3;
+
+  // Human-readable detail for logs and UI; never parsed.
+  string reason = 4;
+}
+
+// FileChunk carries one slice of the file: sender → receiver.
+message FileChunk {
+  string transfer_id = 1;
+
+  // Zero-based chunk index. The reliable, ordered DataChannel delivers
+  // messages in order, so the receiver requires exactly the next expected
+  // index: a gap, duplicate or reorder is a protocol violation and aborts the
+  // transfer with CODE_INVALID_ARGUMENT.
+  uint64 chunk_index = 2;
+
+  // Byte offset of data[0] in the file; MUST equal chunk_index * offer.chunk_size.
+  uint64 offset = 3;
+
+  // The bytes. len(data) <= FileOffer.chunk_size.
+  bytes data = 4;
+}
+
+// FileComplete is sent by the sender after the last chunk.
+message FileComplete {
+  string transfer_id = 1;
+
+  // Bytes actually sent; MUST equal FileOffer.size_bytes.
+  uint64 size_bytes = 2;
+
+  // SHA-256 of exactly the bytes that were sent. When FileOffer declared a
+  // digest, both must match as well.
+  bytes sha256_digest = 3;
+}
+
+// FileResult is the receiver's terminal verdict and the sender's completion
+// ack: receiver → sender. Exactly one FileResult or FileCancel terminates a
+// transfer; the sender must not treat "no answer" as success.
+message FileResult {
+  string transfer_id = 1;
+
+  // True only after every byte was written, the size and SHA-256 matched the
+  // offer, and the file was promoted to its final destination.
+  bool committed = 2;
+
+  // Terminal code: CODE_OK when committed, a typed failure otherwise.
+  Code code = 3;
+
+  // Human-readable detail for logs and UI; never parsed.
+  string reason = 4;
+
+  // Basename the receiver stored (after any collision rename). Never a path:
+  // the receiver's directory layout stays private.
+  string saved_name = 5;
+}
+
+// FileCancel aborts a transfer: either side → the other, any time after the
+// offer. The receiver deletes its partial file; the sender stops reading.
+message FileCancel {
+  string transfer_id = 1;
+
+  // Typed reason (CODE_TRANSFER_CANCELLED for a local user cancel, others for
+  // aborts discovered locally, e.g. CODE_STORAGE_FAILED).
+  Code code = 2;
+
+  // Human-readable detail for logs and UI; never parsed.
+  string reason = 3;
+}
+
 message NotificationEvent {} // PLANNED
 message NotificationAction {} // PLANNED
 message NotificationDismissed {} // PLANNED
-message FileOffer {} // PLANNED
-message FileAccept {} // PLANNED
-message FileChunk {} // PLANNED
-message FileComplete {} // PLANNED
-message FileCancel {} // PLANNED
 message ScreenStop {
   // Why the stream stopped (typed where the sender knows the cause).
   Code reason_code = 1;

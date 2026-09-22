@@ -4,6 +4,7 @@ import '../models/capture_stats.dart';
 import '../models/clipboard_status.dart';
 import '../models/device_state.dart';
 import '../models/discovered_device.dart';
+import '../models/transfer_item.dart';
 import '../models/trusted_device.dart';
 import 'phonebridge_channel.dart';
 import 'platform_bridge_service.dart';
@@ -72,6 +73,41 @@ class AndroidBridgeService implements PlatformBridgeService {
 
   @override
   Stream<CaptureStats> get statsStream => _channel.statsStream;
+
+  // -------------------------------------------------------------------------
+  // File transfers (DEC-024, Phase 4)
+  // -------------------------------------------------------------------------
+  //
+  // The Android control channel does not expose the transfer methods yet
+  // (GoBridge.transferSend/List exist in Kotlin but MainActivity never forwards
+  // them), so this platform reports "not available" and the UI shows an
+  // explanatory state instead of a button that can only fail. The pass-through
+  // below is exercised by tests with a mocked channel, so enabling the feature
+  // is a Kotlin-only change.
+  @override
+  bool get supportsFileTransfer => false;
+
+  @override
+  Stream<TransferItem> get transferStream => _channel.transferStream;
+
+  @override
+  Future<List<TransferItem>> listTransfers() => _channel.listTransfers();
+
+  @override
+  Future<TransferSendResult> sendFile({
+    required String localPath,
+    String filename = '',
+    String deviceId = '',
+  }) {
+    return _channel.sendFile(
+      localPath: localPath,
+      filename: filename,
+      deviceId: deviceId,
+    );
+  }
+
+  @override
+  Future<bool> cancelTransfer(String transferId) => _channel.cancelTransfer(transferId);
 
   @override
   Stream<Map<dynamic, dynamic>> get rawEventsStream => _channel.rawEventsStream;

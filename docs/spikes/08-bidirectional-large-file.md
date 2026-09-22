@@ -1,6 +1,14 @@
 # Spike 08-bidirectional-large-file — Bidirectional Large-File Transfer
 
-> Status: `EXPERIMENTAL` · Phase: 0 (framework only)
+> Status: `ABSORBED by Phase 4` (DEC-024) · Phase: 0 framework, never executed standalone
+>
+> This framework spike was never run as a separate spike. Its decisions
+> (reliable/ordered DataChannel, chunked payloads, SHA-256, SAF on Android,
+> progress/cancel, temp-file handling, no path traversal) were settled directly
+> as a ratified design in **DEC-024** and implemented in `core/pkg/transfer` +
+> the `transfer` WebRTC DataChannel, with measured evidence recorded in
+> `docs/decisions.md`. The open question it recorded — resumability — is
+> explicitly deferred: Phase 4 is restart-from-zero.
 
 
 ## Hypothesis

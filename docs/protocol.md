@@ -1,9 +1,11 @@
 # PhoneBridge Protocol
 
 > Packages: `phonebridge.v1` (device-to-device; `CONFIRMED` for the handshake and
-> screen-session negotiation — DEC-022; remaining feature payloads `PLANNED`) ·
+> screen-session negotiation — DEC-022, clipboard — DEC-023, and file transfer —
+> DEC-024; notification/input/device-status payloads still `PLANNED`) ·
 > `phonebridge.localipc.v1` (UI ↔ engine local IPC, `CONFIRMED` — DEC-018,
-> session lifecycle extended in Phase 2)
+> session lifecycle extended in Phase 2, clipboard in Phase 3, transfer in
+> Phase 4)
 > Schemas: `proto/phonebridge/v1/phonebridge.proto` ·
 > `proto/phonebridge/localipc/v1/local_ipc.proto`
 
@@ -27,6 +29,15 @@
 - `oneof payload` — exactly one feature payload or control message
 
 Unknown `payload` variants must be ignored gracefully (forward compat).
+
+**Framing of feature DataChannels (DEC-024 clarification).** Envelope frames
+*session-level control* messages and the local-IPC relay. A feature DataChannel
+carries its own feature message directly: the shipped `clipboard` DataChannel
+transports a bare `ClipboardUpdate` (Phase 3), and the `transfer` DataChannel
+transports a bare `TransferFrame` (Phase 4). Each feature message is
+self-describing (`TransferFrame` is a `oneof`), so no Envelope is needed on the
+DC. The Envelope feature branches (`clipboard_update`, `file_*`) are retained for
+wire compatibility and are not sent by current peers.
 
 ## Capability & version negotiation (`CONFIRMED` — Phase 2, DEC-022)
 
@@ -81,6 +92,44 @@ the local IPC session snapshot, so the same shape flows end to end.
 Transport for this exchange is the ratified LAN signaling endpoint (DEC-022);
 `ScreenStop` carries the typed reason for teardown.
 
+## File transfer (`CONFIRMED` — Phase 4, DEC-024)
+
+One dedicated `transfer` DataChannel per session (reliable, ordered, created by
+the same side that creates `control`/`clipboard`) carries exactly one
+`TransferFrame` per DataChannel message:
+
+```
+FileOffer → FileAccept → FileChunk×N → FileComplete → FileResult
+                 \___ FileCancel (either side, after the offer) ___/
+```
+
+- **Transfer id**: random 128-bit hex, in every frame. A second offer for a live
+  or known id is a protocol violation (the replay/duplicate guard).
+- **Chunking**: `chunk_size` (1…65536, default 65536) declared in the offer;
+  `FileChunk.chunk_index` must be exactly next-expected and `offset` must equal
+  `chunk_index × chunk_size` — a gap, duplicate or reorder aborts the transfer.
+  The reliable ordered DC is the ordering guarantee; validation catches bugs.
+- **Integrity**: `FileComplete` always carries size + SHA-256 of the bytes that
+  were sent, and the receiver verifies both before promoting the file. The
+  offer's optional `sha256_digest` is an extra up-front declaration (Phase 4
+  senders leave it empty so sending stays single-pass).
+- **Limits**: one outbound + one inbound transfer per session; a second inbound
+  offer is refused with `CODE_TRANSFER_BUSY`. Bounded memory only: the sender
+  never buffers more than one 64 KiB chunk plus a 1 MiB SCTP high-watermark.
+- **Termination**: exactly one `FileResult` or `FileCancel` ends a transfer;
+  "no answer" is never success. The receiver never exposes a partial file:
+  Linux writes a temp file inside the destination filesystem and `rename`s after
+  verification, Android uses a MediaStore item with `IS_PENDING=1`.
+- **Reconnect**: Phase 4 has no resume. A lost DataChannel/session aborts every
+  in-flight transfer with `CODE_TRANSFER_INTERRUPTED`, deletes the partial, and
+  the UI offers a fresh retry (new transfer id).
+
+Typed failure codes (appended to `Code`): `TRANSFER_INTERRUPTED`,
+`CHECKSUM_MISMATCH`, `STORAGE_FAILED`, `FILE_TOO_LARGE`, `UNSAFE_FILENAME`,
+`TRANSFER_BUSY`, `TRANSFER_CANCELLED`; plus existing `INVALID_ARGUMENT`
+(protocol violation), `NOT_FOUND` (unknown transfer id), `UNAVAILABLE` (no
+`transfer` DataChannel) and `INCOMPATIBLE_VERSION` (frame version).
+
 ## Compatibility & extensibility
 
 - New fields: always optional / defaulted; never reuse field numbers.
@@ -97,9 +146,12 @@ Transport for this exchange is the ratified LAN signaling endpoint (DEC-022);
   `ScreenStart` and `ScreenStop` to real messages and added the typed session
   failure codes. The handshake and screen negotiation are therefore implemented
   contracts, not stubs.
-- Remaining feature payloads (clipboard, file chunk/offer, notification,
-  input, device status) are still empty stubs marked `// PLANNED` and are filled
-  in their respective phases; Spikes 05–10 gate those.
+- Phase 3 (DEC-023) promoted `ClipboardUpdate`; Phase 4 (DEC-024) promoted the
+  file-transfer family (`TransferFrame`, `FileOffer`, `FileAccept`,
+  `FileChunk`, `FileComplete`, `FileResult`, `FileCancel`) and appended the
+  transfer failure codes.
+- Remaining feature payloads (notification, input, device status) are still
+  empty stubs marked `// PLANNED` and are filled in their respective phases.
 
 ## Local IPC (`phonebridge.localipc.v1` — CONFIRMED, DEC-018)
 
@@ -123,6 +175,12 @@ was not modified for local IPC.
 - Isolation rules: the local contract MUST NOT be exposed on a network
   listener and MUST NOT gain device-peer semantics; new device payloads go in
   `phonebridge.v1` and are relayed through `StreamEventsResponse.envelope`.
+- File transfer (Phase 4, DEC-024): `SendFile` takes a **local path** (the
+  daemon reads the file itself — file bytes never cross local IPC),
+  `CancelTransfer` aborts either direction, `ListTransfers` returns in-flight
+  transfers plus the recent in-memory history, and `TransferEvent` is pushed on
+  `StreamEventsResponse.transfer_event`. Transfer state/reason enums are local
+  to this contract, mirroring the `SessionState`/`SessionReason` precedent.
 
 ### Authentication (both gates required)
 
