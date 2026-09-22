@@ -4,10 +4,12 @@ import (
 	"context"
 	"net"
 	"net/netip"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/pion/mdns/v2"
+	"golang.org/x/net/dns/dnsmessage"
 	"golang.org/x/net/ipv4"
 )
 
@@ -262,3 +264,184 @@ func TestDiscovery_LongDeviceID_Registration(t *testing.T) {
 	}
 }
 
+// TestRegistry_RefreshClearsStale verifies the registry contract the browse
+// refresh relies on: an Upsert of a previously-stale peer clears IsStale and
+// advances LastSeen (delivered as DeviceUpdated), so periodic re-emission
+// keeps a steady-state peer discoverable past StaleTimeout.
+func TestRegistry_RefreshClearsStale(t *testing.T) {
+	var events []Event
+	cfg := RegistryConfig{StaleTimeout: 50 * time.Millisecond, LostTimeout: 1 * time.Second}
+	reg := NewDeviceRegistry(cfg, func(e Event) { events = append(events, e) })
+
+	dev := Device{ID: "dev-refresh", Name: "POCO F5", Port: 7804}
+	reg.Upsert(dev)
+
+	stale, _ := reg.Sweep(time.Now().Add(80 * time.Millisecond))
+	if len(stale) != 1 {
+		t.Fatalf("expected peer to go stale before refresh, got stale=%v", stale)
+	}
+
+	kind, refreshed := reg.Upsert(dev)
+	if kind != DeviceUpdated {
+		t.Fatalf("expected DeviceUpdated on refresh, got %v", kind)
+	}
+	if refreshed.IsStale {
+		t.Fatalf("expected refreshed peer to be fresh, got IsStale=true")
+	}
+	if time.Since(refreshed.LastSeen) > time.Second {
+		t.Fatalf("expected LastSeen advanced by refresh, got %v", refreshed.LastSeen)
+	}
+}
+
+// TestDiscovery_BrowseRestartRefreshesPeerPastStaleWindow reproduces the
+// Android NSD staleness defect deterministically and proves the fix.
+//
+// A fake responder streams byte-identical DNS-SD responses (PTR+SRV+TXT+A for
+// PhoneBridge-stale-phone) to the browser — exactly the steady-state behavior
+// of an Android NSD responder, which announces only on registration and
+// answers every query with an identical response. pion/mdns's browse session
+// keeps a per-session "seen" map and only emits records that are new or
+// changed, so identical answers never reach the registry: LastSeen freezes
+// and the peer is swept stale while answers are still flowing (the reported
+// defect). Restarting the browse session re-queries with fresh session
+// state, the identical response is re-emitted, and the peer refreshes with
+// zero advertiser-side change.
+func TestDiscovery_BrowseRestartRefreshesPeerPastStaleWindow(t *testing.T) {
+	// Browser socket on loopback; the fake responder streams responses from
+	// a second socket straight to the browser's address. Source ports do not
+	// affect pion's answer processing, and no multicast routing is involved.
+	sock, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	responderSock, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		sock.Close()
+		t.Fatal(err)
+	}
+	defer responderSock.Close()
+	browserAddr := sock.LocalAddr().(*net.UDPAddr)
+
+	// One response, packed once, sent identically forever — Android NSD semantics.
+	svcName, _ := dnsmessage.NewName("_phonebridge._tcp.local.")
+	instName, _ := dnsmessage.NewName("PhoneBridge-stale-phone._phonebridge._tcp.local.")
+	hostName, _ := dnsmessage.NewName("android-phone.local.")
+	resp := dnsmessage.Message{
+		Header: dnsmessage.Header{Response: true, Authoritative: true},
+		Answers: []dnsmessage.Resource{
+			{
+				Header: dnsmessage.ResourceHeader{Name: svcName, Type: dnsmessage.TypePTR, Class: dnsmessage.ClassINET, TTL: 120},
+				Body:   &dnsmessage.PTRResource{PTR: instName},
+			},
+			{
+				Header: dnsmessage.ResourceHeader{Name: instName, Type: dnsmessage.TypeSRV, Class: dnsmessage.ClassINET, TTL: 120},
+				Body:   &dnsmessage.SRVResource{Target: hostName, Port: 7804},
+			},
+			{
+				Header: dnsmessage.ResourceHeader{Name: instName, Type: dnsmessage.TypeTXT, Class: dnsmessage.ClassINET, TTL: 120},
+				Body: &dnsmessage.TXTResource{TXT: []string{
+					"id=stale-phone", "name=POCO F5", "model=23049PCD8I", "v=1", "caps=screen,files", "state=ready",
+				}},
+			},
+			{
+				Header: dnsmessage.ResourceHeader{Name: hostName, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET, TTL: 120},
+				Body:   &dnsmessage.AResource{A: [4]byte{127, 0, 0, 1}},
+			},
+		},
+	}
+	raw, err := resp.Pack()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var responding atomic.Bool
+	responding.Store(true)
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		ticker := time.NewTicker(250 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				if responding.Load() {
+					_, _ = responderSock.WriteToUDP(raw, browserAddr)
+				}
+			}
+		}
+	}()
+
+	browser, err := NewDiscovery(Config{
+		DeviceID:          "linux-host",
+		DeviceName:        "Linux Host",
+		CustomPacketConn4: ipv4.NewPacketConn(sock),
+		IncludeLoopback:   true,
+		StaleTimeout:      1500 * time.Millisecond,
+		LostTimeout:       30 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer browser.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := browser.Start(ctx); err != nil {
+		t.Fatalf("browser.Start: %v", err)
+	}
+
+	// Phase 1: initial discovery through the real answer -> parse -> emit path.
+	deadline := time.Now().Add(5 * time.Second)
+	var first Device
+	for {
+		if dev, ok := browser.Registry().Get("stale-phone"); ok {
+			first = dev
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("initial discovery failed: responder never discovered")
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if first.Port != 7804 || first.Name != "POCO F5" || first.Model != "23049PCD8I" || len(first.Addresses) != 1 {
+		t.Fatalf("unexpected first discovery record: %+v", first)
+	}
+
+	// Phase 2: the responder keeps answering identically (Android steady
+	// state), yet the peer must go stale — pion's seen-dedup swallows the
+	// identical answers so the registry never refreshes. This is the defect.
+	time.Sleep(1800 * time.Millisecond)
+	// Note: the background sweepLoop may flag the stale before our explicit
+	// Sweep call, and stale events emit once — so assert on stored state.
+	stored, ok := browser.Registry().Get("stale-phone")
+	if !ok {
+		t.Fatalf("peer vanished from registry during defect reproduction")
+	}
+	if !stored.IsStale {
+		t.Fatalf("defect not reproduced: peer stayed fresh despite identical answers flowing for 1.8s: %+v", stored)
+	}
+	if !stored.LastSeen.Equal(first.LastSeen) {
+		t.Fatalf("expected LastSeen frozen at first emission (dedup proof), got %v -> %v", first.LastSeen, stored.LastSeen)
+	}
+
+	// Phase 3: fix — restart the browse session. Fresh session state
+	// re-emits the identical response, LastSeen refreshes, and the peer
+	// leaves the stale set with zero advertiser-side change.
+	before := first.LastSeen
+	if err := browser.RestartBrowse(); err != nil {
+		t.Fatalf("RestartBrowse: %v", err)
+	}
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		dev, ok := browser.Registry().Get("stale-phone")
+		if ok && !dev.IsStale && dev.LastSeen.After(before) {
+			return // refreshed from identical data: fix proven
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("peer not refreshed after RestartBrowse: last_seen=%v stale=%v", dev.LastSeen, dev.IsStale)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}

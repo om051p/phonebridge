@@ -1176,6 +1176,16 @@ A feature is complete only when:
 
 **Direction:** mDNS with fallback strategy.
 
+**Phase 4 operational note:** the Go discovery stack (`core/pkg/discovery`)
+restarts its mDNS browse session every `RefreshInterval` (default 7 s, below
+the 10 s `StaleTimeout`) because pion/mdns emits a steady-state peer at most
+once per browse session and Android's NSD responder never re-announces —
+without the refresh, a discovered phone went stale ~10 s after its
+registration burst and session start failed. The refresh re-queries with
+fresh session state (RFC 6762 §5.2), which re-emits identical peers and
+keeps `LastSeen` current; validated on the POCO F5 (discovery and session
+establishment beyond the previous stale window, no app restart).
+
 ### DEC-008 --- Remote networking
 
 **Direction:** ICE/STUN/P2P with TURN fallback.

@@ -23,17 +23,24 @@ const (
 
 // Config configures the Discovery manager.
 type Config struct {
-	InstanceName    string
-	Port            uint16
-	DeviceID        string
-	DeviceName      string
-	Model           string
-	Version         string
-	Capabilities    []string
-	State           string
-	SweepInterval   time.Duration
-	StaleTimeout    time.Duration
-	LostTimeout     time.Duration
+	InstanceName  string
+	Port          uint16
+	DeviceID      string
+	DeviceName    string
+	Model         string
+	Version       string
+	Capabilities  []string
+	State         string
+	SweepInterval time.Duration
+	StaleTimeout  time.Duration
+	LostTimeout   time.Duration
+	// RefreshInterval controls how often the browse session is restarted to
+	// force peers to re-emit their service records. The pion/mdns browse
+	// session deduplicates identical answers per session lifetime, so a
+	// steady-state peer that merely answers repeated queries identically
+	// (Android NSD responders do exactly this) would otherwise never refresh
+	// the registry's LastSeen and be swept stale after StaleTimeout.
+	RefreshInterval time.Duration
 	IncludeLoopback bool
 	// CustomPacketConn allows injecting a test or custom packet connection.
 	CustomPacketConn4 *ipv4.PacketConn
@@ -47,9 +54,11 @@ type Discovery struct {
 	server   *mdns.Conn
 	events   chan Event
 
-	mu       sync.Mutex
-	stopChan chan struct{}
-	closed   bool
+	mu             sync.Mutex
+	stopChan       chan struct{}
+	closed         bool
+	browseLifetime context.Context
+	browseCancel   context.CancelFunc
 }
 
 // NewDiscovery creates a discovery manager and initializes the device registry.
@@ -65,6 +74,11 @@ func NewDiscovery(cfg Config) (*Discovery, error) {
 	}
 	if cfg.LostTimeout <= 0 {
 		cfg.LostTimeout = 30 * time.Second
+	}
+	if cfg.RefreshInterval <= 0 {
+		// Default comfortably inside StaleTimeout (10s) so that at least one
+		// refresh cycle lands before a quiet peer would be marked stale.
+		cfg.RefreshInterval = 7 * time.Second
 	}
 
 	eventCh := make(chan Event, 64)
@@ -191,14 +205,23 @@ func (d *Discovery) Start(ctx context.Context) error {
 		d.handleDiscoveredService(ev)
 	})
 
+	// Track the browse lifetime so the refresh loop can restart the session.
+	// The initial browse runs on a cancelable child of ctx so RestartBrowse
+	// can retire exactly one session per restart (no leaked browse loops).
+	d.browseLifetime = ctx
+	sessionCtx, cancel := context.WithCancel(ctx)
+	d.browseCancel = cancel
+
 	// Begin browsing
-	if err := srv.Browse(ctx, ServiceType); err != nil {
+	if err := srv.Browse(sessionCtx, ServiceType); err != nil {
+		cancel()
 		_ = srv.Close()
 		return fmt.Errorf("mdns: browse: %w", err)
 	}
 
-	// Start background sweep for stale devices
+	// Start background sweep for stale devices and the browse refresh loop.
 	go d.sweepLoop()
+	go d.refreshLoop()
 
 	return nil
 }
@@ -263,6 +286,70 @@ func (d *Discovery) handleDiscoveredService(ev mdns.ServiceEvent) {
 	d.registry.Upsert(device)
 }
 
+// refreshLoop periodically restarts the mDNS browse session so that peers
+// re-emit their service records into the registry.
+//
+// Why this is needed: pion/mdns's browseSession keeps a per-session "seen"
+// map and only emits a service event when a record is new or has changed.
+// A steady-state peer (e.g. an Android NSD responder, which only announces
+// on registration and answers identical responses to identical queries)
+// therefore produces no further events after the first resolution, and any
+// consumer relying on events to keep LastSeen fresh sees the peer go stale
+// even though it is alive and reachable.
+//
+// Restarting the browse session (cancel the session context, then Browse
+// again) starts with an empty "seen" map, so the next query round re-emits
+// every peer and refreshes the registry. This is an active-query strategy
+// (RFC 6762 §5.2: queriers SHOULD re-query to maintain known records) and
+// changes nothing about the advertisement, protocol, or security model.
+func (d *Discovery) refreshLoop() {
+	ticker := time.NewTicker(d.cfg.RefreshInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-d.stopChan:
+			return
+		case <-ticker.C:
+			if err := d.RestartBrowse(); err != nil {
+				// Transient errors (e.g. connection closed during shutdown)
+				// are expected; keep looping until stopChan fires.
+				continue
+			}
+		}
+	}
+}
+
+// RestartBrowse cancels the current browse session and starts a new one,
+// forcing known peers to be re-emitted (refreshing LastSeen in the registry).
+func (d *Discovery) RestartBrowse() error {
+	d.mu.Lock()
+	if d.closed || d.server == nil {
+		d.mu.Unlock()
+		return fmt.Errorf("discovery: cannot restart browse: server not running")
+	}
+	prevCancel := d.browseCancel
+	ctx := d.browseLifetime
+	d.mu.Unlock()
+
+	// Stop the old session first so its browseLoop exits and unregisters.
+	if prevCancel != nil {
+		prevCancel()
+	}
+
+	d.mu.Lock()
+	if d.closed || d.server == nil {
+		d.mu.Unlock()
+		return fmt.Errorf("discovery: cannot restart browse: server not running")
+	}
+	newCtx, newCancel := context.WithCancel(ctx)
+	d.browseCancel = newCancel
+	srv := d.server
+	d.mu.Unlock()
+
+	return srv.Browse(newCtx, ServiceType)
+}
+
 // sweepLoop periodically sweeps the registry to flag stale or lost devices.
 func (d *Discovery) sweepLoop() {
 	ticker := time.NewTicker(d.cfg.SweepInterval)
@@ -290,6 +377,9 @@ func (d *Discovery) Close() error {
 	close(d.stopChan)
 
 	var err error
+	if d.browseCancel != nil {
+		d.browseCancel()
+	}
 	if d.server != nil {
 		err = d.server.Close()
 		d.server = nil
