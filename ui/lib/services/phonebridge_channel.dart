@@ -143,14 +143,13 @@ class PhoneBridgeChannel {
   // File transfers (DEC-024, Phase 4)
   // -------------------------------------------------------------------------
   //
-  // Pass-through only: GoBridge.transferSend/List/Stats exist in Kotlin but are
-  // not exposed on this control channel yet, so these calls currently fall
-  // through to the graceful "unavailable" results. They are implemented (and
-  // covered by tests) so that wiring the channel is a Kotlin-only change.
+  // Pass-through to the control channel methods MainActivity forwards to Go
+  // (sendFile/listTransfers/cancelTransfer). Missing or failing native handlers
+  // still fall through to the graceful "unavailable" results.
 
-  /// Native-pushed transfer transitions. The bridge is expected to push the
-  /// same event-map shape as the other events (key `transfer`); the stream stays
-  /// silent until MainActivity emits them.
+  /// Native-pushed transfer transitions. MainActivity emits the same event-map
+  /// shape as the other events (key `transfer`) on dev.phonebridge/events; the
+  /// stream stays silent while no transfer activity is being reported.
   Stream<TransferItem> get transferStream => rawEventsStream
       .where((event) => event['transfer'] != null)
       .map((event) => _toTransferItem(event['transfer']))

@@ -1,9 +1,9 @@
 // Android control-channel pass-through for file transfers (DEC-024, Phase 4).
 //
-// GoBridge.transferSend/List exist in Kotlin but MainActivity does not forward
-// them yet, so what matters on the Flutter side is graceful degradation: a
-// method the native side does not answer must never throw into the UI, and the
-// map shape a future handler returns must already be understood.
+// MainActivity now forwards sendFile/listTransfers/cancelTransfer to Go. What
+// matters on the Flutter side is graceful degradation: a method the native
+// side does not answer must never throw into the UI, and the map shape the
+// handler returns must already be understood.
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -28,7 +28,8 @@ void main() {
 
     final service = AndroidBridgeService(channel: PhoneBridgeChannel());
 
-    expect(service.supportsFileTransfer, isFalse);
+    // The channel is wired now; an unanswered call still degrades gracefully.
+    expect(service.supportsFileTransfer, isTrue);
     expect(await service.listTransfers(), isEmpty);
     expect(await service.cancelTransfer('tx-1'), isFalse);
 

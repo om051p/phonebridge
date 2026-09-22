@@ -13,6 +13,8 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import org.json.JSONArray
+import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -37,10 +39,16 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to emit stats event: ${e.message}")
                 }
+                emitTransferEvents()
                 mainHandler.postDelayed(this, STATS_INTERVAL_MS)
             }
         }
     }
+
+    /// Last emitted fingerprint (state|bytes) per transfer id, so the 1 s tick
+    /// only pushes an event when something actually changed. Flutter's
+    /// TransferController dedupes as well, but we do not spam the channel.
+    private val transferFingerprints = HashMap<String, String>()
 
     private var methodChannel: MethodChannel? = null
 
@@ -269,7 +277,128 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
             "getMediaStats" -> {
                 result.success(collectStats())
             }
+            // ---- File transfers (DEC-024, Phase 4 Step 4/5 wiring) ----------
+            // Low-frequency request/response over the existing control channel,
+            // forwarded to Go through the generic invoke("transfer:*") surface.
+            "listTransfers" -> {
+                try {
+                    result.success(listTransferMaps())
+                } catch (e: Exception) {
+                    Log.e(TAG, "listTransfers failed", e)
+                    result.error("TRANSFER_ERROR", e.message, null)
+                }
+            }
+            "sendFile" -> {
+                val path = call.argument<String>("localPath")
+                val filename = call.argument<String>("filename")
+                val deviceId = call.argument<String>("deviceId")
+                if (path.isNullOrEmpty()) {
+                    result.error("INVALID_ARGUMENT", "localPath is required", null)
+                } else if (!GoBridge.loaded) {
+                    result.error("unavailable", "native transfer channel not wired", null)
+                } else {
+                    try {
+                        if (!deviceId.isNullOrEmpty()) {
+                            GoBridge.transferSetPeer(deviceId)
+                        }
+                        val bytes = GoBridge.transferSend(path, filename)
+                        if (bytes == null) {
+                            result.error("unavailable", "native transfer channel not wired", null)
+                        } else {
+                            result.success(sendResultMap(JSONObject(String(bytes, Charsets.UTF_8))))
+                            // Surface the new PENDING row without waiting a tick.
+                            emitTransferEvents()
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "sendFile failed", e)
+                        result.error("TRANSFER_ERROR", e.message, null)
+                    }
+                }
+            }
+            "cancelTransfer" -> {
+                val transferId = call.argument<String>("transferId")
+                if (transferId.isNullOrEmpty()) {
+                    result.error("INVALID_ARGUMENT", "transferId is required", null)
+                } else if (!GoBridge.loaded) {
+                    result.success(false)
+                } else {
+                    try {
+                        val bytes = GoBridge.transferCancel(transferId)
+                        val json = bytes?.let { JSONObject(String(it, Charsets.UTF_8)) }
+                        // Success only when the backend confirmed; the UI reflects
+                        // the real state from the follow-up event, never locally.
+                        result.success(json?.optBoolean("cancelled", false) ?: false)
+                        emitTransferEvents()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "cancelTransfer failed: ${e.message}")
+                        result.success(false)
+                    }
+                }
+            }
             else -> result.notImplemented()
+        }
+    }
+
+    /// Snapshots the Go transfer list (snake_case JSON) into the camelCase map
+    /// shape TransferItem.fromMap expects. Empty when the core is not loaded.
+    private fun listTransferMaps(): List<Map<String, Any?>> {
+        if (!GoBridge.loaded) return emptyList()
+        val bytes = GoBridge.transferList() ?: return emptyList()
+        val rows = JSONArray(String(bytes, Charsets.UTF_8))
+        val out = ArrayList<Map<String, Any?>>(rows.length())
+        for (i in 0 until rows.length()) {
+            rows.optJSONObject(i)?.let { out.add(transferRowMap(it)) }
+        }
+        return out
+    }
+
+    private fun transferRowMap(obj: JSONObject): Map<String, Any?> = mapOf(
+        "transferId" to obj.optString("transfer_id"),
+        "direction" to obj.optString("direction"),
+        "state" to obj.optString("state"),
+        "peerDeviceId" to obj.optString("peer_device_id"),
+        "filename" to obj.optString("filename"),
+        "mimeType" to obj.optString("mime_type"),
+        "sizeBytes" to obj.optLong("size_bytes"),
+        "bytesTransferred" to obj.optLong("bytes_transferred"),
+        "startedAtMs" to obj.optLong("started_at_ms"),
+        "finishedAtMs" to obj.optLong("finished_at_ms"),
+        "reasonCode" to obj.optString("reason"),
+        "errorMessage" to obj.optString("error_message"),
+        "savedName" to obj.optString("saved_name")
+    )
+
+    /// Maps the transfer:send JSON reply ({transfer_id, state} on success,
+    /// {error, reason, code} on a typed failure) into the shape
+    /// TransferSendResult.fromMap understands. Errors keep an empty transferId
+    /// so the Dart side classifies them as a failed send.
+    private fun sendResultMap(json: JSONObject): Map<String, Any?> = mapOf(
+        "transferId" to json.optString("transfer_id"),
+        "state" to json.optString("state"),
+        "reasonCode" to json.optString("reason"),
+        "errorMessage" to json.optString("error")
+    )
+
+    /// Pushes one {"transfer": <row>} event per transfer whose state or byte
+    /// count changed since the last emission, through the existing
+    /// dev.phonebridge/events channel (the same sink the stats use).
+    private fun emitTransferEvents() {
+        val sink = eventSink ?: return
+        if (!GoBridge.loaded) return
+        try {
+            val bytes = GoBridge.transferList() ?: return
+            val rows = JSONArray(String(bytes, Charsets.UTF_8))
+            for (i in 0 until rows.length()) {
+                val obj = rows.optJSONObject(i) ?: continue
+                val id = obj.optString("transfer_id")
+                if (id.isEmpty()) continue
+                val fingerprint = obj.optString("state") + "|" + obj.optLong("bytes_transferred")
+                if (transferFingerprints[id] == fingerprint) continue
+                transferFingerprints[id] = fingerprint
+                sink.success(mapOf("transfer" to transferRowMap(obj)))
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "transfer event emission failed: ${e.message}")
         }
     }
 
@@ -342,12 +471,16 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
 
     override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
         eventSink = events
+        // A fresh listener needs the current transfer states again: forget the
+        // emission fingerprints so the first tick re-pushes every row.
+        transferFingerprints.clear()
         // Emit immediate initial state
         try {
             events?.success(collectStats())
         } catch (e: Exception) {
             Log.w(TAG, "Initial stats emission failed: ${e.message}")
         }
+        emitTransferEvents()
         mainHandler.postDelayed(statsRunnable, STATS_INTERVAL_MS)
     }
 

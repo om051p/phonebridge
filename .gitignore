@@ -61,3 +61,7 @@ spikes/*/android/local.properties
 # receiver built by `make receiver` (~15 MB). Sources sit next to them.
 spikes/*/android/app/src/main/jniLibs/
 spikes/*/tools/spike*-receiver
+
+# Compiled ipcdrv diagnostic driver (go build -o core/ipcdrv ./core/cmd/ipcdrv).
+# Source lives in core/cmd/ipcdrv/; the ~16 MB binary is never committed.
+/core/ipcdrv

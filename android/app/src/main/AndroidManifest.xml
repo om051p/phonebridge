@@ -21,6 +21,11 @@
         android:supportsRtl="true"
         android:usesCleartextTraffic="true">
 
+        <!-- Flutter v2 embedding (required by current Flutter; v1 was removed). -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"

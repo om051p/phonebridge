@@ -78,14 +78,13 @@ class AndroidBridgeService implements PlatformBridgeService {
   // File transfers (DEC-024, Phase 4)
   // -------------------------------------------------------------------------
   //
-  // The Android control channel does not expose the transfer methods yet
-  // (GoBridge.transferSend/List exist in Kotlin but MainActivity never forwards
-  // them), so this platform reports "not available" and the UI shows an
-  // explanatory state instead of a button that can only fail. The pass-through
-  // below is exercised by tests with a mocked channel, so enabling the feature
-  // is a Kotlin-only change.
+  // MainActivity now forwards sendFile/listTransfers/cancelTransfer to Go and
+  // pushes {"transfer": ...} events on dev.phonebridge/events, so the Android
+  // backend reports transfer support. The pass-through below still degrades
+  // gracefully (unavailable results, empty history) when the native side cannot
+  // answer — a mocked channel exercises exactly that path in the tests.
   @override
-  bool get supportsFileTransfer => false;
+  bool get supportsFileTransfer => true;
 
   @override
   Stream<TransferItem> get transferStream => _channel.transferStream;
