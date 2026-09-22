@@ -8,8 +8,12 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.projection.MediaProjectionManager
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import dev.phonebridge.bridge.GoBridge
@@ -48,6 +52,13 @@ class PhoneBridgeService : Service() {
 
         const val EXTRA_RESULT_CODE = "dev.phonebridge.extra.RESULT_CODE"
         const val EXTRA_RESULT_DATA = "dev.phonebridge.extra.RESULT_DATA"
+
+        // A network transition can fire a burst of connectivity callbacks; one
+        // debounced re-registration is enough to repair the advertisement.
+        private const val LAN_RECOVERY_DEBOUNCE_MS = 1500L
+        // Bounded retry for a platform registration failure (2s, 4s, 8s).
+        private const val REGISTRATION_RETRY_BASE_MS = 2000L
+        private const val MAX_REGISTRATION_RETRIES = 3
 
         // Active engine instance exposed for instrumentation tests and health checks
         @Volatile
@@ -110,50 +121,162 @@ class PhoneBridgeService : Service() {
     private var signalingServer: LanSignalingServer? = null
     private var nsdAdvertiser: NsdAdvertiser? = null
 
+    private val lanHandler = Handler(Looper.getMainLooper())
+    private var networkRecoveryCallback: ConnectivityManager.NetworkCallback? = null
+    private var registrationRetryCount = 0
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        registerNetworkRecovery()
         startLanServices()
     }
 
+    /**
+     * Ensures the LAN signaling server and the mDNS advertisement exist.
+     *
+     * Idempotent by construction: an already-running server and advertiser are
+     * reused instead of being replaced (a second [LanSignalingServer] could not
+     * bind the same port and a second [NsdAdvertiser] would leak the first
+     * registration's listener), and re-registration is ignored while a
+     * registration is live or pending. This makes the method safe to call from
+     * both [onCreate] and every start intent.
+     */
     private fun startLanServices() {
         try {
             val identityManager = DeviceIdentityManager.loadOrGenerate(applicationContext)
-            val trustStore = TrustStore(File(applicationContext.filesDir, "trusted_devices.json"))
 
-            // DEC-022: the phone answers with what it will actually apply, so the
-            // negotiation handler reads the live capture pipeline's *measured*
-            // state rather than a configured constant (the encoder ignores the
-            // requested frame rate, per DEC-020).
-            val handler = LanSignalingServer.DefaultSignalingHandler(
-                liveCapture = { captureEngine?.takeIf { it.isCapturing }?.liveCapture() },
-                capabilities = { deviceMediaCapabilities() },
-            )
+            val existingServer = signalingServer
+            if (existingServer == null) {
+                val trustStore = TrustStore(File(applicationContext.filesDir, "trusted_devices.json"))
 
-            val server = LanSignalingServer(
-                port = LanSignalingServer.DEFAULT_PORT,
-                handler = handler,
-                identityManager = identityManager,
-                trustStore = trustStore
-            )
-            if (server.start()) {
-                signalingServer = server
-                Log.i(TAG, "LanSignalingServer started on port ${server.port} with deviceId=${identityManager.deviceId}")
+                // DEC-022: the phone answers with what it will actually apply, so the
+                // negotiation handler reads the live capture pipeline's *measured*
+                // state rather than a configured constant (the encoder ignores the
+                // requested frame rate, per DEC-020).
+                val handler = LanSignalingServer.DefaultSignalingHandler(
+                    liveCapture = { captureEngine?.takeIf { it.isCapturing }?.liveCapture() },
+                    capabilities = { deviceMediaCapabilities() },
+                )
+
+                val server = LanSignalingServer(
+                    port = LanSignalingServer.DEFAULT_PORT,
+                    handler = handler,
+                    identityManager = identityManager,
+                    trustStore = trustStore
+                )
+                if (server.start()) {
+                    signalingServer = server
+                    Log.i(TAG, "LanSignalingServer started on port ${server.port} with deviceId=${identityManager.deviceId}")
+                }
+            } else {
+                Log.i(TAG, "LanSignalingServer already running on port ${existingServer.port}; reusing")
             }
-            val advertiser = NsdAdvertiser(applicationContext)
-            nsdAdvertiser = advertiser
+
+            val advertiser = nsdAdvertiser ?: NsdAdvertiser(applicationContext).also {
+                it.onRegistrationFailed = { errorCode -> scheduleRegistrationRetry(errorCode) }
+                nsdAdvertiser = it
+            }
             val deviceId = identityManager.deviceId
-            advertiser.registerService(
+            val registered = advertiser.registerService(
                 port = LanSignalingServer.DEFAULT_PORT,
                 deviceId = deviceId,
                 deviceName = identityManager.displayName,
                 capabilities = "screen",
                 state = "ready"
             )
-            Log.i(TAG, "NsdAdvertiser registered for device $deviceId")
+            if (registered) {
+                Log.i(TAG, "NsdAdvertiser registered for device $deviceId")
+            } else {
+                Log.w(TAG, "NsdAdvertiser registration did not start for device $deviceId")
+            }
         } catch (t: Throwable) {
             Log.e(TAG, "Failed to start LAN services: ${t.message}", t)
         }
+    }
+
+    /**
+     * Watches the default network so a transition that tears down the platform's
+     * mDNS advertisement is repaired. Android has no "registration lost"
+     * callback and no liveness query for NSD, so re-registering on a network
+     * change is the only way to observe and fix that state.
+     */
+    private fun registerNetworkRecovery() {
+        val connectivityManager =
+            applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                scheduleLanRecovery("network_available")
+            }
+
+            override fun onLost(network: Network) {
+                scheduleLanRecovery("network_lost")
+            }
+        }
+        try {
+            connectivityManager.registerDefaultNetworkCallback(callback)
+            networkRecoveryCallback = callback
+        } catch (t: Throwable) {
+            Log.w(TAG, "Could not register network recovery callback: ${t.message}")
+        }
+    }
+
+    private fun unregisterNetworkRecovery() {
+        val callback = networkRecoveryCallback ?: return
+        networkRecoveryCallback = null
+        try {
+            val connectivityManager =
+                applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            connectivityManager?.unregisterNetworkCallback(callback)
+        } catch (t: Throwable) {
+            Log.w(TAG, "Could not unregister network recovery callback: ${t.message}")
+        }
+    }
+
+    private fun scheduleLanRecovery(reason: String) {
+        lanHandler.removeCallbacks(lanRecoveryRunnable)
+        lanHandler.postDelayed(lanRecoveryRunnable, LAN_RECOVERY_DEBOUNCE_MS)
+        Log.i(TAG, "LAN discovery recovery scheduled ($reason)")
+    }
+
+    private val lanRecoveryRunnable = Runnable {
+        val advertiser = nsdAdvertiser
+        if (advertiser == null) {
+            Log.i(TAG, "LAN discovery recovery: no advertiser yet; starting LAN services")
+            startLanServices()
+            return@Runnable
+        }
+        val ok = advertiser.reregisterService()
+        if (ok) {
+            registrationRetryCount = 0
+        }
+        Log.i(TAG, "LAN discovery recovery: mDNS re-registration ${if (ok) "initiated" else "not started"}")
+    }
+
+    /**
+     * Bounded retry for a failed registration: without it a registration failure
+     * left discovery dead until the next process start.
+     */
+    private fun scheduleRegistrationRetry(errorCode: Int) {
+        if (registrationRetryCount >= MAX_REGISTRATION_RETRIES) {
+            Log.e(TAG, "mDNS registration still failing after $registrationRetryCount retries (last=$errorCode)")
+            return
+        }
+        registrationRetryCount++
+        val delay = REGISTRATION_RETRY_BASE_MS * (1L shl (registrationRetryCount - 1))
+        Log.w(TAG, "mDNS registration failure (code $errorCode); retry $registrationRetryCount in ${delay}ms")
+        lanHandler.removeCallbacks(registrationRetryRunnable)
+        lanHandler.postDelayed(registrationRetryRunnable, delay)
+    }
+
+    private val registrationRetryRunnable = Runnable {
+        val advertiser = nsdAdvertiser ?: return@Runnable
+        if (advertiser.isRegistered) {
+            registrationRetryCount = 0
+            return@Runnable
+        }
+        val started = advertiser.ensureRegistered()
+        Log.i(TAG, "mDNS registration retry ${if (started) "started" else "skipped"}")
     }
 
     /**
@@ -186,6 +309,9 @@ class PhoneBridgeService : Service() {
 
     private fun stopLanServices() {
         try {
+            lanHandler.removeCallbacks(lanRecoveryRunnable)
+            lanHandler.removeCallbacks(registrationRetryRunnable)
+            registrationRetryCount = 0
             nsdAdvertiser?.unregisterService()
             nsdAdvertiser = null
             signalingServer?.stop()
@@ -234,6 +360,11 @@ class PhoneBridgeService : Service() {
             else -> {
                 startForegroundWithNotification(isCapturing = captureEngine?.isCapturing == true)
                 startGoEngine()
+                // Start intents (ACTION_START and bare restarts) must repair LAN
+                // discovery, not just the Go engine: the onCreate-only path meant
+                // a failed or lost advertisement was never re-created while the
+                // service stayed alive. startLanServices() is idempotent.
+                startLanServices()
                 return START_STICKY
             }
         }
@@ -246,7 +377,9 @@ class PhoneBridgeService : Service() {
 
     override fun onDestroy() {
         stopCaptureInternal("service_destroyed")
+        unregisterNetworkRecovery()
         stopLanServices()
+        lanHandler.removeCallbacksAndMessages(null)
         stopGoEngine()
         AndroidTransferHostRegistry.release()
         super.onDestroy()
