@@ -66,12 +66,17 @@ Linux:   Flutter → Linux integration (linux/) → Go core (core/cmd/daemon)
 
 | Layer | Owns | Status |
 |-------|------|--------|
-| Flutter (`ui/`) | pairing/device/file/notification/screen UI, state | `PLANNED` — mission control shipped; transfer UI in Phase 4 |
-| Go core (`core/`) | protocol engine, crypto, identity, discovery, WebRTC, DataChannels, file/clipboard transport, engine | `PLANNED` — Phase 0 scaffold only |
-| Kotlin (`android/`) | ForegroundService, CDM, NLS, AccessibilityService, MediaProjection/MediaCodec, SAF, IME | `PLANNED` |
-| Linux (`linux/`) | D-Bus, Notifications, Wayland clipboard, XDG portals, PipeWire, uinput/EIS, systemd | `PLANNED` |
-| Protocol (`proto/`) | Protobuf v3, package `phonebridge.v1`, codegen Go+Dart | `PLANNED` — envelope in Phase 0 |
-| Server (`server/`) | signaling rendezvous, SDP/ICE exchange | `PLANNED` (Phase 4) |
+| Flutter (`ui/`) | pairing/device/file/notification/screen UI, state | `VALIDATED` — mission control, pairing/device, clipboard, activity and transfer UI shipped with physical E2E (87 tests); screen-sharing view present (transport validated, Spike 04); notification-centre UI not built |
+| Go core (`core/`) | protocol engine, crypto, identity, discovery, WebRTC, DataChannels, file/clipboard transport, engine | `VALIDATED` — identity/trust, mDNS discovery (+ browse-refresh), LAN session engine, `transfer`/`clipboard` DataChannels, file transfer and local IPC shipped (`go test -race`); remote/TURN absent |
+| Kotlin (`android/`) | ForegroundService, CDM, NLS, AccessibilityService, MediaProjection/MediaCodec, SAF, IME | `VALIDATED` — foreground service, LAN signaling server, NSD advertise (+ registration recovery), MediaProjection/MediaCodec capture, clipboard adapters/tile, transfer destination (MediaStore `IS_PENDING`) and SAF read; CDM, NLS and AccessibilityService not built |
+| Linux (`linux/`) | D-Bus, Notifications, Wayland clipboard, XDG portals, PipeWire, uinput/EIS, systemd | `VALIDATED` (partial) — Wayland `zwlr_data_control` helper and systemd user unit shipped (DEC-023); D-Bus, notifications, XDG portals, PipeWire and input injection not built |
+| Protocol (`proto/`) | Protobuf v3, package `phonebridge.v1`, codegen Go+Dart | `CONFIRMED` — `phonebridge.v1` + `phonebridge.localipc.v1` ratified, generated and gated (`buf lint` / drift / `buf breaking`) |
+| Server (`server/`) | signaling rendezvous, SDP/ICE exchange | `PLANNED` — README placeholder only; Remote Internet Connectivity scope, not started |
+
+**Phase label note:** "Phase 4" as used by `DEC-024`, the commit log and
+`docs/protocol.md` is the file-transfer increment (MASTER_HANDOFF Phase 3
+scope). MASTER_HANDOFF's own Phase 4 --- Remote Internet Connectivity --- is
+not started.
 
 ## Local IPC & Platform Boundaries
 
@@ -233,6 +238,7 @@ third-party/            dependency ledger
 - Flutter ↔ Go on Android embedding — `EXPERIMENTAL`
 - Wayland clipboard — architecture ratified (DEC-023, Phase 3); remote input (COSMIC EIS / uinput) remains `EXPERIMENTAL` (Spike 07)
 - WebRTC media perf / codec choice — transport validated (DEC-021, Spike 04); HEVC path and cross-device behaviour — `EXPERIMENTAL`
+- LAN discovery — mDNS `_phonebridge._tcp` advertising + browse shipped; Linux browse-session refresh (DEC-007 amendment) and Android NSD registration recovery landed; Spike 09 fallback for multicast-blocked / AP-isolated networks — `PLANNED`
 - LAN session negotiation + bounded reconnect — contract ratified (DEC-022, Phase 2); remote/TURN and server-based rendezvous — `PLANNED`
 - File transfer transport/protocol/storage — ratified (DEC-024, Phase 4); transfer **resume**, capture-free data-only sessions, SAF "Save as…" and Linux drag-and-drop — `PLANNED` follow-ups
 - Kotlin capture throttling + Go-side pacing — measured & ratified (DEC-020 amendment + DEC-021, Spike 04)

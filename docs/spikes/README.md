@@ -13,7 +13,7 @@ Per `MASTER_HANDOFF.md` §Immediate Next Action, ten validation spikes block fre
 | 05 | Android background clipboard | [05-android-clipboard-background.md](05-android-clipboard-background.md) |
 | 06 | COSMIC clipboard access | [06-cosmic-clipboard.md](06-cosmic-clipboard.md) |
 | 07 | COSMIC remote-input strategy | [07-cosmic-input.md](07-cosmic-input.md) |
-| 08 | Bidirectional large-file transfer | [08-bidirectional-large-file.md](08-bidirectional-large-file.md) |
+| 08 | Bidirectional large-file transfer | [08-bidirectional-large-file.md](08-bidirectional-large-file.md) — **results: [08-bidirectional-large-file-results.md](08-bidirectional-large-file-results.md)** (`VALIDATED` — decision ratified as DEC-024: reliable/ordered `transfer` DataChannel, chunked, SHA-256-verified both directions) |
 | 09 | LAN discovery | [09-lan-discovery.md](09-lan-discovery.md) |
 | 10 | Remote WebRTC P2P + TURN fallback | [10-remote-p2p-turn.md](10-remote-p2p-turn.md) |
 

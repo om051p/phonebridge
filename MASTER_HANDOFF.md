@@ -823,6 +823,20 @@ Android and Linux automatically discover and connect on the same LAN.
 
 ## Phase 3 --- Phone Link Core
 
+**Status (2026-09-23):** partially shipped. Shipped — LAN discovery and
+session establishment (`DEC-022`), clipboard sync (`DEC-023`, conditional on
+`COSMIC_DATA_CONTROL_ENABLED=1`), and bidirectional file transfer (`DEC-024`,
+physically validated Android ↔ Linux — evidence:
+`docs/spikes/08-bidirectional-large-file-results.md`). Not yet built — notifications and
+notification actions (no `NotificationListenerService` /
+`CompanionDeviceManager` integration in the Android sources).
+
+**Phase numbering note:** the file-transfer item below landed as its own
+increment, which `DEC-024`, the commit log, `docs/protocol.md` and
+`docs/architecture.md` label **Phase 4**. That label refers to this section's
+file-transfer scope, not to the separate Phase 4 section (Remote Internet
+Connectivity) that follows.
+
 Implement:
 
 -   device status
@@ -845,6 +859,12 @@ The application is useful even without screen mirroring.
 ------------------------------------------------------------------------
 
 ## Phase 4 --- Remote Internet Connectivity
+
+**Status (2026-09-23): not started, and future/optional.** No part of this
+section exists: `server/` is a README placeholder and there is no ICE/STUN/TURN,
+remote-authentication or connection-mode-selection code. The "Phase 4" used by
+`DEC-024`, the commit log and the other docs is the file-transfer increment of
+the Phase 3 scope above, not this section.
 
 Implement:
 
