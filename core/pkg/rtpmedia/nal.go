@@ -69,3 +69,25 @@ func classify(nals [][]byte) auClass {
 	}
 	return c
 }
+
+// JoinAnnexB concatenates start-code-stripped NAL units into a 4-byte
+// start-code separated Annex-B stream — the exact inverse of SplitAnnexB.
+// Empty NALs are skipped. The result is a fresh buffer; inputs are not
+// retained.
+func JoinAnnexB(nals [][]byte) []byte {
+	n := 0
+	for _, nal := range nals {
+		if len(nal) > 0 {
+			n += len(startCode4) + len(nal)
+		}
+	}
+	out := make([]byte, 0, n)
+	for _, nal := range nals {
+		if len(nal) == 0 {
+			continue
+		}
+		out = append(out, startCode4...)
+		out = append(out, nal...)
+	}
+	return out
+}

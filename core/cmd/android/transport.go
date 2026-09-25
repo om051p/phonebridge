@@ -40,6 +40,7 @@ import (
 
 	pion "github.com/pion/webrtc/v4"
 
+	"github.com/om051p/phonebridge/core/pkg/rtpmedia"
 	"github.com/om051p/phonebridge/core/pkg/webrtc"
 )
 
@@ -55,6 +56,18 @@ const (
 // MediaTransport owns one Sender/Session pair (single-use per Init; Release
 // returns to idle so a new session can be built — DEC-020: resolution
 // changes end the session and require a new one).
+//
+// The PSI cache (rtpmedia.Cache) is the ONE piece of media state that
+// deliberately outlives Init/Release cycles: the encoder emits SPS/PPS exactly
+// once per codec lifetime (the CSD AU), while every offer — and every
+// DEC-022 reconnect — rebuilds the transport with mediaRelease+mediaInit and
+// discards queued frames. A per-Sender cache would therefore be empty for the
+// whole capture (the Slice 3A PSI root cause: bare IDRs on the wire, nothing
+// decodable). The transport owns the cache, learns parameter sets at ADMISSION
+// (before any queue can discard the CSD AU), and hands the same cache to each
+// new Sender, so re-injection works from the first IDR of every rebuilt
+// transport. Stale parameter sets cannot survive a capture restart: the new
+// codec's CSD AU replaces them (Cache.Learn swaps changed bytes).
 type MediaTransport struct {
 	mu       sync.Mutex
 	state    atomic.Int32
@@ -66,6 +79,7 @@ type MediaTransport struct {
 	queueAU  int
 	shaperKb int
 	shaperBk int
+	psi      *rtpmedia.Cache // capture-scoped parameter-set cache (see above)
 }
 
 // sdpBlob is the JSON-serializable SDP exchange shape (same wire form the
@@ -89,7 +103,12 @@ func currentTransport() *MediaTransport {
 }
 
 func newMediaTransport(queueAU, shaperKbps, shaperBurstKbit int) *MediaTransport {
-	return &MediaTransport{queueAU: queueAU, shaperKb: shaperKbps, shaperBk: shaperBurstKbit}
+	return &MediaTransport{
+		queueAU:  queueAU,
+		shaperKb: shaperKbps,
+		shaperBk: shaperBurstKbit,
+		psi:      &rtpmedia.Cache{},
+	}
 }
 
 // MediaInit builds the sender and PeerConnection (offerer role, Spike 04).
@@ -103,7 +122,8 @@ func (t *MediaTransport) MediaInit() error {
 		QueueDepth:   t.queueAU,
 		ShaperKbps:   t.shaperKb,
 		ShaperBurstK: t.shaperBk,
-		PSIReinject:  true, // DEC-021 obligation 2
+		PSIReinject:  true,  // DEC-021 obligation 2
+		PSICache:     t.psi, // survives this Init (Slice 3A)
 	})
 	cfg := webrtc.SessionConfig{
 		OnStateChange: func(st pion.PeerConnectionState) {
@@ -241,9 +261,29 @@ func (t *MediaTransport) MediaStart() error {
 	}
 }
 
+// LearnPSI caches any H.264 parameter sets (SPS/PPS) carried by one Annex-B
+// access unit, with no transport admission and no state requirement (Slice
+// 3A). It is the single learning point of the phone-side pipeline: MediaOnFrame
+// calls it on every AU, and the JNI boundary calls it when the engine gate
+// refuses a frame before MediaOnFrame is reachable. Learning only caches bytes
+// — an AU that must be rejected is still allowed to teach this capture's
+// parameter sets.
+func (t *MediaTransport) LearnPSI(au []byte) {
+	t.psi.Learn(rtpmedia.SplitAnnexB(au))
+}
+
 // MediaOnFrame is the hot path: never blocks, returns whether the AU was
 // admitted. Safe (returns false) in every non-initialized state.
 func (t *MediaTransport) MediaOnFrame(au []byte, ptsUs int64, key bool) bool {
+	// Admission-side PSI learning (Slice 3A) — BEFORE the state gate: the CSD
+	// AU is emitted exactly once per codec lifetime, seconds before the first
+	// offer, and the transport may not be initialized yet when it arrives.
+	// Learning only caches bytes, so it must succeed even when the frame
+	// itself is rejected; otherwise the cache stays empty for the whole
+	// capture and every rebuilt transport re-injects nothing (the live E2E
+	// reproduced exactly that: PARAM_SETS_MISSING with the fix behind the
+	// gate). Cheap when no PSI is present (classify-only fast path).
+	t.LearnPSI(au)
 	if t.state.Load() < trInitialized {
 		return false
 	}
@@ -347,7 +387,23 @@ func (t *MediaTransport) MediaStatsJSON() []byte {
 	if v := t.lastPC.Load(); v != nil && pcState == "" {
 		pcState = *v
 	}
-	stats := map[string]any{"pcState": pcState, "transportState": t.state.Load()}
+	// PSI cache counters (Slice 3A): the only on-device proof that parameter
+	// sets were learned and re-injected. A capture that reports
+	// psiHaveSPSPP=false with psiIDRsNoCache>0 is sending undecodable IDRs —
+	// exactly the PARAM_SETS_MISSING condition the receiver diagnoses.
+	psi := t.psi.Stats()
+	stats := map[string]any{
+		"pcState":         pcState,
+		"transportState":  t.state.Load(),
+		"psiHaveSPSPP":    psi.HaveSPSPP,
+		"psiSPSBytes":     psi.CachedSPS,
+		"psiPPSBytes":     psi.CachedPPS,
+		"psiSPSUpdates":   psi.SPSUpdates,
+		"psiPPSUpdates":   psi.PPSUpdates,
+		"psiInjectedIDRs": psi.InjectedIDRs,
+		"psiInBandIDRs":   psi.InBandIDRs,
+		"psiIDRsNoCache":  psi.IDRsNoCache,
+	}
 	if s != nil {
 		stats["pushedAUs"] = s.PushedAUs.Load()
 		stats["droppedAUs"] = s.DroppedAUs.Load()

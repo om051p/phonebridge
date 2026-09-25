@@ -620,6 +620,18 @@ func Java_dev_phonebridge_bridge_GoBridge_nativeMediaOnFrame(env *C.JNIEnv, claz
 		return C.JNI_FALSE
 	}
 	key := jKeyframe == C.JNI_TRUE
+	if !initialized.Load() || engineState.Load() == StateStopped {
+		// This gate short-circuits before the transport, so MediaOnFrame — the
+		// normal PSI learning point — is never reached. Learn here instead:
+		// the once-per-codec CSD AU can arrive while the engine is not running
+		// yet, and losing it leaves every later transport re-injecting nothing
+		// (live E2E: bare IDRs on the wire, receiver reports
+		// PARAM_SETS_MISSING). LearnPSI only caches bytes; the frame is still
+		// refused. The normal path is unchanged and learns exactly once, so no
+		// AU is ever split twice on the hot path.
+		currentTransport().LearnPSI(au)
+		return C.JNI_FALSE
+	}
 	if currentTransport().MediaOnFrame(au, int64(jPtsUs), key) {
 		return C.JNI_TRUE
 	}

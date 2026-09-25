@@ -184,6 +184,90 @@ func TestCacheGoldenAgainstSpikeCapture(t *testing.T) {
 	}
 }
 
+// Learn is the admission-side counterpart of Prepare (Slice 3A): it caches
+// parameter sets without classifying the AU for completion and without
+// touching the IDR counters, so a producer can teach the cache even when the
+// AU itself is refused admission.
+func TestCacheLearnIsSideEffectFree(t *testing.T) {
+	c := &Cache{}
+	// An AU that carries PSI *and* an IDR: Learn must cache the sets but leave
+	// every IDR counter at zero (Prepare owns those).
+	c.Learn([][]byte{testSPS, testPPS, nal(NALTypeIDR, 1, 2, 3)})
+	if !c.HasParameterSets() {
+		t.Fatal("Learn did not cache a complete parameter-set pair")
+	}
+	if c.CachedSPS != int64(len(testSPS)) || c.CachedPPS != int64(len(testPPS)) {
+		t.Fatalf("cached sizes sps=%d pps=%d", c.CachedSPS, c.CachedPPS)
+	}
+	if c.InjectedIDRs != 0 || c.InBandIDRs != 0 || c.IDRsNoCache != 0 {
+		t.Fatalf("Learn touched IDR counters: injected=%d in-band=%d no-cache=%d",
+			c.InjectedIDRs, c.InBandIDRs, c.IDRsNoCache)
+	}
+	// Learning is idempotent: the identical CSD AU re-learned (the encoder can
+	// emit it again after a codec restart within the same capture) must not
+	// look like a mid-stream change.
+	c.Learn([][]byte{testSPS, testPPS})
+	if c.SPSUpdates != 0 || c.PPSUpdates != 0 {
+		t.Fatalf("duplicate parameter sets counted as updates: sps=%d pps=%d",
+			c.SPSUpdates, c.PPSUpdates)
+	}
+	// Degenerate input never panics and never invents a parameter set.
+	c.Learn(nil)
+	c.Learn([][]byte{{}, {0x41}})
+	if c.SPSUpdates != 0 || c.PPSUpdates != 0 {
+		t.Fatal("degenerate input changed the cache")
+	}
+	if !bytes.Equal(c.SPS(), testSPS) || !bytes.Equal(c.PPS(), testPPS) {
+		t.Fatal("cache was mutated by degenerate input")
+	}
+}
+
+// A partial or corrupt parameter set must never make the cache look usable:
+// completeness requires BOTH a plausible SPS and a plausible PPS, so an IDR
+// that arrives instead is counted as undecodable (IDRsNoCache) — the typed
+// PARAM_SETS_MISSING condition — rather than being completed with garbage.
+func TestCacheLearnRejectsPartialAndCorruptSets(t *testing.T) {
+	c := &Cache{}
+	// SPS only: cached, but not complete.
+	c.Learn([][]byte{testSPS})
+	if c.HasParameterSets() {
+		t.Fatal("an SPS without a PPS must not report parameter sets available")
+	}
+	if got := c.Prepare(idrAU()); len(got) != 1 || c.IDRsNoCache != 1 {
+		t.Fatalf("IDR completed without a PPS: %d NALs, no-cache=%d", len(got), c.IDRsNoCache)
+	}
+
+	// Truncated SPS (< 4 B) and PPS (< 2 B): refused, not cached, and the
+	// already-valid cached SPS is not displaced.
+	c.Learn([][]byte{{0x67}, {0x68}})
+	if c.HasParameterSets() {
+		t.Fatal("corrupt/truncated parameter sets completed the pair")
+	}
+	if got := c.SPS(); !bytes.Equal(got, testSPS) {
+		t.Fatalf("corrupt SPS displaced the valid cached SPS: %x", got)
+	}
+	if c.PPS() != nil {
+		t.Fatal("corrupt PPS was cached")
+	}
+	if c.CachedSPS != int64(len(testSPS)) {
+		t.Fatalf("CachedSPS = %d, want the previous valid SPS (%d)", c.CachedSPS, len(testSPS))
+	}
+
+	// A corrupt PPS alongside a valid SPS still cannot complete the pair...
+	c.Learn([][]byte{nal(NALTypeSPS, 0x64, 0x00, 0x20), {0x68}})
+	if c.HasParameterSets() {
+		t.Fatal("corrupt PPS completed the parameter-set pair")
+	}
+	// ...and the real PPS arriving later does (order independence).
+	c.Learn([][]byte{testPPS})
+	if !c.HasParameterSets() {
+		t.Fatal("valid SPS + PPS did not complete the pair")
+	}
+	if got := c.Prepare(idrAU()); len(got) != 3 {
+		t.Fatalf("IDR not completed after valid relearn: %d NALs", len(got))
+	}
+}
+
 func TestCacheConcurrentPrepare(t *testing.T) {
 	c := &Cache{}
 	c.Prepare([][]byte{testSPS, testPPS})

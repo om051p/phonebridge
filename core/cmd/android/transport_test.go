@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	pion "github.com/pion/webrtc/v4"
+
+	"github.com/om051p/phonebridge/core/pkg/rtpmedia"
 )
 
 // newReceiverPeer builds a bare remote PC that accepts our offer and returns
@@ -234,5 +236,72 @@ func TestSDPBlobRoundTrip(t *testing.T) {
 	}
 	if got.Type != "answer" || got.SDP != "v=0" {
 		t.Fatalf("round trip: %+v", got)
+	}
+}
+
+// Slice 3A PSI root-cause regression: the encoder emits SPS/PPS exactly once
+// per codec lifetime (the CSD AU), while every offer/reconnect runs
+// mediaRelease+mediaInit and discards queued frames. Parameter sets learned at
+// ADMISSION must survive that rebuild, and every rebuilt Sender must share the
+// same cache so the first IDR after the rebuild is re-injectable.
+func TestMediaTransportPSISurvivesTransportRebuild(t *testing.T) {
+	sps := []byte{0x67, 0x64, 0x00, 0x20, 0xAC, 0xB4, 0x05, 0xA0}
+	pps := []byte{0x68, 0xEE, 0x06, 0xF2, 0xC0}
+	idr := []byte{0x65, 0x88, 0x80, 0x11}
+
+	tr := newTestTransport(t)
+
+	// Capture start: transport Init, then the once-per-codec CSD AU arrives.
+	if err := tr.MediaInit(); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	csd := rtpmedia.JoinAnnexB([][]byte{sps, pps, idr})
+	if !tr.MediaOnFrame(csd, 1, true) {
+		t.Fatal("CSD AU must be admitted")
+	}
+	if !tr.psi.HasParameterSets() {
+		t.Fatal("admission-side learning must cache SPS/PPS from the CSD AU")
+	}
+
+	// Offer-time transport rebuild (LanSignalingServer.handleOffer):
+	// mediaRelease discards the queued CSD AU, mediaInit builds a new Sender.
+	tr.MediaRelease()
+	if err := tr.MediaInit(); err != nil {
+		t.Fatalf("re-init: %v", err)
+	}
+
+	if !tr.psi.HasParameterSets() {
+		t.Fatal("PSI cache must survive mediaRelease+mediaInit")
+	}
+
+	// The rebuilt Sender must share the transport-owned cache...
+	tr.mu.Lock()
+	s := tr.sender
+	tr.mu.Unlock()
+	if s == nil {
+		t.Fatal("no sender after re-init")
+	}
+	if s.Cache() != tr.psi {
+		t.Fatal("rebuilt Sender must share the transport PSI cache")
+	}
+
+	// ...so the first IDR after the rebuild (wire carries no PSI) is completed.
+	bare := rtpmedia.JoinAnnexB([][]byte{idr})
+	completed := s.Cache().Prepare(rtpmedia.SplitAnnexB(bare))
+	if len(completed) != 3 {
+		t.Fatalf("bare IDR after rebuild not completed: %d NALs, want 3", len(completed))
+	}
+	if rtpmedia.NALType(completed[0][0]) != rtpmedia.NALTypeSPS ||
+		rtpmedia.NALType(completed[1][0]) != rtpmedia.NALTypePPS {
+		t.Fatal("completed IDR must lead with cached SPS then PPS")
+	}
+
+	// A capture restart pushes a new CSD AU: learning must replace stale
+	// parameter sets rather than refuse them.
+	sps2 := append([]byte(nil), sps...)
+	sps2[len(sps2)-1] ^= 0xFF
+	tr.psi.Learn(rtpmedia.SplitAnnexB(rtpmedia.JoinAnnexB([][]byte{sps2, pps})))
+	if got := tr.psi.SPS(); string(got) != string(sps2) {
+		t.Fatalf("SPS not replaced on relearn: %x", got)
 	}
 }

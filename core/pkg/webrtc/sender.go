@@ -66,6 +66,12 @@ type SenderConfig struct {
 	ShaperKbps   int  // 0 → 4000; negative disables shaping
 	ShaperBurstK int  // 0 → 3000
 	PSIReinject  bool // re-inject cached SPS/PPS ahead of forwarded IDRs
+	// PSICache overrides the per-sender parameter-set cache. The phone-side
+	// transport passes a cache it owns and learns at AU admission, so
+	// parameter sets survive the offer-time transport rebuild (Phase 6 Slice
+	// 3A): the encoder emits SPS/PPS exactly once per codec lifetime, and a
+	// per-Sender cache would be empty after every mediaRelease/mediaInit.
+	PSICache *rtpmedia.Cache
 }
 
 // Sink is the RTP emission point. In production it is the bound
@@ -90,9 +96,13 @@ func NewSender(q *rtpmedia.Queue, cfg SenderConfig) *Sender {
 	if q == nil {
 		q = rtpmedia.NewQueue(cfg.QueueDepth)
 	}
+	cache := cfg.PSICache
+	if cache == nil {
+		cache = &rtpmedia.Cache{}
+	}
 	return &Sender{
 		queue:    q,
-		cache:    &rtpmedia.Cache{},
+		cache:    cache,
 		pkt:      rtpmedia.NewPacketizer(0), // 1200 B budget (DEC-021)
 		shaper:   rtpmedia.NewShaper(rtpmedia.ShaperConfig{Kbps: cfg.ShaperKbps, BurstKbit: cfg.ShaperBurstK}),
 		ownQueue: ownQueue,

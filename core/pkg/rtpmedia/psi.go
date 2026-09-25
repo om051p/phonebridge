@@ -75,6 +75,11 @@ func (c *Cache) PPS() []byte {
 // The input NALs must be start-code-stripped (see SplitAnnexB). The returned
 // slice may alias the input when no re-injection happened; when it does
 // inject, it returns a fresh slice and never mutates the input.
+//
+// Boundary: an AU that already carries SPS+PPS is passed through untouched even
+// if those sets are implausible (they are the producer's bytes, not ours, and a
+// complete-pair AU is never duplicated). Only the *cached* sets — the ones this
+// cache would inject — are validity-checked (see learnLocked).
 func (c *Cache) Prepare(nals [][]byte) [][]byte {
 	cl := classify(nals)
 
@@ -82,36 +87,7 @@ func (c *Cache) Prepare(nals [][]byte) [][]byte {
 	defer c.mu.Unlock()
 
 	// Update the cache from whatever passes through.
-	if cl.hasSPS || cl.hasPPS {
-		for _, n := range nals {
-			if len(n) == 0 {
-				continue
-			}
-			switch NALType(n[0]) {
-			case NALTypeSPS:
-				if c.sps == nil {
-					c.sps = append([]byte(nil), n...)
-					c.CachedSPS = int64(len(c.sps))
-				} else if !equalBytes(c.sps, n) {
-					c.sps = append([]byte(nil), n...)
-					c.CachedSPS = int64(len(c.sps))
-					c.SPSUpdates++ // mid-stream change (e.g. resolution switch)
-				}
-			case NALTypePPS:
-				if c.pps == nil {
-					c.pps = append([]byte(nil), n...)
-					c.CachedPPS = int64(len(c.pps))
-				} else if !equalBytes(c.pps, n) {
-					c.pps = append([]byte(nil), n...)
-					c.CachedPPS = int64(len(c.pps))
-					c.PPSUpdates++ // mid-stream change
-				}
-			}
-		}
-	}
-	if cl.hasSPS && cl.hasPPS {
-		c.haveSPSPP = true
-	}
+	c.learnLocked(cl, nals)
 
 	// Non-IDR AUs pass through unchanged (their parameter sets, if any, were
 	// learned above).
@@ -157,6 +133,108 @@ func (c *Cache) Prepare(nals [][]byte) [][]byte {
 	out = append(out, nals[ins:]...)
 	c.InjectedIDRs++
 	return out
+}
+
+// Learn absorbs any parameter sets carried by nals without classifying the AU
+// for completion and without touching the IDR counters — the admission-side
+// counterpart of Prepare. It exists so a producer (the phone-side transport)
+// can capture SPS/PPS the moment an AU is admitted, even if that AU's queue
+// is later discarded before send (the CSD AU is emitted exactly once per
+// codec lifetime; see the Slice 3A PSI root cause).
+//
+// It is safe to call in any transport state (it touches the cache only) and it
+// is idempotent: re-learning identical bytes changes no counter. Only sets that
+// pass the plausibility bounds are cached (see learnLocked), and completeness
+// (HasParameterSets) requires both a cached SPS and a cached PPS.
+func (c *Cache) Learn(nals [][]byte) {
+	cl := classify(nals)
+	if !cl.hasSPS && !cl.hasPPS {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.learnLocked(cl, nals)
+}
+
+// learnLocked performs the SPS/PPS caching pass. Caller holds c.mu.
+//
+// Corrupt/truncated parameter sets are refused rather than cached: they would
+// otherwise be prepended to every later IDR, turning a typed
+// PARAM_SETS_MISSING diagnosis into a stream that is silently undecodable.
+// The bounds are the syntactic minimums of ITU-T H.264 §7.3.2.1 (an SPS
+// carries profile_idc, constraint flags and level_idc before any ue(v) field —
+// never under 4 bytes) and §7.3.2.2 (a PPS carries at least one ue(v) id pair
+// plus the rbsp trailing bits — never under 2 bytes). Real encoder sets are far
+// larger (SM7475: SPS 18 B / PPS 5 B, DEC-021).
+func (c *Cache) learnLocked(cl auClass, nals [][]byte) {
+	const minSPSBytes, minPPSBytes = 4, 2
+	if cl.hasSPS || cl.hasPPS {
+		for _, n := range nals {
+			if len(n) == 0 {
+				continue
+			}
+			switch NALType(n[0]) {
+			case NALTypeSPS:
+				if len(n) < minSPSBytes {
+					continue // truncated/corrupt: never cached, never re-injected
+				}
+				if c.sps == nil {
+					c.sps = append([]byte(nil), n...)
+					c.CachedSPS = int64(len(c.sps))
+				} else if !equalBytes(c.sps, n) {
+					c.sps = append([]byte(nil), n...)
+					c.CachedSPS = int64(len(c.sps))
+					c.SPSUpdates++ // mid-stream change (e.g. resolution switch)
+				}
+			case NALTypePPS:
+				if len(n) < minPPSBytes {
+					continue // truncated/corrupt: never cached, never re-injected
+				}
+				if c.pps == nil {
+					c.pps = append([]byte(nil), n...)
+					c.CachedPPS = int64(len(c.pps))
+				} else if !equalBytes(c.pps, n) {
+					c.pps = append([]byte(nil), n...)
+					c.CachedPPS = int64(len(c.pps))
+					c.PPSUpdates++ // mid-stream change
+				}
+			}
+		}
+	}
+	// Completeness follows what is actually cached, not what the AU claimed:
+	// a refused corrupt set must never make the cache look usable, and a
+	// duplicate AU must not change the answer.
+	if c.sps != nil && c.pps != nil {
+		c.haveSPSPP = true
+	}
+}
+
+// CacheStats is an atomic snapshot of a Cache's counters (diagnostics).
+type CacheStats struct {
+	HaveSPSPP    bool
+	CachedSPS    int64
+	CachedPPS    int64
+	SPSUpdates   int64
+	PPSUpdates   int64
+	InjectedIDRs int64
+	InBandIDRs   int64
+	IDRsNoCache  int64
+}
+
+// Stats returns a consistent snapshot of the cache counters.
+func (c *Cache) Stats() CacheStats {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return CacheStats{
+		HaveSPSPP:    c.haveSPSPP,
+		CachedSPS:    c.CachedSPS,
+		CachedPPS:    c.CachedPPS,
+		SPSUpdates:   c.SPSUpdates,
+		PPSUpdates:   c.PPSUpdates,
+		InjectedIDRs: c.InjectedIDRs,
+		InBandIDRs:   c.InBandIDRs,
+		IDRsNoCache:  c.IDRsNoCache,
+	}
 }
 
 func equalBytes(a, b []byte) bool {
