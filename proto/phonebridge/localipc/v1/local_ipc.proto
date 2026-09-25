@@ -142,6 +142,10 @@ service LocalEngineService {
   // is bound to reaches a terminal state; clients resubscribe via their
   // existing backoff pattern only while a session is live.
   rpc StreamFrames(StreamFramesRequest) returns (stream StreamFramesResponse);
+
+  // SendInput injects a remote input event to the active peer over the session's
+  // dedicated "input" DataChannel (Phase 7, DEC-027).
+  rpc SendInput(SendInputRequest) returns (SendInputResponse);
 }
 
 // HandshakeRequest advertises the client's local-IPC protocol support.
@@ -737,3 +741,16 @@ message StreamFramesResponse {
   // must not reorder or drop frames because of it.
   uint64 sent_unix_micros = 8;
 }
+
+// SendInputRequest carries one InputFrame to be injected into the active session.
+message SendInputRequest {
+  string session_id = 1;
+  phonebridge.v1.InputFrame frame = 2;
+}
+
+// SendInputResponse answers SendInput.
+message SendInputResponse {
+  bool delivered = 1;
+  string error_message = 2;
+}
+

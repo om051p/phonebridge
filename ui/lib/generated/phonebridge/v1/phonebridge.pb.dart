@@ -2944,6 +2944,567 @@ class DeviceStatus extends $pb.GeneratedMessage {
   static DeviceStatus? _defaultInstance;
 }
 
+enum InputFrame_Event { touch, key, text, scroll, action, notSet }
+
+/// ---------------------------------------------------------------------------
+/// Remote Input (DEC-027, Phase 7)
+/// ---------------------------------------------------------------------------
+/// Carried directly on dedicated reliable ordered WebRTC DataChannel ("input",
+/// created alongside "control", "clipboard", and "transfer"). Every DataChannel
+/// message is exactly one InputFrame (matching DEC-023/DEC-024 bare frame rule).
+class InputFrame extends $pb.GeneratedMessage {
+  factory InputFrame({
+    $fixnum.Int64? timestampMs,
+    TouchEvent? touch,
+    KeyEvent? key,
+    TextEvent? text,
+    ScrollEvent? scroll,
+    GlobalActionEvent? action,
+  }) {
+    final result = InputFrame._();
+    if (timestampMs != null) result.timestampMs = timestampMs;
+    if (touch != null) result.touch = touch;
+    if (key != null) result.key = key;
+    if (text != null) result.text = text;
+    if (scroll != null) result.scroll = scroll;
+    if (action != null) result.action = action;
+    return result;
+  }
+
+  InputFrame._();
+
+  factory InputFrame.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      InputFrame()..mergeFromBuffer(data, registry);
+  factory InputFrame.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      InputFrame()..mergeFromJson(json, registry);
+
+  static const $core.Map<$core.int, InputFrame_Event> _InputFrame_EventByTag = {
+    2: InputFrame_Event.touch,
+    3: InputFrame_Event.key,
+    4: InputFrame_Event.text,
+    5: InputFrame_Event.scroll,
+    6: InputFrame_Event.action,
+    0: InputFrame_Event.notSet
+  };
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'InputFrame',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
+      createEmptyInstance: InputFrame.$_createMessage)
+    ..oo(0, [2, 3, 4, 5, 6])
+    ..a<$fixnum.Int64>(
+        1, _omitFieldNames ? '' : 'timestampMs', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..aOM<TouchEvent>(2, _omitFieldNames ? '' : 'touch',
+        subBuilder: TouchEvent.$_createMessage)
+    ..aOM<KeyEvent>(3, _omitFieldNames ? '' : 'key',
+        subBuilder: KeyEvent.$_createMessage)
+    ..aOM<TextEvent>(4, _omitFieldNames ? '' : 'text',
+        subBuilder: TextEvent.$_createMessage)
+    ..aOM<ScrollEvent>(5, _omitFieldNames ? '' : 'scroll',
+        subBuilder: ScrollEvent.$_createMessage)
+    ..aOM<GlobalActionEvent>(6, _omitFieldNames ? '' : 'action',
+        subBuilder: GlobalActionEvent.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  InputFrame clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  InputFrame copyWith(void Function(InputFrame) updates) =>
+      super.copyWith((message) => updates(message as InputFrame)) as InputFrame;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use InputFrame() / InputFrame.new instead')
+  static InputFrame create() => InputFrame._();
+  static $pb.GeneratedMessage $_createMessage() => InputFrame._();
+  @$core.override
+  InputFrame createEmptyInstance() => InputFrame._();
+  @$core.pragma('dart2js:noInline')
+  static InputFrame getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<InputFrame>(InputFrame.$_createMessage);
+  static InputFrame? _defaultInstance;
+
+  @$pb.TagNumber(2)
+  @$pb.TagNumber(3)
+  @$pb.TagNumber(4)
+  @$pb.TagNumber(5)
+  @$pb.TagNumber(6)
+  InputFrame_Event whichEvent() => _InputFrame_EventByTag[$_whichOneof(0)]!;
+  @$pb.TagNumber(2)
+  @$pb.TagNumber(3)
+  @$pb.TagNumber(4)
+  @$pb.TagNumber(5)
+  @$pb.TagNumber(6)
+  void clearEvent() => $_clearField($_whichOneof(0));
+
+  /// Sender wall-clock in milliseconds since Unix epoch.
+  @$pb.TagNumber(1)
+  $fixnum.Int64 get timestampMs => $_getI64(0);
+  @$pb.TagNumber(1)
+  set timestampMs($fixnum.Int64 value) => $_setInt64(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasTimestampMs() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearTimestampMs() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  TouchEvent get touch => $_getN(1);
+  @$pb.TagNumber(2)
+  set touch(TouchEvent value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasTouch() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearTouch() => $_clearField(2);
+  @$pb.TagNumber(2)
+  TouchEvent ensureTouch() => $_ensure(1);
+
+  @$pb.TagNumber(3)
+  KeyEvent get key => $_getN(2);
+  @$pb.TagNumber(3)
+  set key(KeyEvent value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasKey() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearKey() => $_clearField(3);
+  @$pb.TagNumber(3)
+  KeyEvent ensureKey() => $_ensure(2);
+
+  @$pb.TagNumber(4)
+  TextEvent get text => $_getN(3);
+  @$pb.TagNumber(4)
+  set text(TextEvent value) => $_setField(4, value);
+  @$pb.TagNumber(4)
+  $core.bool hasText() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearText() => $_clearField(4);
+  @$pb.TagNumber(4)
+  TextEvent ensureText() => $_ensure(3);
+
+  @$pb.TagNumber(5)
+  ScrollEvent get scroll => $_getN(4);
+  @$pb.TagNumber(5)
+  set scroll(ScrollEvent value) => $_setField(5, value);
+  @$pb.TagNumber(5)
+  $core.bool hasScroll() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearScroll() => $_clearField(5);
+  @$pb.TagNumber(5)
+  ScrollEvent ensureScroll() => $_ensure(4);
+
+  @$pb.TagNumber(6)
+  GlobalActionEvent get action => $_getN(5);
+  @$pb.TagNumber(6)
+  set action(GlobalActionEvent value) => $_setField(6, value);
+  @$pb.TagNumber(6)
+  $core.bool hasAction() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearAction() => $_clearField(6);
+  @$pb.TagNumber(6)
+  GlobalActionEvent ensureAction() => $_ensure(5);
+}
+
+/// TouchEvent represents a single pointer touch action.
+class TouchEvent extends $pb.GeneratedMessage {
+  factory TouchEvent({
+    TouchEvent_Action? action,
+    $core.int? pointerId,
+    $core.double? normalizedX,
+    $core.double? normalizedY,
+    $core.double? pressure,
+  }) {
+    final result = TouchEvent._();
+    if (action != null) result.action = action;
+    if (pointerId != null) result.pointerId = pointerId;
+    if (normalizedX != null) result.normalizedX = normalizedX;
+    if (normalizedY != null) result.normalizedY = normalizedY;
+    if (pressure != null) result.pressure = pressure;
+    return result;
+  }
+
+  TouchEvent._();
+
+  factory TouchEvent.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      TouchEvent()..mergeFromBuffer(data, registry);
+  factory TouchEvent.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      TouchEvent()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'TouchEvent',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
+      createEmptyInstance: TouchEvent.$_createMessage)
+    ..aE<TouchEvent_Action>(1, _omitFieldNames ? '' : 'action',
+        enumValues: TouchEvent_Action.values)
+    ..aI(2, _omitFieldNames ? '' : 'pointerId', fieldType: $pb.PbFieldType.OU3)
+    ..aD(3, _omitFieldNames ? '' : 'normalizedX', fieldType: $pb.PbFieldType.OF)
+    ..aD(4, _omitFieldNames ? '' : 'normalizedY', fieldType: $pb.PbFieldType.OF)
+    ..aD(5, _omitFieldNames ? '' : 'pressure', fieldType: $pb.PbFieldType.OF)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TouchEvent clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TouchEvent copyWith(void Function(TouchEvent) updates) =>
+      super.copyWith((message) => updates(message as TouchEvent)) as TouchEvent;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use TouchEvent() / TouchEvent.new instead')
+  static TouchEvent create() => TouchEvent._();
+  static $pb.GeneratedMessage $_createMessage() => TouchEvent._();
+  @$core.override
+  TouchEvent createEmptyInstance() => TouchEvent._();
+  @$core.pragma('dart2js:noInline')
+  static TouchEvent getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<TouchEvent>(TouchEvent.$_createMessage);
+  static TouchEvent? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  TouchEvent_Action get action => $_getN(0);
+  @$pb.TagNumber(1)
+  set action(TouchEvent_Action value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasAction() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearAction() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.int get pointerId => $_getIZ(1);
+  @$pb.TagNumber(2)
+  set pointerId($core.int value) => $_setUnsignedInt32(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPointerId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPointerId() => $_clearField(2);
+
+  /// Normalized coordinates in [0.0, 1.0] relative to the active video frame.
+  /// Values outside [0.0, 1.0], NaN, and Inf are rejected by the transport.
+  @$pb.TagNumber(3)
+  $core.double get normalizedX => $_getN(2);
+  @$pb.TagNumber(3)
+  set normalizedX($core.double value) => $_setFloat(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasNormalizedX() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearNormalizedX() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.double get normalizedY => $_getN(3);
+  @$pb.TagNumber(4)
+  set normalizedY($core.double value) => $_setFloat(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasNormalizedY() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearNormalizedY() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.double get pressure => $_getN(4);
+  @$pb.TagNumber(5)
+  set pressure($core.double value) => $_setFloat(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasPressure() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearPressure() => $_clearField(5);
+}
+
+/// KeyEvent represents a discrete key event.
+class KeyEvent extends $pb.GeneratedMessage {
+  factory KeyEvent({
+    KeyEvent_Action? action,
+    $core.int? keyCode,
+    $core.int? metaState,
+  }) {
+    final result = KeyEvent._();
+    if (action != null) result.action = action;
+    if (keyCode != null) result.keyCode = keyCode;
+    if (metaState != null) result.metaState = metaState;
+    return result;
+  }
+
+  KeyEvent._();
+
+  factory KeyEvent.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      KeyEvent()..mergeFromBuffer(data, registry);
+  factory KeyEvent.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      KeyEvent()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'KeyEvent',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
+      createEmptyInstance: KeyEvent.$_createMessage)
+    ..aE<KeyEvent_Action>(1, _omitFieldNames ? '' : 'action',
+        enumValues: KeyEvent_Action.values)
+    ..aI(2, _omitFieldNames ? '' : 'keyCode')
+    ..aI(3, _omitFieldNames ? '' : 'metaState', fieldType: $pb.PbFieldType.OU3)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  KeyEvent clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  KeyEvent copyWith(void Function(KeyEvent) updates) =>
+      super.copyWith((message) => updates(message as KeyEvent)) as KeyEvent;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use KeyEvent() / KeyEvent.new instead')
+  static KeyEvent create() => KeyEvent._();
+  static $pb.GeneratedMessage $_createMessage() => KeyEvent._();
+  @$core.override
+  KeyEvent createEmptyInstance() => KeyEvent._();
+  @$core.pragma('dart2js:noInline')
+  static KeyEvent getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<KeyEvent>(KeyEvent.$_createMessage);
+  static KeyEvent? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  KeyEvent_Action get action => $_getN(0);
+  @$pb.TagNumber(1)
+  set action(KeyEvent_Action value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasAction() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearAction() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.int get keyCode => $_getIZ(1);
+  @$pb.TagNumber(2)
+  set keyCode($core.int value) => $_setSignedInt32(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasKeyCode() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearKeyCode() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.int get metaState => $_getIZ(2);
+  @$pb.TagNumber(3)
+  set metaState($core.int value) => $_setUnsignedInt32(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasMetaState() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearMetaState() => $_clearField(3);
+}
+
+/// TextEvent injects a string directly into the active InputConnection.
+/// Maximum payload size is capped at 1024 bytes.
+class TextEvent extends $pb.GeneratedMessage {
+  factory TextEvent({
+    $core.String? text,
+  }) {
+    final result = TextEvent._();
+    if (text != null) result.text = text;
+    return result;
+  }
+
+  TextEvent._();
+
+  factory TextEvent.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      TextEvent()..mergeFromBuffer(data, registry);
+  factory TextEvent.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      TextEvent()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'TextEvent',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
+      createEmptyInstance: TextEvent.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'text')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TextEvent clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TextEvent copyWith(void Function(TextEvent) updates) =>
+      super.copyWith((message) => updates(message as TextEvent)) as TextEvent;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use TextEvent() / TextEvent.new instead')
+  static TextEvent create() => TextEvent._();
+  static $pb.GeneratedMessage $_createMessage() => TextEvent._();
+  @$core.override
+  TextEvent createEmptyInstance() => TextEvent._();
+  @$core.pragma('dart2js:noInline')
+  static TextEvent getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<TextEvent>(TextEvent.$_createMessage);
+  static TextEvent? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get text => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set text($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasText() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearText() => $_clearField(1);
+}
+
+/// ScrollEvent represents a two-dimensional scroll or fling gesture.
+class ScrollEvent extends $pb.GeneratedMessage {
+  factory ScrollEvent({
+    $core.double? normalizedX,
+    $core.double? normalizedY,
+    $core.double? deltaX,
+    $core.double? deltaY,
+  }) {
+    final result = ScrollEvent._();
+    if (normalizedX != null) result.normalizedX = normalizedX;
+    if (normalizedY != null) result.normalizedY = normalizedY;
+    if (deltaX != null) result.deltaX = deltaX;
+    if (deltaY != null) result.deltaY = deltaY;
+    return result;
+  }
+
+  ScrollEvent._();
+
+  factory ScrollEvent.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ScrollEvent()..mergeFromBuffer(data, registry);
+  factory ScrollEvent.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ScrollEvent()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ScrollEvent',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
+      createEmptyInstance: ScrollEvent.$_createMessage)
+    ..aD(1, _omitFieldNames ? '' : 'normalizedX', fieldType: $pb.PbFieldType.OF)
+    ..aD(2, _omitFieldNames ? '' : 'normalizedY', fieldType: $pb.PbFieldType.OF)
+    ..aD(3, _omitFieldNames ? '' : 'deltaX', fieldType: $pb.PbFieldType.OF)
+    ..aD(4, _omitFieldNames ? '' : 'deltaY', fieldType: $pb.PbFieldType.OF)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ScrollEvent clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ScrollEvent copyWith(void Function(ScrollEvent) updates) =>
+      super.copyWith((message) => updates(message as ScrollEvent))
+          as ScrollEvent;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use ScrollEvent() / ScrollEvent.new instead')
+  static ScrollEvent create() => ScrollEvent._();
+  static $pb.GeneratedMessage $_createMessage() => ScrollEvent._();
+  @$core.override
+  ScrollEvent createEmptyInstance() => ScrollEvent._();
+  @$core.pragma('dart2js:noInline')
+  static ScrollEvent getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<ScrollEvent>(
+          ScrollEvent.$_createMessage);
+  static ScrollEvent? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.double get normalizedX => $_getN(0);
+  @$pb.TagNumber(1)
+  set normalizedX($core.double value) => $_setFloat(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasNormalizedX() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearNormalizedX() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.double get normalizedY => $_getN(1);
+  @$pb.TagNumber(2)
+  set normalizedY($core.double value) => $_setFloat(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasNormalizedY() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearNormalizedY() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.double get deltaX => $_getN(2);
+  @$pb.TagNumber(3)
+  set deltaX($core.double value) => $_setFloat(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasDeltaX() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearDeltaX() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.double get deltaY => $_getN(3);
+  @$pb.TagNumber(4)
+  set deltaY($core.double value) => $_setFloat(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasDeltaY() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearDeltaY() => $_clearField(4);
+}
+
+/// GlobalActionEvent triggers an Android AccessibilityService global action.
+class GlobalActionEvent extends $pb.GeneratedMessage {
+  factory GlobalActionEvent({
+    GlobalActionEvent_Type? type,
+  }) {
+    final result = GlobalActionEvent._();
+    if (type != null) result.type = type;
+    return result;
+  }
+
+  GlobalActionEvent._();
+
+  factory GlobalActionEvent.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      GlobalActionEvent()..mergeFromBuffer(data, registry);
+  factory GlobalActionEvent.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      GlobalActionEvent()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'GlobalActionEvent',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
+      createEmptyInstance: GlobalActionEvent.$_createMessage)
+    ..aE<GlobalActionEvent_Type>(1, _omitFieldNames ? '' : 'type',
+        enumValues: GlobalActionEvent_Type.values)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GlobalActionEvent clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GlobalActionEvent copyWith(void Function(GlobalActionEvent) updates) =>
+      super.copyWith((message) => updates(message as GlobalActionEvent))
+          as GlobalActionEvent;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use GlobalActionEvent() / GlobalActionEvent.new instead')
+  static GlobalActionEvent create() => GlobalActionEvent._();
+  static $pb.GeneratedMessage $_createMessage() => GlobalActionEvent._();
+  @$core.override
+  GlobalActionEvent createEmptyInstance() => GlobalActionEvent._();
+  @$core.pragma('dart2js:noInline')
+  static GlobalActionEvent getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<GlobalActionEvent>(
+          GlobalActionEvent.$_createMessage);
+  static GlobalActionEvent? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  GlobalActionEvent_Type get type => $_getN(0);
+  @$pb.TagNumber(1)
+  set type(GlobalActionEvent_Type value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasType() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearType() => $_clearField(1);
+}
+
 const $core.bool _omitFieldNames =
     $core.bool.fromEnvironment('protobuf.omit_field_names');
 const $core.bool _omitMessageNames =

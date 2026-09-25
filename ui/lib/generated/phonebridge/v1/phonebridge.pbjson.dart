@@ -919,3 +919,211 @@ const DeviceStatus$json = {
 /// Descriptor for `DeviceStatus`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List deviceStatusDescriptor =
     $convert.base64Decode('CgxEZXZpY2VTdGF0dXM=');
+
+@$core.Deprecated('Use inputFrameDescriptor instead')
+const InputFrame$json = {
+  '1': 'InputFrame',
+  '2': [
+    {'1': 'timestamp_ms', '3': 1, '4': 1, '5': 4, '10': 'timestampMs'},
+    {
+      '1': 'touch',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.TouchEvent',
+      '9': 0,
+      '10': 'touch'
+    },
+    {
+      '1': 'key',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.KeyEvent',
+      '9': 0,
+      '10': 'key'
+    },
+    {
+      '1': 'text',
+      '3': 4,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.TextEvent',
+      '9': 0,
+      '10': 'text'
+    },
+    {
+      '1': 'scroll',
+      '3': 5,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.ScrollEvent',
+      '9': 0,
+      '10': 'scroll'
+    },
+    {
+      '1': 'action',
+      '3': 6,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.GlobalActionEvent',
+      '9': 0,
+      '10': 'action'
+    },
+  ],
+  '8': [
+    {'1': 'event'},
+  ],
+};
+
+/// Descriptor for `InputFrame`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List inputFrameDescriptor = $convert.base64Decode(
+    'CgpJbnB1dEZyYW1lEiEKDHRpbWVzdGFtcF9tcxgBIAEoBFILdGltZXN0YW1wTXMSMgoFdG91Y2'
+    'gYAiABKAsyGi5waG9uZWJyaWRnZS52MS5Ub3VjaEV2ZW50SABSBXRvdWNoEiwKA2tleRgDIAEo'
+    'CzIYLnBob25lYnJpZGdlLnYxLktleUV2ZW50SABSA2tleRIvCgR0ZXh0GAQgASgLMhkucGhvbm'
+    'VicmlkZ2UudjEuVGV4dEV2ZW50SABSBHRleHQSNQoGc2Nyb2xsGAUgASgLMhsucGhvbmVicmlk'
+    'Z2UudjEuU2Nyb2xsRXZlbnRIAFIGc2Nyb2xsEjsKBmFjdGlvbhgGIAEoCzIhLnBob25lYnJpZG'
+    'dlLnYxLkdsb2JhbEFjdGlvbkV2ZW50SABSBmFjdGlvbkIHCgVldmVudA==');
+
+@$core.Deprecated('Use touchEventDescriptor instead')
+const TouchEvent$json = {
+  '1': 'TouchEvent',
+  '2': [
+    {
+      '1': 'action',
+      '3': 1,
+      '4': 1,
+      '5': 14,
+      '6': '.phonebridge.v1.TouchEvent.Action',
+      '10': 'action'
+    },
+    {'1': 'pointer_id', '3': 2, '4': 1, '5': 13, '10': 'pointerId'},
+    {'1': 'normalized_x', '3': 3, '4': 1, '5': 2, '10': 'normalizedX'},
+    {'1': 'normalized_y', '3': 4, '4': 1, '5': 2, '10': 'normalizedY'},
+    {'1': 'pressure', '3': 5, '4': 1, '5': 2, '10': 'pressure'},
+  ],
+  '4': [TouchEvent_Action$json],
+};
+
+@$core.Deprecated('Use touchEventDescriptor instead')
+const TouchEvent_Action$json = {
+  '1': 'Action',
+  '2': [
+    {'1': 'ACTION_UNSPECIFIED', '2': 0},
+    {'1': 'ACTION_DOWN', '2': 1},
+    {'1': 'ACTION_MOVE', '2': 2},
+    {'1': 'ACTION_UP', '2': 3},
+    {'1': 'ACTION_CANCEL', '2': 4},
+  ],
+};
+
+/// Descriptor for `TouchEvent`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List touchEventDescriptor = $convert.base64Decode(
+    'CgpUb3VjaEV2ZW50EjkKBmFjdGlvbhgBIAEoDjIhLnBob25lYnJpZGdlLnYxLlRvdWNoRXZlbn'
+    'QuQWN0aW9uUgZhY3Rpb24SHQoKcG9pbnRlcl9pZBgCIAEoDVIJcG9pbnRlcklkEiEKDG5vcm1h'
+    'bGl6ZWRfeBgDIAEoAlILbm9ybWFsaXplZFgSIQoMbm9ybWFsaXplZF95GAQgASgCUgtub3JtYW'
+    'xpemVkWRIaCghwcmVzc3VyZRgFIAEoAlIIcHJlc3N1cmUiZAoGQWN0aW9uEhYKEkFDVElPTl9V'
+    'TlNQRUNJRklFRBAAEg8KC0FDVElPTl9ET1dOEAESDwoLQUNUSU9OX01PVkUQAhINCglBQ1RJT0'
+    '5fVVAQAxIRCg1BQ1RJT05fQ0FOQ0VMEAQ=');
+
+@$core.Deprecated('Use keyEventDescriptor instead')
+const KeyEvent$json = {
+  '1': 'KeyEvent',
+  '2': [
+    {
+      '1': 'action',
+      '3': 1,
+      '4': 1,
+      '5': 14,
+      '6': '.phonebridge.v1.KeyEvent.Action',
+      '10': 'action'
+    },
+    {'1': 'key_code', '3': 2, '4': 1, '5': 5, '10': 'keyCode'},
+    {'1': 'meta_state', '3': 3, '4': 1, '5': 13, '10': 'metaState'},
+  ],
+  '4': [KeyEvent_Action$json],
+};
+
+@$core.Deprecated('Use keyEventDescriptor instead')
+const KeyEvent_Action$json = {
+  '1': 'Action',
+  '2': [
+    {'1': 'ACTION_UNSPECIFIED', '2': 0},
+    {'1': 'ACTION_DOWN', '2': 1},
+    {'1': 'ACTION_UP', '2': 2},
+  ],
+};
+
+/// Descriptor for `KeyEvent`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List keyEventDescriptor = $convert.base64Decode(
+    'CghLZXlFdmVudBI3CgZhY3Rpb24YASABKA4yHy5waG9uZWJyaWRnZS52MS5LZXlFdmVudC5BY3'
+    'Rpb25SBmFjdGlvbhIZCghrZXlfY29kZRgCIAEoBVIHa2V5Q29kZRIdCgptZXRhX3N0YXRlGAMg'
+    'ASgNUgltZXRhU3RhdGUiQAoGQWN0aW9uEhYKEkFDVElPTl9VTlNQRUNJRklFRBAAEg8KC0FDVE'
+    'lPTl9ET1dOEAESDQoJQUNUSU9OX1VQEAI=');
+
+@$core.Deprecated('Use textEventDescriptor instead')
+const TextEvent$json = {
+  '1': 'TextEvent',
+  '2': [
+    {'1': 'text', '3': 1, '4': 1, '5': 9, '10': 'text'},
+  ],
+};
+
+/// Descriptor for `TextEvent`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List textEventDescriptor =
+    $convert.base64Decode('CglUZXh0RXZlbnQSEgoEdGV4dBgBIAEoCVIEdGV4dA==');
+
+@$core.Deprecated('Use scrollEventDescriptor instead')
+const ScrollEvent$json = {
+  '1': 'ScrollEvent',
+  '2': [
+    {'1': 'normalized_x', '3': 1, '4': 1, '5': 2, '10': 'normalizedX'},
+    {'1': 'normalized_y', '3': 2, '4': 1, '5': 2, '10': 'normalizedY'},
+    {'1': 'delta_x', '3': 3, '4': 1, '5': 2, '10': 'deltaX'},
+    {'1': 'delta_y', '3': 4, '4': 1, '5': 2, '10': 'deltaY'},
+  ],
+};
+
+/// Descriptor for `ScrollEvent`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List scrollEventDescriptor = $convert.base64Decode(
+    'CgtTY3JvbGxFdmVudBIhCgxub3JtYWxpemVkX3gYASABKAJSC25vcm1hbGl6ZWRYEiEKDG5vcm'
+    '1hbGl6ZWRfeRgCIAEoAlILbm9ybWFsaXplZFkSFwoHZGVsdGFfeBgDIAEoAlIGZGVsdGFYEhcK'
+    'B2RlbHRhX3kYBCABKAJSBmRlbHRhWQ==');
+
+@$core.Deprecated('Use globalActionEventDescriptor instead')
+const GlobalActionEvent$json = {
+  '1': 'GlobalActionEvent',
+  '2': [
+    {
+      '1': 'type',
+      '3': 1,
+      '4': 1,
+      '5': 14,
+      '6': '.phonebridge.v1.GlobalActionEvent.Type',
+      '10': 'type'
+    },
+  ],
+  '4': [GlobalActionEvent_Type$json],
+};
+
+@$core.Deprecated('Use globalActionEventDescriptor instead')
+const GlobalActionEvent_Type$json = {
+  '1': 'Type',
+  '2': [
+    {'1': 'TYPE_UNSPECIFIED', '2': 0},
+    {'1': 'TYPE_GLOBAL_ACTION_BACK', '2': 1},
+    {'1': 'TYPE_GLOBAL_ACTION_HOME', '2': 2},
+    {'1': 'TYPE_GLOBAL_ACTION_RECENTS', '2': 3},
+    {'1': 'TYPE_GLOBAL_ACTION_NOTIFICATIONS', '2': 4},
+    {'1': 'TYPE_GLOBAL_ACTION_QUICK_SETTINGS', '2': 5},
+  ],
+};
+
+/// Descriptor for `GlobalActionEvent`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List globalActionEventDescriptor = $convert.base64Decode(
+    'ChFHbG9iYWxBY3Rpb25FdmVudBI6CgR0eXBlGAEgASgOMiYucGhvbmVicmlkZ2UudjEuR2xvYm'
+    'FsQWN0aW9uRXZlbnQuVHlwZVIEdHlwZSLDAQoEVHlwZRIUChBUWVBFX1VOU1BFQ0lGSUVEEAAS'
+    'GwoXVFlQRV9HTE9CQUxfQUNUSU9OX0JBQ0sQARIbChdUWVBFX0dMT0JBTF9BQ1RJT05fSE9NRR'
+    'ACEh4KGlRZUEVfR0xPQkFMX0FDVElPTl9SRUNFTlRTEAMSJAogVFlQRV9HTE9CQUxfQUNUSU9O'
+    'X05PVElGSUNBVElPTlMQBBIlCiFUWVBFX0dMT0JBTF9BQ1RJT05fUVVJQ0tfU0VUVElOR1MQBQ'
+    '==');

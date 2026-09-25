@@ -12,6 +12,7 @@ import (
 	"github.com/om051p/phonebridge/core/pkg/crypto"
 	"github.com/om051p/phonebridge/core/pkg/discovery"
 	"github.com/om051p/phonebridge/core/pkg/frames"
+	"github.com/om051p/phonebridge/core/pkg/input"
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgev1"
 	"github.com/om051p/phonebridge/core/pkg/receiver"
 	"github.com/om051p/phonebridge/core/pkg/rtpmedia"
@@ -235,6 +236,7 @@ type Session struct {
 	trustStore      *crypto.TrustStore
 	clipboardEngine *clipboard.Engine
 	transferEngine  *transfer.Engine
+	limiter         *input.Limiter
 
 	sink       receiver.FrameSink
 	sinkOwned  bool
@@ -293,6 +295,7 @@ func NewSession(sessionID string, cfg SessionConfig, reg *discovery.DeviceRegist
 		trustStore:      cfg.TrustStore,
 		clipboardEngine: cfg.ClipboardEngine,
 		transferEngine:  cfg.TransferEngine,
+		limiter:         input.NewLimiter(input.DefaultRateLimitHz, input.DefaultBurstCapacity),
 		signaling:       sigClient,
 		factory:         defaultTransportFactory,
 		onStateChange:   cb,
@@ -354,6 +357,47 @@ func (s *Session) SendClipboard(data []byte) error {
 	}
 
 	return errors.New("engine: transport does not support clipboard")
+}
+
+// SendInput validates, rate-limits, and serializes an input frame, sending it
+// across the active WebRTC transport on the dedicated "input" DataChannel (DEC-027).
+func (s *Session) SendInput(frame *phonebridgev1.InputFrame) error {
+	if frame == nil {
+		return input.ErrNilFrame
+	}
+
+	s.mu.RLock()
+	st := s.state
+	tr := s.tr
+	stopping := s.ctx.Err() != nil
+	lim := s.limiter
+	s.mu.RUnlock()
+
+	if stopping || tr == nil {
+		return errors.New("engine: no active transport")
+	}
+	if st != StateStreaming {
+		return fmt.Errorf("engine: session is in state %s, must be STREAMING to accept input", st)
+	}
+
+	if err := input.ValidateInputFrame(frame); err != nil {
+		return err
+	}
+
+	if lim != nil && !lim.Allow(frame) {
+		return input.ErrRateLimited
+	}
+
+	wireBytes, err := proto.Marshal(frame)
+	if err != nil {
+		return fmt.Errorf("engine: marshal input frame: %w", err)
+	}
+
+	if in, ok := tr.(interface{ SendInput([]byte) error }); ok {
+		return in.SendInput(wireBytes)
+	}
+
+	return errors.New("engine: transport does not support input")
 }
 
 // SetTrustStore sets the trust store for checking device peer trust.

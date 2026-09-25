@@ -1113,3 +1113,38 @@ final $typed_data.Uint8List streamFramesResponseDescriptor = $convert.base64Deco
     'b3VudBIdCgpsYXN0X2NodW5rGAQgASgIUglsYXN0Q2h1bmsSFAoFd2lkdGgYBSABKA1SBXdpZH'
     'RoEhYKBmhlaWdodBgGIAEoDVIGaGVpZ2h0EhIKBGpwZWcYByABKAxSBGpwZWcSKAoQc2VudF91'
     'bml4X21pY3JvcxgIIAEoBFIOc2VudFVuaXhNaWNyb3M=');
+
+@$core.Deprecated('Use sendInputRequestDescriptor instead')
+const SendInputRequest$json = {
+  '1': 'SendInputRequest',
+  '2': [
+    {'1': 'session_id', '3': 1, '4': 1, '5': 9, '10': 'sessionId'},
+    {
+      '1': 'frame',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.InputFrame',
+      '10': 'frame'
+    },
+  ],
+};
+
+/// Descriptor for `SendInputRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List sendInputRequestDescriptor = $convert.base64Decode(
+    'ChBTZW5kSW5wdXRSZXF1ZXN0Eh0KCnNlc3Npb25faWQYASABKAlSCXNlc3Npb25JZBIwCgVmcm'
+    'FtZRgCIAEoCzIaLnBob25lYnJpZGdlLnYxLklucHV0RnJhbWVSBWZyYW1l');
+
+@$core.Deprecated('Use sendInputResponseDescriptor instead')
+const SendInputResponse$json = {
+  '1': 'SendInputResponse',
+  '2': [
+    {'1': 'delivered', '3': 1, '4': 1, '5': 8, '10': 'delivered'},
+    {'1': 'error_message', '3': 2, '4': 1, '5': 9, '10': 'errorMessage'},
+  ],
+};
+
+/// Descriptor for `SendInputResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List sendInputResponseDescriptor = $convert.base64Decode(
+    'ChFTZW5kSW5wdXRSZXNwb25zZRIcCglkZWxpdmVyZWQYASABKAhSCWRlbGl2ZXJlZBIjCg1lcn'
+    'Jvcl9tZXNzYWdlGAIgASgJUgxlcnJvck1lc3NhZ2U=');

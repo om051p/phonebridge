@@ -161,6 +161,12 @@ func (t *MediaTransport) MediaInit() error {
 				}
 			}
 		},
+		// Remote input (DEC-027, Phase 7) rides its own dedicated DataChannel.
+		OnInputMessage: func(data []byte) {
+			if ib := currentInputBridge(); ib != nil {
+				_ = ib.OnRemoteBytes(data)
+			}
+		},
 	}
 	sess, err := webrtc.NewSession(cfg, sender)
 	if err != nil {

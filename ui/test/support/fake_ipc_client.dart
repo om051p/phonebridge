@@ -258,6 +258,20 @@ class FakeIpcClient extends LocalIpcClient {
     return healthResponse;
   }
 
+  int sendInputCalls = 0;
+  final List<ipc.SendInputRequest> sentInputRequests = <ipc.SendInputRequest>[];
+  ipc.SendInputResponse sendInputResponse = ipc.SendInputResponse(delivered: true);
+  Object? sendInputError;
+
+  @override
+  Future<ipc.SendInputResponse> sendInput(ipc.SendInputRequest request) async {
+    sendInputCalls++;
+    sentInputRequests.add(request);
+    final error = sendInputError;
+    if (error != null) throw error;
+    return sendInputResponse;
+  }
+
   @override
   Future<void> shutdown() async {
     shutdownCalls++;

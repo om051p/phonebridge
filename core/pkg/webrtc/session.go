@@ -83,6 +83,14 @@ type SessionConfig struct {
 	// OnTransferClose is called when it closes, so in-flight transfers are
 	// interrupted instead of waiting out their timeouts (DEC-024 has no resume).
 	OnTransferClose func()
+	// OnInputMessage receives input frames (from the Pion receive
+	// goroutine — must not block).
+	OnInputMessage func([]byte)
+	// OnInputOpen is called when the reliable ordered "input" DataChannel
+	// transitions to open state.
+	OnInputOpen func()
+	// OnInputClose is called when the "input" DataChannel closes.
+	OnInputClose func()
 }
 
 // Session couples one Sender to one Pion PeerConnection + H.264 track.
@@ -90,13 +98,14 @@ type SessionConfig struct {
 // CreateAnswer) → Start → … → Stop. Single-use; construct a new Session per
 // stream (DEC-020: resolution changes end the session and need new consent).
 type Session struct {
-	pc     *pion.PeerConnection
-	track  *pion.TrackLocalStaticRTP
-	dc     *pion.DataChannel
-	cbDC   *pion.DataChannel
-	trDC   *pion.DataChannel
-	trCh   *rtcchannel.Channel
-	sender *Sender
+	pc      *pion.PeerConnection
+	track   *pion.TrackLocalStaticRTP
+	dc      *pion.DataChannel
+	cbDC    *pion.DataChannel
+	trDC    *pion.DataChannel
+	trCh    *rtcchannel.Channel
+	inputDC *pion.DataChannel
+	sender  *Sender
 }
 
 // NewSession builds the PeerConnection, adds the H.264 track, wires the
@@ -200,6 +209,25 @@ func NewSession(cfg SessionConfig, sender *Sender) (*Session, error) {
 		trDC.OnClose(cfg.OnTransferClose)
 	}
 
+	// Dedicated remote input DataChannel (DEC-027, Phase 7): reliable and ordered.
+	inputOrdered := true
+	inputDC, err := pc.CreateDataChannel("input", &pion.DataChannelInit{
+		Ordered: &inputOrdered,
+	})
+	if err != nil {
+		_ = pc.Close()
+		return nil, fmt.Errorf("webrtc: input datachannel: %w", err)
+	}
+	if cfg.OnInputMessage != nil {
+		inputDC.OnMessage(func(msg pion.DataChannelMessage) { cfg.OnInputMessage(msg.Data) })
+	}
+	if cfg.OnInputOpen != nil {
+		inputDC.OnOpen(cfg.OnInputOpen)
+	}
+	if cfg.OnInputClose != nil {
+		inputDC.OnClose(cfg.OnInputClose)
+	}
+
 	if cfg.OnStateChange != nil {
 		pc.OnConnectionStateChange(cfg.OnStateChange)
 	}
@@ -210,7 +238,7 @@ func NewSession(cfg SessionConfig, sender *Sender) (*Session, error) {
 		return track.WriteRTP(&pkt)
 	}))
 
-	return &Session{pc: pc, track: track, dc: dc, cbDC: cbDC, trDC: trDC, trCh: trCh, sender: sender}, nil
+	return &Session{pc: pc, track: track, dc: dc, cbDC: cbDC, trDC: trDC, trCh: trCh, inputDC: inputDC, sender: sender}, nil
 }
 
 // Track exposes the underlying track (stats/diagnostics).
@@ -298,6 +326,18 @@ func (s *Session) SendTransfer(data []byte) error {
 	}
 	return s.trDC.Send(data)
 }
+
+// SendInput sends an encoded phonebridge.v1.InputFrame on the reliable
+// ordered "input" DataChannel.
+func (s *Session) SendInput(data []byte) error {
+	if s.inputDC == nil {
+		return errors.New("webrtc: input datachannel not available")
+	}
+	return s.inputDC.Send(data)
+}
+
+// InputChannel exposes the underlying "input" DataChannel.
+func (s *Session) InputChannel() *pion.DataChannel { return s.inputDC }
 
 // TransferChannel exposes the transfer channel adapter for the transfer engine
 // (DEC-024). It is non-nil for the lifetime of the session, because this is the

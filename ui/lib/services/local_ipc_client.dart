@@ -384,6 +384,16 @@ class LocalIpcClient {
     );
   }
 
+  /// Dispatches an input event to the active session via unary SendInput (DEC-027).
+  Future<SendInputResponse> sendInput(SendInputRequest request) async {
+    return _callWithAuth(
+      (opts) => _service.sendInput(
+        request,
+        options: opts,
+      ),
+    );
+  }
+
   /// Subscribes to relayed device events via server streaming.
   /// Automatically attempts resubscription with backoff on disconnect.
   Stream<StreamEventsResponse> streamEvents({

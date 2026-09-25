@@ -292,6 +292,21 @@ func (m *SessionManager) ListTransfers() []transfer.Info {
 	return eng.List()
 }
 
+// SendInput validates and routes an input frame to the active session (DEC-027).
+func (m *SessionManager) SendInput(ctx context.Context, sessionID string, frame *phonebridgev1.InputFrame) error {
+	m.mu.RLock()
+	sess := m.activeSess
+	m.mu.RUnlock()
+
+	if sess == nil {
+		return errors.New("no active session: connect to a device before sending input")
+	}
+	if sessionID != "" && sess.SessionID() != sessionID {
+		return fmt.Errorf("session %s is not the active session (%s)", sessionID, sess.SessionID())
+	}
+	return sess.SendInput(frame)
+}
+
 // TransferEngineReady reports whether the active session has a usable transfer
 // channel; it is used to gate the UI's "send file" affordance.
 func (m *SessionManager) TransferEngineReady() bool {

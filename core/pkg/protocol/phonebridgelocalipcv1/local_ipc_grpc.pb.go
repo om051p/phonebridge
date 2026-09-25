@@ -98,6 +98,7 @@ const (
 	LocalEngineService_CancelTransfer_FullMethodName       = "/phonebridge.localipc.v1.LocalEngineService/CancelTransfer"
 	LocalEngineService_ListTransfers_FullMethodName        = "/phonebridge.localipc.v1.LocalEngineService/ListTransfers"
 	LocalEngineService_StreamFrames_FullMethodName         = "/phonebridge.localipc.v1.LocalEngineService/StreamFrames"
+	LocalEngineService_SendInput_FullMethodName            = "/phonebridge.localipc.v1.LocalEngineService/SendInput"
 )
 
 // LocalEngineServiceClient is the client API for LocalEngineService service.
@@ -160,6 +161,9 @@ type LocalEngineServiceClient interface {
 	// is bound to reaches a terminal state; clients resubscribe via their
 	// existing backoff pattern only while a session is live.
 	StreamFrames(ctx context.Context, in *StreamFramesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamFramesResponse], error)
+	// SendInput injects a remote input event to the active peer over the session's
+	// dedicated "input" DataChannel (Phase 7, DEC-027).
+	SendInput(ctx context.Context, in *SendInputRequest, opts ...grpc.CallOption) (*SendInputResponse, error)
 }
 
 type localEngineServiceClient struct {
@@ -368,6 +372,16 @@ func (c *localEngineServiceClient) StreamFrames(ctx context.Context, in *StreamF
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type LocalEngineService_StreamFramesClient = grpc.ServerStreamingClient[StreamFramesResponse]
 
+func (c *localEngineServiceClient) SendInput(ctx context.Context, in *SendInputRequest, opts ...grpc.CallOption) (*SendInputResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SendInputResponse)
+	err := c.cc.Invoke(ctx, LocalEngineService_SendInput_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LocalEngineServiceServer is the server API for LocalEngineService service.
 // All implementations should embed UnimplementedLocalEngineServiceServer
 // for forward compatibility.
@@ -428,6 +442,9 @@ type LocalEngineServiceServer interface {
 	// is bound to reaches a terminal state; clients resubscribe via their
 	// existing backoff pattern only while a session is live.
 	StreamFrames(*StreamFramesRequest, grpc.ServerStreamingServer[StreamFramesResponse]) error
+	// SendInput injects a remote input event to the active peer over the session's
+	// dedicated "input" DataChannel (Phase 7, DEC-027).
+	SendInput(context.Context, *SendInputRequest) (*SendInputResponse, error)
 }
 
 // UnimplementedLocalEngineServiceServer should be embedded to have
@@ -490,6 +507,9 @@ func (UnimplementedLocalEngineServiceServer) ListTransfers(context.Context, *Lis
 }
 func (UnimplementedLocalEngineServiceServer) StreamFrames(*StreamFramesRequest, grpc.ServerStreamingServer[StreamFramesResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method StreamFrames not implemented")
+}
+func (UnimplementedLocalEngineServiceServer) SendInput(context.Context, *SendInputRequest) (*SendInputResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SendInput not implemented")
 }
 func (UnimplementedLocalEngineServiceServer) testEmbeddedByValue() {}
 
@@ -821,6 +841,24 @@ func _LocalEngineService_StreamFrames_Handler(srv interface{}, stream grpc.Serve
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type LocalEngineService_StreamFramesServer = grpc.ServerStreamingServer[StreamFramesResponse]
 
+func _LocalEngineService_SendInput_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SendInputRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalEngineServiceServer).SendInput(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalEngineService_SendInput_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalEngineServiceServer).SendInput(ctx, req.(*SendInputRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // LocalEngineService_ServiceDesc is the grpc.ServiceDesc for LocalEngineService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -891,6 +929,10 @@ var LocalEngineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListTransfers",
 			Handler:    _LocalEngineService_ListTransfers_Handler,
+		},
+		{
+			MethodName: "SendInput",
+			Handler:    _LocalEngineService_SendInput_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

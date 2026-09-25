@@ -199,6 +199,15 @@ class LocalEngineServiceClient extends $grpc.Client {
         options: options);
   }
 
+  /// SendInput injects a remote input event to the active peer over the session's
+  /// dedicated "input" DataChannel (Phase 7, DEC-027).
+  $grpc.ResponseFuture<$0.SendInputResponse> sendInput(
+    $0.SendInputRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$sendInput, request, options: options);
+  }
+
   // method descriptors
 
   static final _$handshake =
@@ -290,6 +299,11 @@ class LocalEngineServiceClient extends $grpc.Client {
           '/phonebridge.localipc.v1.LocalEngineService/StreamFrames',
           ($0.StreamFramesRequest value) => value.writeToBuffer(),
           $0.StreamFramesResponse.fromBuffer);
+  static final _$sendInput =
+      $grpc.ClientMethod<$0.SendInputRequest, $0.SendInputResponse>(
+          '/phonebridge.localipc.v1.LocalEngineService/SendInput',
+          ($0.SendInputRequest value) => value.writeToBuffer(),
+          $0.SendInputResponse.fromBuffer);
 }
 
 @$pb.GrpcServiceName('phonebridge.localipc.v1.LocalEngineService')
@@ -449,6 +463,13 @@ abstract class LocalEngineServiceBase extends $grpc.Service {
             ($core.List<$core.int> value) =>
                 $0.StreamFramesRequest.fromBuffer(value),
             ($0.StreamFramesResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.SendInputRequest, $0.SendInputResponse>(
+        'SendInput',
+        sendInput_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) => $0.SendInputRequest.fromBuffer(value),
+        ($0.SendInputResponse value) => value.writeToBuffer()));
   }
 
   $async.Future<$0.HandshakeResponse> handshake_Pre($grpc.ServiceCall $call,
@@ -605,4 +626,12 @@ abstract class LocalEngineServiceBase extends $grpc.Service {
 
   $async.Stream<$0.StreamFramesResponse> streamFrames(
       $grpc.ServiceCall call, $0.StreamFramesRequest request);
+
+  $async.Future<$0.SendInputResponse> sendInput_Pre($grpc.ServiceCall $call,
+      $async.Future<$0.SendInputRequest> $request) async {
+    return sendInput($call, await $request);
+  }
+
+  $async.Future<$0.SendInputResponse> sendInput(
+      $grpc.ServiceCall call, $0.SendInputRequest request);
 }

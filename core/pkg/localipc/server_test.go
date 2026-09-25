@@ -479,6 +479,9 @@ type mockOrchestrator struct {
 	lastCancelled string
 	cancelErr     error
 	transfers     []transfer.Info
+	lastInputSessionID string
+	lastInputFrame     *phonebridgev1.InputFrame
+	sendInputErr       error
 }
 
 func (m *mockOrchestrator) StartSession(ctx context.Context, deviceID string, requested engine.MediaParams) (*engine.Session, error) {
@@ -557,6 +560,14 @@ func (m *mockOrchestrator) CancelTransfer(ctx context.Context, transferID string
 
 func (m *mockOrchestrator) ListTransfers() []transfer.Info {
 	return m.transfers
+}
+
+func (m *mockOrchestrator) SendInput(ctx context.Context, sessionID string, frame *phonebridgev1.InputFrame) error {
+	m.mu.Lock()
+	m.lastInputSessionID = sessionID
+	m.lastInputFrame = frame
+	m.mu.Unlock()
+	return m.sendInputErr
 }
 
 func TestMediaParamsConversions(t *testing.T) {

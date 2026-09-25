@@ -268,6 +268,23 @@ object GoBridge {
         return invoke("transfer:stats")
     }
 
+    // ------------------------------------------------------------------
+    // Remote Input plane (DEC-027, Phase 7 v0.1).
+    // Dispatches normalized pointer/touch, key, text, scroll, and global
+    // actions received from Linux desktop WebRTC "input" DataChannel.
+    // ------------------------------------------------------------------
+
+    fun inputInit(host: InputHostCallback): Boolean {
+        check(isLoaded) { "libphonebridge_core.so is not loaded" }
+        return nativeInputInit(host)
+    }
+
+    fun inputStop() {
+        if (isLoaded) {
+            nativeInputStop()
+        }
+    }
+
     @JvmStatic
     private external fun nativeStart(storageDir: String?): Boolean
 
@@ -338,6 +355,26 @@ object GoBridge {
 
     @JvmStatic
     private external fun nativeTransferSetPeer(peerDeviceId: String): Boolean
+
+    // Input plane natives (implemented in core/cmd/android/input_jni.go)
+    @JvmStatic
+    private external fun nativeInputInit(host: InputHostCallback): Boolean
+
+    @JvmStatic
+    private external fun nativeInputStop()
+}
+
+/**
+ * InputHostCallback receives remote input dispatched from the Go input bridge (DEC-027).
+ * Coordinates are normalized in [0.0, 1.0].
+ * Absolute prohibition: NEVER log raw coordinates, keystrokes, or text.
+ */
+interface InputHostCallback {
+    fun onTouch(action: Int, pointerId: Int, normX: Float, normY: Float, pressure: Float): Boolean
+    fun onKey(action: Int, keyCode: Int, metaState: Int): Boolean
+    fun onText(text: String): Boolean
+    fun onScroll(normX: Float, normY: Float, deltaX: Float, deltaY: Float): Boolean
+    fun onGlobalAction(actionType: Int): Boolean
 }
 
 /**

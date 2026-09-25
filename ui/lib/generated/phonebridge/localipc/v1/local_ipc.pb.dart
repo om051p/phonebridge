@@ -3968,6 +3968,151 @@ class StreamFramesResponse extends $pb.GeneratedMessage {
   void clearSentUnixMicros() => $_clearField(8);
 }
 
+/// SendInputRequest carries one InputFrame to be injected into the active session.
+class SendInputRequest extends $pb.GeneratedMessage {
+  factory SendInputRequest({
+    $core.String? sessionId,
+    $1.InputFrame? frame,
+  }) {
+    final result = SendInputRequest._();
+    if (sessionId != null) result.sessionId = sessionId;
+    if (frame != null) result.frame = frame;
+    return result;
+  }
+
+  SendInputRequest._();
+
+  factory SendInputRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SendInputRequest()..mergeFromBuffer(data, registry);
+  factory SendInputRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SendInputRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'SendInputRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: SendInputRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'sessionId')
+    ..aOM<$1.InputFrame>(2, _omitFieldNames ? '' : 'frame',
+        subBuilder: $1.InputFrame.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SendInputRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SendInputRequest copyWith(void Function(SendInputRequest) updates) =>
+      super.copyWith((message) => updates(message as SendInputRequest))
+          as SendInputRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use SendInputRequest() / SendInputRequest.new instead')
+  static SendInputRequest create() => SendInputRequest._();
+  static $pb.GeneratedMessage $_createMessage() => SendInputRequest._();
+  @$core.override
+  SendInputRequest createEmptyInstance() => SendInputRequest._();
+  @$core.pragma('dart2js:noInline')
+  static SendInputRequest getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<SendInputRequest>(
+          SendInputRequest.$_createMessage);
+  static SendInputRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get sessionId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set sessionId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasSessionId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearSessionId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $1.InputFrame get frame => $_getN(1);
+  @$pb.TagNumber(2)
+  set frame($1.InputFrame value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasFrame() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearFrame() => $_clearField(2);
+  @$pb.TagNumber(2)
+  $1.InputFrame ensureFrame() => $_ensure(1);
+}
+
+/// SendInputResponse answers SendInput.
+class SendInputResponse extends $pb.GeneratedMessage {
+  factory SendInputResponse({
+    $core.bool? delivered,
+    $core.String? errorMessage,
+  }) {
+    final result = SendInputResponse._();
+    if (delivered != null) result.delivered = delivered;
+    if (errorMessage != null) result.errorMessage = errorMessage;
+    return result;
+  }
+
+  SendInputResponse._();
+
+  factory SendInputResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SendInputResponse()..mergeFromBuffer(data, registry);
+  factory SendInputResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SendInputResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'SendInputResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: SendInputResponse.$_createMessage)
+    ..aOB(1, _omitFieldNames ? '' : 'delivered')
+    ..aOS(2, _omitFieldNames ? '' : 'errorMessage')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SendInputResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SendInputResponse copyWith(void Function(SendInputResponse) updates) =>
+      super.copyWith((message) => updates(message as SendInputResponse))
+          as SendInputResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use SendInputResponse() / SendInputResponse.new instead')
+  static SendInputResponse create() => SendInputResponse._();
+  static $pb.GeneratedMessage $_createMessage() => SendInputResponse._();
+  @$core.override
+  SendInputResponse createEmptyInstance() => SendInputResponse._();
+  @$core.pragma('dart2js:noInline')
+  static SendInputResponse getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<SendInputResponse>(
+          SendInputResponse.$_createMessage);
+  static SendInputResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.bool get delivered => $_getBF(0);
+  @$pb.TagNumber(1)
+  set delivered($core.bool value) => $_setBool(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasDelivered() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearDelivered() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get errorMessage => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set errorMessage($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasErrorMessage() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearErrorMessage() => $_clearField(2);
+}
+
 const $core.bool _omitFieldNames =
     $core.bool.fromEnvironment('protobuf.omit_field_names');
 const $core.bool _omitMessageNames =

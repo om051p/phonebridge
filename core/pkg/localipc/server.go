@@ -86,6 +86,8 @@ type SessionOrchestrator interface {
 	CancelTransfer(ctx context.Context, transferID string) error
 	// ListTransfers returns in-flight transfers plus the recent history.
 	ListTransfers() []transfer.Info
+	// SendInput forwards a validated input frame to the active session (DEC-027).
+	SendInput(ctx context.Context, sessionID string, frame *phonebridgev1.InputFrame) error
 }
 
 // FrameSource supplies per-session frame streams for the StreamFrames RPC
@@ -861,6 +863,29 @@ func (s *Server) ListTransfers(_ context.Context, _ *phonebridgelocalipcv1.ListT
 		out.Transfers = append(out.Transfers, ToProtoTransferInfo(info))
 	}
 	return out, nil
+}
+
+// SendInput injects an input event to the active session over its dedicated "input" DataChannel (DEC-027).
+func (s *Server) SendInput(ctx context.Context, req *phonebridgelocalipcv1.SendInputRequest) (*phonebridgelocalipcv1.SendInputResponse, error) {
+	if s.closed.Load() {
+		return nil, status.Error(codes.Unavailable, "daemon is shutting down")
+	}
+	if s.orchestrator == nil {
+		return nil, status.Error(codes.FailedPrecondition, "session orchestrator not configured")
+	}
+	if req.GetFrame() == nil {
+		return nil, status.Error(codes.InvalidArgument, "input frame cannot be nil")
+	}
+
+	if err := s.orchestrator.SendInput(ctx, req.GetSessionId(), req.GetFrame()); err != nil {
+		return &phonebridgelocalipcv1.SendInputResponse{
+			Delivered:    false,
+			ErrorMessage: err.Error(),
+		}, nil
+	}
+	return &phonebridgelocalipcv1.SendInputResponse{
+		Delivered: true,
+	}, nil
 }
 
 // ToProtoTransferInfo converts an engine transfer snapshot to the wire shape.

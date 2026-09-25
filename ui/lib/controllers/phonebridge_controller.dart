@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:fixnum/fixnum.dart';
 import 'package:flutter/foundation.dart';
 import '../models/device_state.dart';
 import '../models/capture_stats.dart';
@@ -7,6 +8,7 @@ import '../models/trusted_device.dart';
 import '../models/clipboard_status.dart';
 import '../models/activity_event.dart';
 import '../generated/phonebridge/localipc/v1/local_ipc.pb.dart' as ipc;
+import '../generated/phonebridge/v1/phonebridge.pb.dart' as pb;
 import '../models/discovered_device.dart';
 import '../models/link_status.dart';
 import '../services/phonebridge_channel.dart';
@@ -493,5 +495,32 @@ class PhoneBridgeController extends ChangeNotifier {
   void clearActivityLog() {
     _activityEvents.clear();
     notifyListeners();
+  }
+
+  /// Dispatches an input frame to the active device session (DEC-027).
+  Future<bool> sendInput(pb.InputFrame frame) async {
+    final linux = linuxService;
+    if (linux == null) return false;
+    final activeId = _session.activeSessionId;
+    return linux.sendInput(frame, sessionId: activeId);
+  }
+
+  /// Convenience helper to dispatch a global action (Back, Home, Recents, etc.).
+  Future<bool> sendGlobalAction(pb.GlobalActionEvent_Type actionType) async {
+    final frame = pb.InputFrame(
+      timestampMs: Int64(DateTime.now().millisecondsSinceEpoch),
+      action: pb.GlobalActionEvent(type: actionType),
+    );
+    return sendInput(frame);
+  }
+
+  /// Convenience helper to commit text entry through the companion IME.
+  Future<bool> sendText(String text) async {
+    if (text.isEmpty) return false;
+    final frame = pb.InputFrame(
+      timestampMs: Int64(DateTime.now().millisecondsSinceEpoch),
+      text: pb.TextEvent(text: text),
+    );
+    return sendInput(frame);
   }
 }

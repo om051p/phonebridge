@@ -23,6 +23,7 @@ const (
 	// transferDC must match the label the driver creates in
 	// core/pkg/webrtc (DEC-024).
 	transferDC = "transfer"
+	inputDC    = "input"
 )
 
 // Config configures a production Linux Receiver.
@@ -57,6 +58,12 @@ type Config struct {
 	// OnTransferClose is called when that channel closes, so in-flight transfers
 	// are interrupted rather than left waiting out their timeouts.
 	OnTransferClose func()
+	// OnInputMessage receives input frames (DEC-027).
+	OnInputMessage func([]byte)
+	// OnInputOpen is called when the reliable ordered "input" DataChannel transitions to open.
+	OnInputOpen func()
+	// OnInputClose is called when the "input" DataChannel closes.
+	OnInputClose func()
 }
 
 // Receiver coordinates the WebRTC peer connection, RFC 6184 RTP depacketization,
@@ -72,6 +79,7 @@ type Receiver struct {
 	clipboardDC atomic.Pointer[pion.DataChannel]
 	transferDC  atomic.Pointer[pion.DataChannel]
 	transferCh  atomic.Pointer[rtcchannel.Channel]
+	inputDC     atomic.Pointer[pion.DataChannel]
 
 	closed     atomic.Bool
 	droppedAUs atomic.Int64
@@ -155,6 +163,25 @@ func NewReceiver(cfg Config) (*Receiver, error) {
 				ch.Close()
 				if cfg.OnTransferClose != nil {
 					cfg.OnTransferClose()
+				}
+			})
+		case inputDC:
+			// Dedicated remote input channel (DEC-027): reliable and ordered.
+			r.inputDC.Store(dc)
+			dc.OnOpen(func() {
+				if cfg.OnInputOpen != nil {
+					cfg.OnInputOpen()
+				}
+			})
+			dc.OnMessage(func(msg pion.DataChannelMessage) {
+				if cfg.OnInputMessage != nil {
+					cfg.OnInputMessage(msg.Data)
+				}
+			})
+			dc.OnClose(func() {
+				r.inputDC.Store(nil)
+				if cfg.OnInputClose != nil {
+					cfg.OnInputClose()
 				}
 			})
 		default:
@@ -287,6 +314,15 @@ func (r *Receiver) SendTransfer(data []byte) error {
 		return errors.New("receiver: transfer datachannel not available")
 	}
 	return dc.Send(data)
+}
+
+// SendInput sends one encoded InputFrame over the reliable ordered "input" DataChannel.
+func (r *Receiver) SendInput(data []byte) error {
+	dc := r.inputDC.Load()
+	if dc == nil {
+		return errors.New("receiver: input datachannel not available")
+	}
+	return dc.Send(data)
 } // TransferChannel exposes the transfer channel adapter for the local transfer
 // engine (DEC-024). It returns nil until the peer opens the channel. The return
 // type is the engine's own port so callers never see Pion.
@@ -307,6 +343,7 @@ func (r *Receiver) Close() error {
 
 	r.clipboardDC.Store(nil)
 	r.transferDC.Store(nil)
+	r.inputDC.Store(nil)
 	if ch := r.transferCh.Load(); ch != nil {
 		ch.Close()
 	}

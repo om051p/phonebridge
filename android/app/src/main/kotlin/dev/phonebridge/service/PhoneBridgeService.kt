@@ -18,6 +18,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import dev.phonebridge.bridge.GoBridge
 import dev.phonebridge.clipboard.AndroidClipboardAdapter
+import dev.phonebridge.input.AndroidInputManager
 import dev.phonebridge.transfer.AndroidTransferHostRegistry
 import dev.phonebridge.capture.CaptureConfig
 import dev.phonebridge.capture.CodecSelector
@@ -382,6 +383,7 @@ class PhoneBridgeService : Service() {
         lanHandler.removeCallbacksAndMessages(null)
         stopGoEngine()
         AndroidTransferHostRegistry.release()
+        AndroidInputManager.stop()
         super.onDestroy()
     }
 
@@ -513,11 +515,13 @@ class PhoneBridgeService : Service() {
             GoBridge.start(storageDir)
             AndroidClipboardAdapter.start(applicationContext)
             AndroidTransferHostRegistry.ensureStarted(applicationContext)
+            AndroidInputManager.start(applicationContext)
         }
     }
 
     private fun stopGoEngine() {
         if (GoBridge.loaded) {
+            AndroidInputManager.stop()
             AndroidTransferHostRegistry.stopIfStarted()
             AndroidClipboardAdapter.stop()
             GoBridge.mediaStop()

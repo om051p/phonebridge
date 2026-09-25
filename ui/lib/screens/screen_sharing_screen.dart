@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../controllers/phonebridge_controller.dart';
+import '../generated/phonebridge/v1/phonebridge.pb.dart' as pb;
 import '../models/link_status.dart';
 import '../services/frame_stream.dart';
 import '../ui/link_indicator.dart';
@@ -54,20 +56,33 @@ class ScreenSharingScreen extends StatelessWidget {
     // previous isSharing behaviour.
     final showStop = inSession || isSharing;
 
-    return ListView(
-      padding: const EdgeInsets.all(16.0),
-      children: [
-        _buildActiveStatusCard(theme, link, stats),
-        const SizedBox(height: 16),
-        if (inSession) ...[
-          // The live mirror (Linux only): newest-frame-wins JPEG surface with
-          // decode-on-arrival. While no frame has arrived it renders the
-          // existing presentation state below it — the banners, telemetry and
-          // controls are untouched and keep answering for the session.
-          if (frameProvider != null) ...[
-            _buildMirrorCard(theme, frameProvider, session.status.label),
-            const SizedBox(height: 16),
-          ],
+    return Focus(
+      autofocus: true,
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent &&
+            event.logicalKey == LogicalKeyboardKey.escape &&
+            inSession) {
+          controller.sendGlobalAction(
+            pb.GlobalActionEvent_Type.TYPE_GLOBAL_ACTION_BACK,
+          );
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: ListView(
+        padding: const EdgeInsets.all(16.0),
+        children: [
+          _buildActiveStatusCard(theme, link, stats),
+          const SizedBox(height: 16),
+          if (inSession) ...[
+            // The live mirror (Linux only): newest-frame-wins JPEG surface with
+            // decode-on-arrival. While no frame has arrived it renders the
+            // existing presentation state below it — the banners, telemetry and
+            // controls are untouched and keep answering for the session.
+            if (frameProvider != null) ...[
+              _buildMirrorCard(context, theme, frameProvider, session.status.label),
+              const SizedBox(height: 16),
+            ],
           // The validated session information (DEC-022): id, negotiation,
           // recovery and typed failure detail — read from the shared model.
           SessionStateBanner(
@@ -161,50 +176,151 @@ class ScreenSharingScreen extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildMirrorCard(
+    BuildContext context,
     ThemeData theme,
     ProvidesFrameStream provider,
     String stateLabel,
   ) {
-    return Card(
-      elevation: 0,
-      color: Colors.black,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: SizedBox(
-        height: 320,
-        child: ScreenFrameView(
-          provider: provider,
-          // Fallback: the existing presentation state (shared session model)
-          // until the first frame arrives or after the stream stops.
-          fallback: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.phone_android,
-                  size: 36,
-                  color: theme.colorScheme.onSurfaceVariant,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Card(
+          elevation: 0,
+          color: Colors.black,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(
+              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+            ),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: SizedBox(
+            height: 360,
+            child: ScreenFrameView(
+              provider: provider,
+              onInput: (frame) => controller.sendInput(frame),
+              // Fallback: the existing presentation state (shared session model)
+              // until the first frame arrives or after the stream stops.
+              fallback: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.phone_android,
+                      size: 36,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '$stateLabel · waiting for live frames',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  '$stateLabel · waiting for live frames',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),
+        const SizedBox(height: 8),
+        _buildNavigationToolbar(context, theme),
+      ],
+    );
+  }
+
+  Widget _buildNavigationToolbar(BuildContext context, ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          IconButton(
+            tooltip: 'Back (Esc)',
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => controller.sendGlobalAction(
+              pb.GlobalActionEvent_Type.TYPE_GLOBAL_ACTION_BACK,
+            ),
+          ),
+          IconButton(
+            tooltip: 'Home',
+            icon: const Icon(Icons.circle_outlined),
+            onPressed: () => controller.sendGlobalAction(
+              pb.GlobalActionEvent_Type.TYPE_GLOBAL_ACTION_HOME,
+            ),
+          ),
+          IconButton(
+            tooltip: 'Recents',
+            icon: const Icon(Icons.crop_square),
+            onPressed: () => controller.sendGlobalAction(
+              pb.GlobalActionEvent_Type.TYPE_GLOBAL_ACTION_RECENTS,
+            ),
+          ),
+          IconButton(
+            tooltip: 'Notifications',
+            icon: const Icon(Icons.notifications_none),
+            onPressed: () => controller.sendGlobalAction(
+              pb.GlobalActionEvent_Type.TYPE_GLOBAL_ACTION_NOTIFICATIONS,
+            ),
+          ),
+          IconButton(
+            tooltip: 'Send Text',
+            icon: const Icon(Icons.keyboard_outlined),
+            onPressed: () => _showTextInputDialog(context),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showTextInputDialog(BuildContext context) {
+    final textController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('Send Text to Device'),
+        content: TextField(
+          controller: textController,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Enter text to commit into active field...',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (value) {
+            if (value.isNotEmpty) {
+              controller.sendText(value);
+            }
+            Navigator.of(dialogCtx).pop();
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final val = textController.text;
+              if (val.isNotEmpty) {
+                controller.sendText(val);
+              }
+              Navigator.of(dialogCtx).pop();
+            },
+            child: const Text('Send'),
+          ),
+        ],
       ),
     );
   }

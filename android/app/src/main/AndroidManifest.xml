@@ -86,6 +86,21 @@
             </intent-filter>
         </service>
 
+        <!-- Accessibility Service for Remote Input injection (DEC-027) -->
+        <service
+            android:name=".input.PhoneBridgeAccessibilityService"
+            android:enabled="true"
+            android:exported="true"
+            android:label="PhoneBridge Remote Input"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
     </application>
 
 </manifest>

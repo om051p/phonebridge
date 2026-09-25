@@ -31,6 +31,19 @@ class PhoneBridgeImeService : InputMethodService() {
     companion object {
         private const val TAG = "PhoneBridgeIme"
         private const val ACCESSORY_BAR_HEIGHT_DP = 44
+
+        @Volatile
+        private var activeInstance: PhoneBridgeImeService? = null
+
+        /**
+         * Commits text directly into the active InputConnection (DEC-027).
+         * ZERO-LOGGING RULE: Never log the text contents.
+         */
+        fun commitText(text: String): Boolean {
+            val instance = activeInstance ?: return false
+            val ic = instance.currentInputConnection ?: return false
+            return ic.commitText(text, 1)
+        }
     }
 
     private var clipboardManager: ClipboardManager? = null
@@ -38,6 +51,7 @@ class PhoneBridgeImeService : InputMethodService() {
 
     override fun onCreate() {
         super.onCreate()
+        activeInstance = this
         Log.i(TAG, "PhoneBridgeImeService onCreate pid=${android.os.Process.myPid()}")
 
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
@@ -61,6 +75,9 @@ class PhoneBridgeImeService : InputMethodService() {
 
     override fun onDestroy() {
         Log.i(TAG, "PhoneBridgeImeService onDestroy")
+        if (activeInstance == this) {
+            activeInstance = null
+        }
         clipListener?.let { listener ->
             try {
                 clipboardManager?.removePrimaryClipChangedListener(listener)
@@ -77,6 +94,7 @@ class PhoneBridgeImeService : InputMethodService() {
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
+        activeInstance = this
         Log.d(TAG, "onStartInput restarting=$restarting pkg=${attribute?.packageName}")
         AndroidClipboardAdapter.setImeBound(true)
         AndroidClipboardAdapter.setImeSelected(true)

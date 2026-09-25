@@ -272,6 +272,22 @@ class LinuxBridgeService
     }
   }
 
+  /// Dispatches remote input to the active session via Local IPC (DEC-027).
+  Future<bool> sendInput(pb.InputFrame frame, {String sessionId = ''}) async {
+    final target = sessionId.isNotEmpty ? sessionId : (_activeSessionId ?? '');
+    try {
+      final resp = await _client.sendInput(
+        ipc.SendInputRequest(
+          sessionId: target,
+          frame: frame,
+        ),
+      );
+      return resp.delivered;
+    } catch (_) {
+      return false;
+    }
+  }
+
   @override
   Future<List<DiscoveredDevice>> listDiscoveredDevices() async {
     try {

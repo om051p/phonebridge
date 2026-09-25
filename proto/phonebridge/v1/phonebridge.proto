@@ -469,7 +469,85 @@ message ScreenStop {
   // Human-readable detail for logs and diagnostics; never parsed by code.
   string reason = 2;
 }
-message InputKeyboard {} // PLANNED
-message InputMouse {} // PLANNED
-message InputTouch {} // PLANNED
+message InputKeyboard {} // PLANNED (retained for Envelope compatibility)
+message InputMouse {} // PLANNED (retained for Envelope compatibility)
+message InputTouch {} // PLANNED (retained for Envelope compatibility)
 message DeviceStatus {} // PLANNED
+
+// ---------------------------------------------------------------------------
+// Remote Input (DEC-027, Phase 7)
+// ---------------------------------------------------------------------------
+// Carried directly on dedicated reliable ordered WebRTC DataChannel ("input",
+// created alongside "control", "clipboard", and "transfer"). Every DataChannel
+// message is exactly one InputFrame (matching DEC-023/DEC-024 bare frame rule).
+message InputFrame {
+  // Sender wall-clock in milliseconds since Unix epoch.
+  uint64 timestamp_ms = 1;
+
+  // Exactly one event payload.
+  oneof event {
+    TouchEvent touch = 2;
+    KeyEvent key = 3;
+    TextEvent text = 4;
+    ScrollEvent scroll = 5;
+    GlobalActionEvent action = 6;
+  }
+}
+
+// TouchEvent represents a single pointer touch action.
+message TouchEvent {
+  enum Action {
+    ACTION_UNSPECIFIED = 0;
+    ACTION_DOWN = 1;
+    ACTION_MOVE = 2;
+    ACTION_UP = 3;
+    ACTION_CANCEL = 4;
+  }
+  Action action = 1;
+  uint32 pointer_id = 2;
+  // Normalized coordinates in [0.0, 1.0] relative to the active video frame.
+  // Values outside [0.0, 1.0], NaN, and Inf are rejected by the transport.
+  float normalized_x = 3;
+  float normalized_y = 4;
+  float pressure = 5;
+}
+
+// KeyEvent represents a discrete key event.
+message KeyEvent {
+  enum Action {
+    ACTION_UNSPECIFIED = 0;
+    ACTION_DOWN = 1;
+    ACTION_UP = 2;
+  }
+  Action action = 1;
+  int32 key_code = 2;
+  uint32 meta_state = 3;
+}
+
+// TextEvent injects a string directly into the active InputConnection.
+// Maximum payload size is capped at 1024 bytes.
+message TextEvent {
+  string text = 1;
+}
+
+// ScrollEvent represents a two-dimensional scroll or fling gesture.
+message ScrollEvent {
+  float normalized_x = 1;
+  float normalized_y = 2;
+  float delta_x = 3;
+  float delta_y = 4;
+}
+
+// GlobalActionEvent triggers an Android AccessibilityService global action.
+message GlobalActionEvent {
+  enum Type {
+    TYPE_UNSPECIFIED = 0;
+    TYPE_GLOBAL_ACTION_BACK = 1;
+    TYPE_GLOBAL_ACTION_HOME = 2;
+    TYPE_GLOBAL_ACTION_RECENTS = 3;
+    TYPE_GLOBAL_ACTION_NOTIFICATIONS = 4;
+    TYPE_GLOBAL_ACTION_QUICK_SETTINGS = 5;
+  }
+  Type type = 1;
+}
+

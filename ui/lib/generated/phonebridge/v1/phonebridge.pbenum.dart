@@ -173,5 +173,92 @@ class Code extends $pb.ProtobufEnum {
   const Code._(super.value, super.name);
 }
 
+class TouchEvent_Action extends $pb.ProtobufEnum {
+  static const TouchEvent_Action ACTION_UNSPECIFIED =
+      TouchEvent_Action._(0, _omitEnumNames ? '' : 'ACTION_UNSPECIFIED');
+  static const TouchEvent_Action ACTION_DOWN =
+      TouchEvent_Action._(1, _omitEnumNames ? '' : 'ACTION_DOWN');
+  static const TouchEvent_Action ACTION_MOVE =
+      TouchEvent_Action._(2, _omitEnumNames ? '' : 'ACTION_MOVE');
+  static const TouchEvent_Action ACTION_UP =
+      TouchEvent_Action._(3, _omitEnumNames ? '' : 'ACTION_UP');
+  static const TouchEvent_Action ACTION_CANCEL =
+      TouchEvent_Action._(4, _omitEnumNames ? '' : 'ACTION_CANCEL');
+
+  static const $core.List<TouchEvent_Action> values = <TouchEvent_Action>[
+    ACTION_UNSPECIFIED,
+    ACTION_DOWN,
+    ACTION_MOVE,
+    ACTION_UP,
+    ACTION_CANCEL,
+  ];
+
+  static final $core.List<TouchEvent_Action?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 4);
+  static TouchEvent_Action? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const TouchEvent_Action._(super.value, super.name);
+}
+
+class KeyEvent_Action extends $pb.ProtobufEnum {
+  static const KeyEvent_Action ACTION_UNSPECIFIED =
+      KeyEvent_Action._(0, _omitEnumNames ? '' : 'ACTION_UNSPECIFIED');
+  static const KeyEvent_Action ACTION_DOWN =
+      KeyEvent_Action._(1, _omitEnumNames ? '' : 'ACTION_DOWN');
+  static const KeyEvent_Action ACTION_UP =
+      KeyEvent_Action._(2, _omitEnumNames ? '' : 'ACTION_UP');
+
+  static const $core.List<KeyEvent_Action> values = <KeyEvent_Action>[
+    ACTION_UNSPECIFIED,
+    ACTION_DOWN,
+    ACTION_UP,
+  ];
+
+  static final $core.List<KeyEvent_Action?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 2);
+  static KeyEvent_Action? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const KeyEvent_Action._(super.value, super.name);
+}
+
+class GlobalActionEvent_Type extends $pb.ProtobufEnum {
+  static const GlobalActionEvent_Type TYPE_UNSPECIFIED =
+      GlobalActionEvent_Type._(0, _omitEnumNames ? '' : 'TYPE_UNSPECIFIED');
+  static const GlobalActionEvent_Type TYPE_GLOBAL_ACTION_BACK =
+      GlobalActionEvent_Type._(
+          1, _omitEnumNames ? '' : 'TYPE_GLOBAL_ACTION_BACK');
+  static const GlobalActionEvent_Type TYPE_GLOBAL_ACTION_HOME =
+      GlobalActionEvent_Type._(
+          2, _omitEnumNames ? '' : 'TYPE_GLOBAL_ACTION_HOME');
+  static const GlobalActionEvent_Type TYPE_GLOBAL_ACTION_RECENTS =
+      GlobalActionEvent_Type._(
+          3, _omitEnumNames ? '' : 'TYPE_GLOBAL_ACTION_RECENTS');
+  static const GlobalActionEvent_Type TYPE_GLOBAL_ACTION_NOTIFICATIONS =
+      GlobalActionEvent_Type._(
+          4, _omitEnumNames ? '' : 'TYPE_GLOBAL_ACTION_NOTIFICATIONS');
+  static const GlobalActionEvent_Type TYPE_GLOBAL_ACTION_QUICK_SETTINGS =
+      GlobalActionEvent_Type._(
+          5, _omitEnumNames ? '' : 'TYPE_GLOBAL_ACTION_QUICK_SETTINGS');
+
+  static const $core.List<GlobalActionEvent_Type> values =
+      <GlobalActionEvent_Type>[
+    TYPE_UNSPECIFIED,
+    TYPE_GLOBAL_ACTION_BACK,
+    TYPE_GLOBAL_ACTION_HOME,
+    TYPE_GLOBAL_ACTION_RECENTS,
+    TYPE_GLOBAL_ACTION_NOTIFICATIONS,
+    TYPE_GLOBAL_ACTION_QUICK_SETTINGS,
+  ];
+
+  static final $core.List<GlobalActionEvent_Type?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 5);
+  static GlobalActionEvent_Type? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const GlobalActionEvent_Type._(super.value, super.name);
+}
+
 const $core.bool _omitEnumNames =
     $core.bool.fromEnvironment('protobuf.omit_enum_names');
