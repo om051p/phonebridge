@@ -111,6 +111,16 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        try {
+            PhoneBridgeService.startService(this)
+            Log.i(TAG, "PhoneBridgeService started from MainActivity.onStart")
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to start PhoneBridgeService from MainActivity.onStart: ${t.message}", t)
+        }
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 

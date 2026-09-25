@@ -210,7 +210,35 @@ class DevicesScreen extends StatelessWidget {
               _detailRow(theme, 'Device Fingerprint', device.shortId),
               _detailRow(theme, 'Paired On', _formatDate(device.pairedAtMs)),
               _detailRow(theme, 'Last Seen', _formatDate(device.lastSeenMs)),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
+              if (!controller.discoveredDevices.any((d) => d.id == device.deviceId && !d.isStale)) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.radar_outlined, size: 16, color: Colors.orange.shade800),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Waiting for device / Not currently discovered. Pairing cannot start until mDNS discovery succeeds. Ensure PhoneBridge is open on the device on the same Wi-Fi.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.orange.shade800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
               Row(
                 children: [
                   if (!device.revoked)
@@ -389,9 +417,15 @@ class DevicesScreen extends StatelessWidget {
   Widget _buildDiscoveredDeviceTile(
       BuildContext context, ThemeData theme, DiscoveredDevice dev) {
     // Distinct state resolution:
-    // 1. isTrusted: Local trust store holds a record for this device.
-    // 2. isConnected: Session is actively established with this device.
-    // 3. isStale: mDNS record has aged out.
+    // 1. isKnown: Device present in local trust store (active or revoked).
+    // 2. isTrusted: Local trust store holds an active, non-revoked record.
+    // 3. isRevoked: Local trust was revoked.
+    // 4. isConnected: Session is actively established with this device.
+    // 5. isStale: mDNS record has aged out.
+    final isKnown = controller.trustedDevices
+        .any((t) => t.deviceId == dev.id);
+    final isRevoked = controller.trustedDevices
+        .any((t) => t.deviceId == dev.id && t.revoked);
     final isTrusted = controller.trustedDevices
         .any((t) => t.deviceId == dev.id && !t.revoked);
     final isStale = dev.isStale;
@@ -406,6 +440,10 @@ class DevicesScreen extends StatelessWidget {
       statusColor = Colors.green;
       statusLabel = 'CONNECTED';
       statusIcon = Icons.link;
+    } else if (isRevoked) {
+      statusColor = theme.colorScheme.error;
+      statusLabel = 'REVOKED';
+      statusIcon = Icons.block;
     } else if (isTrusted) {
       statusColor = theme.colorScheme.primary;
       statusLabel = 'TRUSTED';
@@ -419,7 +457,7 @@ class DevicesScreen extends StatelessWidget {
     Widget? actionButton;
     if (isStale) {
       actionButton = null;
-    } else if (isTrusted) {
+    } else if (isKnown) {
       actionButton = OutlinedButton(
         onPressed: controller.isLoading
             ? null
@@ -688,6 +726,9 @@ class DevicesScreen extends StatelessWidget {
   }
 
   Widget _buildDeviceTile(BuildContext context, ThemeData theme, TrustedDevice dev) {
+    final isDiscovered = controller.discoveredDevices
+        .any((d) => d.id == dev.deviceId && !d.isStale);
+
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       elevation: 0,
@@ -717,20 +758,67 @@ class DevicesScreen extends StatelessWidget {
             color: dev.revoked ? theme.colorScheme.error : theme.colorScheme.primary,
           ),
         ),
-        title: Text(
-          dev.displayName,
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            decoration: dev.revoked ? TextDecoration.lineThrough : null,
-          ),
-          overflow: TextOverflow.ellipsis,
+        title: Row(
+          children: [
+            Flexible(
+              child: Text(
+                dev.displayName,
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  decoration: dev.revoked ? TextDecoration.lineThrough : null,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (!isDiscovered) ...[
+              const SizedBox(width: 8),
+              _statusBadge('NOT DISCOVERED', Colors.orange, icon: Icons.radar_outlined),
+            ],
+          ],
         ),
-        subtitle: Text(
-          '${dev.platform.toUpperCase()} · ${dev.revoked ? "Trust revoked" : "Paired"}',
-          style: TextStyle(
-            fontSize: 12,
-            color: dev.revoked ? theme.colorScheme.error : theme.colorScheme.onSurfaceVariant,
-          ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 2),
+            Text(
+              '${dev.platform.toUpperCase()} · ${dev.revoked ? "Trust revoked" : "Paired"}',
+              style: TextStyle(
+                fontSize: 12,
+                color: dev.revoked ? theme.colorScheme.error : theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            if (!isDiscovered) ...[
+              const SizedBox(height: 4),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: Colors.orange.withValues(alpha: 0.3),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, size: 12, color: Colors.orange.shade800),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Waiting for device / Not currently discovered · Pairing cannot start until discovery succeeds.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.orange.shade800,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
         ),
         trailing: const Icon(Icons.chevron_right),
       ),

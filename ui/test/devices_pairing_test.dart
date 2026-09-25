@@ -214,4 +214,30 @@ void main() {
     expect(client.revokeDeviceCalls, ['trusted-1']);
     expect(client.streamEventsCalls, 1);
   });
+
+  testWidgets(
+      'undiscovered trusted or revoked device displays NOT DISCOVERED and explanation',
+      (tester) async {
+    await mountDevices(tester);
+
+    client.trustedDevices.add(
+      ipc.TrustedDevice(
+        deviceId: 'offline-phone',
+        displayName: 'Offline Phone',
+        platform: 'android',
+        pairedAtMs: Int64(1726000000000),
+        lastSeenMs: Int64(1726000010000),
+        revoked: true,
+      ),
+    );
+    await controller.refreshAll();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Offline Phone'), findsOneWidget);
+    expect(find.text('NOT DISCOVERED'), findsOneWidget);
+    expect(
+      find.textContaining('Waiting for device / Not currently discovered'),
+      findsOneWidget,
+    );
+  });
 }

@@ -14,7 +14,7 @@ class PhoneBridgeApp : Application() {
             PhoneBridgeService.startService(this)
             Log.i("PhoneBridgeApp", "PhoneBridgeService started from Application.onCreate")
         } catch (t: Throwable) {
-            Log.e("PhoneBridgeApp", "Failed to start PhoneBridgeService: ${t.message}", t)
+            Log.i("PhoneBridgeApp", "PhoneBridgeService start deferred to foreground (MainActivity.onStart): ${t.message}")
         }
     }
 }
