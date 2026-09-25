@@ -45,7 +45,7 @@ Flow: consent ("Entire screen" — the Android 15 dialog defaults to
 
 | Gate | Result |
 |---|---|
-| 720×1600 @ 30 fps tuple | capture 720×1600 @ 30; actual 720×1600 @ **~16 delivered (GOP-tail; cause measured — §7)** |
+| 720×1600 @ 30 fps tuple | capture 720×1600 @ 30; actual 720×1600 @ **16.0 delivered (GOP-tail; cause measured and closed-form — §7)** |
 | JPEG q3 | tap args carry `-q:v 3` (avg JPEG ≈ 26 KB) |
 | max chunk ≤ 64 KiB | `oversizeChunks=0` |
 | zero decode failures | `decodeFailures=0` |
@@ -111,29 +111,41 @@ plus the existing lifecycle/latest-wins coverage. An out-of-repo ordering
 probe reproduced the bug before the fix (`BUG REPRODUCED: session 2 is live but
 Subscribe cannot register a subscription; active=false`) and passed after.
 
-**Hardware proof (POCO F1 / beryllium, one long-lived daemon, 3 start→measure→
-stop cycles, 12 s measurement each):**
+**Hardware proof (POCO F1 / beryllium, one long-lived daemon, repeated
+start→measure→stop cycles, 12 s measurement each):**
 
-| Cycle | Frames | Delivered fps | access_units | frames_reason | Status |
-|---|---|---|---|---|---|
-| 1 | 187 | 15.6 | 197 | `""` | OK |
-| 2 | 182 | 15.2 | 192 | `""` | OK |
-| 3 | 141 | 11.8 | 144 | `""` | OK |
+Six-cycle run (Slice 3C, the strongest evidence — every cycle delivered after
+the preceding session ended, daemon PID unchanged throughout):
 
-`RESULT: 3/3 cycles delivered frames, 0 failures` — session 2 and 3 each
-delivered frames after the preceding session ended, with **no daemon restart**.
-No stale subscribers, no leftover ffmpeg processes after the cycles, and one
-daemon process remained.
+| Cycle | Session | Frames | Delivered fps | access_units | frames_reason | Status |
+|---|---|---|---|---|---|---|
+| 1 | `53eff29f8972` | 188 | 15.7 | 200 | `""` | OK |
+| 2 | `9b42693f7d53` | 188 | 15.7 | 196 | `""` | OK |
+| 3 | `6ecac810ad46` | 189 | 15.8 | 197 | `""` | OK |
+| 4 | `239094407069` | 184 | 15.3 | 198 | `""` | OK |
+| 5 | `277980e2dffc` | 168 | 14.0 | 196 | `""` | OK |
+| 6 | `4d3961848478` | 192 | 16.0 | 200 | `""` | OK |
 
-> Note during validation: a run showing cycle 2/3 as "never reached
-> STREAMING" was traced to the test harness's on-screen motion loop expiring —
-> the phone's encoder emits frames only on content change, so the encoder
-> idled (not a stall). Re-running with sustained motion reproduced the
-> intended 3/3.
+`RESULT: 6/6 cycles delivered frames, 0 failures`. An earlier three-cycle run
+gave 187 / 182 / 141. After all cycles: one daemon process, **zero** leftover
+`ffmpeg`/`ffplay`, port 7804 still held by the same PID, and no error or panic
+lines in the daemon log — teardown is deterministic (`PSIGuardSink.Close` →
+`TapSink.Close`, which waits on the converter's `done` channel before closing
+its inner sink).
+
+> **Harness caveat (important when reproducing).** Two runs showed a later
+> cycle as "never reached STREAMING" or `STALL` with `access_units` far below
+> the healthy ~200 (e.g. 15). Both were **the probe's on-screen motion loop
+> expiring**, not a stall: the phone's encoder is damage-driven, so with no
+> content change it emits ~0 fps and the daemon legitimately has no AUs to
+> convert. The discriminator is `access_units` — a healthy cycle shows
+> ~190–200 AUs per 12 s, a motion-starved cycle shows a near-zero count.
+> Rerunning with continuous motion (a long-drag swipe that cannot expire
+> mid-run) reproduced the intended clean 6/6.
 
 ## 7. Delivered-FPS cause — measured (Slice 3B)
 
-The requested tuple is 30 fps; delivery measures **~16 fps** with a sustained
+The requested tuple is 30 fps; delivery measures **16.0 fps** with a sustained
 motion source. The cause is the **sender-side GOP-tail filter**, not encoder
 scheduling, the receiver, the tap, ffmpeg, or Flutter. Evidence from the
 device (`adb -s <serial> logcat -s ScreenCaptureEngine`), steady state:
@@ -142,28 +154,41 @@ device (`adb -s <serial> logcat -s ScreenCaptureEngine`), steady state:
 CAPTURE_STATS: encoded=5299 (60.0 fps), delivered=1140 (16.0 fps), gop_dropped=3883, keyframes=177
 ```
 
-Chain:
+Chain, each link measured rather than inferred:
 
 - The Android hardware H.264 encoder ignores the requested fps and runs at
   panel refresh — **~60 fps measured** here (DEC-020 observed ~120 fps on
-  SM7475; this is beryllium/SD845 at 60). So the encoder is *not* the limiter.
+  SM7475; beryllium/SD845 measures 60). So the encoder is *not* the limiter.
 - `core/pkg/frames/tap.go`'s `ffmpegArgs()` carries **no `-r`/framerate flag**,
   so the tap publishes at whatever rate AUs arrive; the tap is not the limiter.
 - `GopTailFilter` (`CaptureConfig`: `KEY_FRAME_RATE=30`,
   `KEY_I_FRAME_INTERVAL=1`, `DEFAULT_KEEP_FRAMES=8`) admits a contiguous
   **prefix** of each GOP — the IDR plus the first 8 AUs — and drops the tail.
-  With a 1 s GOP at ~60 encoded fps the GOP is ~60 AUs, of which 8 are
-  admitted: **8/60 × 60 ≈ 8**… in practice the measured delivered rate tracks
-  ~16 fps as the GOP length varies with content. `gop_dropped` climbing
-  monotonically (3883 → 3971 over 6 s) is the direct signature.
+  The prefix rule is deliberate and prediction-safe (DEC-021: a naive 1-of-4
+  stride drops P-frames whose references are needed later; the contiguous
+  prefix is safe by construction, SSIM = 1.000000).
 
-The prefix rule is deliberate and prediction-safe (DEC-021: a naive 1-of-4
-stride drops P-frames whose references are needed later; the contiguous prefix
-is safe by construction, SSIM = 1.000000). **Raising delivery toward 30 fps is
-a `GopTailFilter` / `CaptureConfig` tuning question (keyframe interval and
-`keepFrames`), not a renderer, transport, or decode defect** — deferred, since
-the brief forbids changing renderer architecture and the tuple gate is met by
-the requested-parameter contract (`capture 720×1600 @ 30`).
+**The arithmetic closes exactly.** Differencing two consecutive sampled
+`CAPTURE_STATS` lines (Δt = 2.0 s) gives `Δencoded = 120`, `Δdelivered = 32`,
+`Δgop_dropped = 88`, `Δkeyframes = 4` — reproducible across runs:
+
+```text
+dt=2s: enc+120 del+32 drop+88 kf+4 | GOP~30 AUs  IDR_every=0.5s
+```
+
+- GOP ≈ 120/4 = **30 AUs**
+- IDR actually every **0.5 s**, not the requested 1 s — the encoder ignores
+  `KEY_I_FRAME_INTERVAL` exactly as it ignores `KEY_FRAME_RATE`
+- 8 admitted × 4 GOP per 2 s = 32 per 2 s = **16.0 fps** — the measured value
+
+So the ~15–16 fps result is **expected, deterministic GopTail behavior, not a
+defect**: the pipeline delivers exactly the frames the filter admits, with zero
+decode failures and p95 ≈ 11 ms send→paint. (The `CaptureConfig` comment
+"~32 delivered AUs/sec" assumes the requested 1 s interval; with the encoder's
+actual 0.5 s IDR cadence the admitted rate is 16 fps. That comment is
+informational only — changing `keepFrames` is a tuning decision, deferred,
+since the brief forbids pipeline redesign and the tuple gate is met by the
+requested-parameter contract `capture 720×1600 @ 30`.)
 
 ## 8. How to re-run
 
