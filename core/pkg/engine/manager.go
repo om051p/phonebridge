@@ -343,8 +343,32 @@ func (m *SessionManager) StartSession(ctx context.Context, deviceID string, requ
 	cfg.TrustStore = m.trustStore
 	cfg.Requested = requested
 
-	// Captured for the state callback (which must not re-lock m.mu).
+	// Captured for the state callback (which must not re-lock m.mu), together
+	// with the hub session token. The callback runs AFTER the transition has
+	// been applied and its lock released, so a late terminal callback from this
+	// session can land after the NEXT session has already begun — and the next
+	// session is accepted precisely because this one's state is already
+	// terminal. Ending with this session's own token makes that late call a
+	// no-op instead of a cross-session stall (see frames.Hub's doc comment).
 	hub := m.frameHub
+	// hubToken is written by the connect goroutine (below) and read by the state
+	// callback, so it carries its own mutex rather than reusing m.mu: the
+	// callback must never take a lock the session path can hold across a
+	// transition.
+	var hubTok struct {
+		mu    sync.Mutex
+		token uint64
+	}
+	setHubToken := func(t uint64) {
+		hubTok.mu.Lock()
+		hubTok.token = t
+		hubTok.mu.Unlock()
+	}
+	getHubToken := func() uint64 {
+		hubTok.mu.Lock()
+		defer hubTok.mu.Unlock()
+		return hubTok.token
+	}
 
 	reg := m.discovery.Registry()
 	// Declared first because the state callback reads the session's negotiated
@@ -353,11 +377,14 @@ func (m *SessionManager) StartSession(ctx context.Context, deviceID string, requ
 	sess = NewSession(sessionID, cfg, reg, func(oldState, newState SessionState, reason string, code SessionReason) {
 		// Frame-session lifecycle follows the session's terminal states: once
 		// the session is gone the hub closes every StreamFrames subscription so
-		// no stale frame can outlive it (Slice 3A). Idempotent.
+		// no stale frame can outlive it (Slice 3A). Idempotent, and scoped to
+		// this session's token so it can never close a newer session's window.
 		switch newState {
 		case StateFailed, StateStopped, StateDisconnected:
-			if hub != nil {
-				hub.EndSession()
+			if tok := getHubToken(); hub != nil && tok != 0 {
+				// ErrSessionNotCurrent here means this session was already
+				// superseded: the newer session's window must stay open.
+				_ = hub.EndSession(tok)
 			}
 		}
 		if m.onEvent != nil {
@@ -423,7 +450,24 @@ func (m *SessionManager) StartSession(ctx context.Context, deviceID string, requ
 		// SPS/PPS. Existing sinks stay functional underneath (tap forwards first,
 		// non-blocking), and no frame stage can block session control.
 		if hub != nil {
-			hub.BeginSession()
+			// Publish the token before the tap can produce a frame, so a Stop
+			// that races this goroutine still ends the right session (and a
+			// Stop after a later BeginSession cannot end that one). The
+			// activeSess guard drops a token minted for a session that has
+			// already been replaced: that session must not end the new one.
+			tok := hub.BeginSession()
+			m.mu.Lock()
+			current := m.activeSess == sess
+			m.mu.Unlock()
+			if current {
+				setHubToken(tok)
+			} else {
+				// A token minted for an already-replaced session: roll the
+				// Begin back atomically, so this goroutine can never end the
+				// window that replaced it (a later BeginSession may have landed
+				// between the check above and this call).
+				_ = hub.EndSessionIfCurrent(tok)
+			}
 			tap := frames.NewTapSink(sink, hub)
 			guard := receiver.NewPSIGuardSink(tap)
 			sess.SetFrameDiag(guard, tap)
