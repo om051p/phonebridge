@@ -460,9 +460,75 @@ message FileCancel {
   string reason = 3;
 }
 
-message NotificationEvent {} // PLANNED
-message NotificationAction {} // PLANNED
-message NotificationDismissed {} // PLANNED
+message NotificationEvent {} // PLANNED (retained for Envelope compatibility)
+message NotificationAction {} // PLANNED (retained for Envelope compatibility)
+message NotificationDismissed {} // PLANNED (retained for Envelope compatibility)
+
+// ---------------------------------------------------------------------------
+// Notifications (DEC-028, Phase 8)
+// ---------------------------------------------------------------------------
+// Carried directly on dedicated reliable ordered WebRTC DataChannel
+// ("notifications", created alongside "control", "clipboard", "transfer",
+// and "input"). Every DataChannel message is exactly one NotificationFrame
+// (matching DEC-023/DEC-024/DEC-027 bare frame rule).
+message NotificationFrame {
+  // Protocol version (1 for v0.1).
+  uint32 version = 1;
+
+  // Sender wall-clock in milliseconds since Unix epoch.
+  uint64 timestamp_ms = 2;
+
+  // Exactly one event payload.
+  oneof event {
+    NotificationPosted posted = 10;
+    NotificationRemoved removed = 11;
+  }
+}
+
+// NotificationPosted represents an Android notification posted or updated.
+message NotificationPosted {
+  // Globally unique notification key (StatusBarNotification.getKey()).
+  string key = 1;
+
+  // Originating package name (e.g. "org.telegram.messenger").
+  string package_name = 2;
+
+  // Human-readable app name (e.g. "Telegram").
+  string app_name = 3;
+
+  // Notification title (Notification.EXTRA_TITLE).
+  string title = 4;
+
+  // Notification body text (Notification.EXTRA_TEXT).
+  string text = 5;
+
+  // Optional subtext or summary (Notification.EXTRA_SUB_TEXT).
+  string sub_text = 6;
+
+  // Wall-clock time in milliseconds when the notification was posted on Android.
+  int64 post_time_ms = 7;
+
+  // True if the notification is ongoing (sticky / foreground service).
+  bool is_ongoing = 8;
+
+  // True if the notification can be cleared by the user.
+  bool is_clearable = 9;
+
+  // Optional Android notification category ("msg", "call", "alarm", "email", etc.).
+  string category = 10;
+}
+
+// NotificationRemoved represents an Android notification dismissed or canceled.
+message NotificationRemoved {
+  // Globally unique notification key that was removed.
+  string key = 1;
+
+  // Package name of the removed notification.
+  string package_name = 2;
+
+  // Android cancellation reason code (e.g. REASON_CANCEL, REASON_DISMISSED).
+  int32 reason = 3;
+}
 message ScreenStop {
   // Why the stream stopped (typed where the sender knows the cause).
   Code reason_code = 1;

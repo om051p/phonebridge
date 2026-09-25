@@ -367,6 +367,7 @@ class StreamEventsResponse extends $pb.GeneratedMessage {
     SessionEvent? sessionEvent,
     ClipboardStatusEvent? clipboardEvent,
     TransferEvent? transferEvent,
+    $1.NotificationFrame? notificationEvent,
   }) {
     final result = StreamEventsResponse._();
     if (seq != null) result.seq = seq;
@@ -375,6 +376,7 @@ class StreamEventsResponse extends $pb.GeneratedMessage {
     if (sessionEvent != null) result.sessionEvent = sessionEvent;
     if (clipboardEvent != null) result.clipboardEvent = clipboardEvent;
     if (transferEvent != null) result.transferEvent = transferEvent;
+    if (notificationEvent != null) result.notificationEvent = notificationEvent;
     return result;
   }
 
@@ -405,6 +407,8 @@ class StreamEventsResponse extends $pb.GeneratedMessage {
         subBuilder: ClipboardStatusEvent.$_createMessage)
     ..aOM<TransferEvent>(6, _omitFieldNames ? '' : 'transferEvent',
         subBuilder: TransferEvent.$_createMessage)
+    ..aOM<$1.NotificationFrame>(7, _omitFieldNames ? '' : 'notificationEvent',
+        subBuilder: $1.NotificationFrame.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -504,6 +508,18 @@ class StreamEventsResponse extends $pb.GeneratedMessage {
   void clearTransferEvent() => $_clearField(6);
   @$pb.TagNumber(6)
   TransferEvent ensureTransferEvent() => $_ensure(5);
+
+  /// Mirrored notification events (Phase 8, DEC-028).
+  @$pb.TagNumber(7)
+  $1.NotificationFrame get notificationEvent => $_getN(6);
+  @$pb.TagNumber(7)
+  set notificationEvent($1.NotificationFrame value) => $_setField(7, value);
+  @$pb.TagNumber(7)
+  $core.bool hasNotificationEvent() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearNotificationEvent() => $_clearField(7);
+  @$pb.TagNumber(7)
+  $1.NotificationFrame ensureNotificationEvent() => $_ensure(6);
 }
 
 /// LocalEvent represents a pushed local event containing the relayed device envelope.
@@ -517,6 +533,7 @@ class LocalEvent extends $pb.GeneratedMessage {
     SessionEvent? sessionEvent,
     ClipboardStatusEvent? clipboardEvent,
     TransferEvent? transferEvent,
+    $1.NotificationFrame? notificationEvent,
   }) {
     final result = LocalEvent._();
     if (seq != null) result.seq = seq;
@@ -525,6 +542,7 @@ class LocalEvent extends $pb.GeneratedMessage {
     if (sessionEvent != null) result.sessionEvent = sessionEvent;
     if (clipboardEvent != null) result.clipboardEvent = clipboardEvent;
     if (transferEvent != null) result.transferEvent = transferEvent;
+    if (notificationEvent != null) result.notificationEvent = notificationEvent;
     return result;
   }
 
@@ -555,6 +573,8 @@ class LocalEvent extends $pb.GeneratedMessage {
         subBuilder: ClipboardStatusEvent.$_createMessage)
     ..aOM<TransferEvent>(6, _omitFieldNames ? '' : 'transferEvent',
         subBuilder: TransferEvent.$_createMessage)
+    ..aOM<$1.NotificationFrame>(7, _omitFieldNames ? '' : 'notificationEvent',
+        subBuilder: $1.NotificationFrame.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -644,6 +664,18 @@ class LocalEvent extends $pb.GeneratedMessage {
   void clearTransferEvent() => $_clearField(6);
   @$pb.TagNumber(6)
   TransferEvent ensureTransferEvent() => $_ensure(5);
+
+  /// Mirrored notification events (Phase 8, DEC-028).
+  @$pb.TagNumber(7)
+  $1.NotificationFrame get notificationEvent => $_getN(6);
+  @$pb.TagNumber(7)
+  set notificationEvent($1.NotificationFrame value) => $_setField(7, value);
+  @$pb.TagNumber(7)
+  $core.bool hasNotificationEvent() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearNotificationEvent() => $_clearField(7);
+  @$pb.TagNumber(7)
+  $1.NotificationFrame ensureNotificationEvent() => $_ensure(6);
 }
 
 /// HealthRequest is empty.
@@ -4111,6 +4143,110 @@ class SendInputResponse extends $pb.GeneratedMessage {
   $core.bool hasErrorMessage() => $_has(1);
   @$pb.TagNumber(2)
   void clearErrorMessage() => $_clearField(2);
+}
+
+/// ListNotificationsRequest queries active mirrored notifications.
+class ListNotificationsRequest extends $pb.GeneratedMessage {
+  factory ListNotificationsRequest() => ListNotificationsRequest._();
+
+  ListNotificationsRequest._();
+
+  factory ListNotificationsRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListNotificationsRequest()..mergeFromBuffer(data, registry);
+  factory ListNotificationsRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListNotificationsRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListNotificationsRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: ListNotificationsRequest.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListNotificationsRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListNotificationsRequest copyWith(
+          void Function(ListNotificationsRequest) updates) =>
+      super.copyWith((message) => updates(message as ListNotificationsRequest))
+          as ListNotificationsRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListNotificationsRequest() / ListNotificationsRequest.new instead')
+  static ListNotificationsRequest create() => ListNotificationsRequest._();
+  static $pb.GeneratedMessage $_createMessage() => ListNotificationsRequest._();
+  @$core.override
+  ListNotificationsRequest createEmptyInstance() =>
+      ListNotificationsRequest._();
+  @$core.pragma('dart2js:noInline')
+  static ListNotificationsRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListNotificationsRequest>(
+          ListNotificationsRequest.$_createMessage);
+  static ListNotificationsRequest? _defaultInstance;
+}
+
+/// ListNotificationsResponse returns the active notifications, newest first.
+class ListNotificationsResponse extends $pb.GeneratedMessage {
+  factory ListNotificationsResponse({
+    $core.Iterable<$1.NotificationPosted>? notifications,
+  }) {
+    final result = ListNotificationsResponse._();
+    if (notifications != null) result.notifications.addAll(notifications);
+    return result;
+  }
+
+  ListNotificationsResponse._();
+
+  factory ListNotificationsResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListNotificationsResponse()..mergeFromBuffer(data, registry);
+  factory ListNotificationsResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListNotificationsResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListNotificationsResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: ListNotificationsResponse.$_createMessage)
+    ..pPM<$1.NotificationPosted>(1, _omitFieldNames ? '' : 'notifications',
+        subBuilder: $1.NotificationPosted.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListNotificationsResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListNotificationsResponse copyWith(
+          void Function(ListNotificationsResponse) updates) =>
+      super.copyWith((message) => updates(message as ListNotificationsResponse))
+          as ListNotificationsResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListNotificationsResponse() / ListNotificationsResponse.new instead')
+  static ListNotificationsResponse create() => ListNotificationsResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      ListNotificationsResponse._();
+  @$core.override
+  ListNotificationsResponse createEmptyInstance() =>
+      ListNotificationsResponse._();
+  @$core.pragma('dart2js:noInline')
+  static ListNotificationsResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListNotificationsResponse>(
+          ListNotificationsResponse.$_createMessage);
+  static ListNotificationsResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $pb.PbList<$1.NotificationPosted> get notifications => $_getList(0);
 }
 
 const $core.bool _omitFieldNames =

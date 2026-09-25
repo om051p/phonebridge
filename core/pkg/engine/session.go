@@ -13,6 +13,7 @@ import (
 	"github.com/om051p/phonebridge/core/pkg/discovery"
 	"github.com/om051p/phonebridge/core/pkg/frames"
 	"github.com/om051p/phonebridge/core/pkg/input"
+	"github.com/om051p/phonebridge/core/pkg/notification"
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgev1"
 	"github.com/om051p/phonebridge/core/pkg/receiver"
 	"github.com/om051p/phonebridge/core/pkg/rtpmedia"
@@ -151,6 +152,12 @@ type SessionConfig struct {
 	// TransferEngine carries file transfers over the dedicated "transfer"
 	// DataChannel (DEC-024). It is independent of the clipboard engine.
 	TransferEngine *transfer.Engine
+	// NotificationStore maintains in-memory mirrored notifications (DEC-028).
+	NotificationStore *notification.Store
+	// NotificationLimiter enforces rate limits and duplicate suppression.
+	NotificationLimiter *notification.Limiter
+	// OnNotification is called when a validated notification frame is received.
+	OnNotification func(*phonebridgev1.NotificationFrame)
 }
 
 // DefaultSessionConfig returns production defaults for session configuration.
@@ -237,6 +244,9 @@ type Session struct {
 	clipboardEngine *clipboard.Engine
 	transferEngine  *transfer.Engine
 	limiter         *input.Limiter
+	notifStore      *notification.Store
+	notifLimiter    *notification.Limiter
+	onNotification  func(*phonebridgev1.NotificationFrame)
 
 	sink       receiver.FrameSink
 	sinkOwned  bool
@@ -280,6 +290,11 @@ func NewSession(sessionID string, cfg SessionConfig, reg *discovery.DeviceRegist
 		sigClient.SetIdentity(cfg.Identity)
 	}
 
+	notifLimiter := cfg.NotificationLimiter
+	if notifLimiter == nil {
+		notifLimiter = notification.NewLimiter(notification.DefaultRateLimitHz, notification.DefaultBurstCapacity, notification.DefaultDedupWindow)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Session{
 		sessionID: sessionID,
@@ -296,6 +311,9 @@ func NewSession(sessionID string, cfg SessionConfig, reg *discovery.DeviceRegist
 		clipboardEngine: cfg.ClipboardEngine,
 		transferEngine:  cfg.TransferEngine,
 		limiter:         input.NewLimiter(input.DefaultRateLimitHz, input.DefaultBurstCapacity),
+		notifStore:      cfg.NotificationStore,
+		notifLimiter:    notifLimiter,
+		onNotification:  cfg.OnNotification,
 		signaling:       sigClient,
 		factory:         defaultTransportFactory,
 		onStateChange:   cb,
@@ -959,6 +977,9 @@ func (s *Session) newTransport(gen uint64, sink receiver.FrameSink) (transport, 
 		OnTransferClose: func() {
 			s.handleTransferClose(gen)
 		},
+		OnNotificationMessage: func(data []byte) {
+			s.handleNotificationMessage(gen, data)
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -1072,6 +1093,51 @@ func (s *Session) handleTransferClose(gen uint64) {
 		return
 	}
 	eng.DetachChannelIf(tr.TransferChannel(), transfer.ReasonInterrupted, "transfer channel closed")
+}
+
+// handleNotificationMessage processes an inbound notification frame from the transport (Phase 8, DEC-028).
+func (s *Session) handleNotificationMessage(gen uint64, data []byte) {
+	s.mu.RLock()
+	stale := gen != s.trGen
+	stopping := s.ctx.Err() != nil
+	store := s.notifStore
+	lim := s.notifLimiter
+	cb := s.onNotification
+	s.mu.RUnlock()
+
+	if stale || stopping {
+		return
+	}
+
+	var frame phonebridgev1.NotificationFrame
+	if err := proto.Unmarshal(data, &frame); err != nil {
+		return
+	}
+
+	if err := notification.ValidateNotificationFrame(&frame); err != nil {
+		return
+	}
+
+	if lim != nil && !lim.Allow(&frame) {
+		return
+	}
+
+	if store != nil {
+		switch ev := frame.Event.(type) {
+		case *phonebridgev1.NotificationFrame_Posted:
+			if ev.Posted != nil {
+				store.Put(ev.Posted)
+			}
+		case *phonebridgev1.NotificationFrame_Removed:
+			if ev.Removed != nil {
+				store.Remove(ev.Removed.Key)
+			}
+		}
+	}
+
+	if cb != nil {
+		cb(&frame)
+	}
 }
 
 // beginTransportReplacement invalidates the outgoing transport's callbacks and

@@ -91,6 +91,14 @@ type SessionConfig struct {
 	OnInputOpen func()
 	// OnInputClose is called when the "input" DataChannel closes.
 	OnInputClose func()
+	// OnNotificationMessage receives notification frames (from the Pion receive
+	// goroutine — must not block).
+	OnNotificationMessage func([]byte)
+	// OnNotificationOpen is called when the reliable ordered "notifications" DataChannel
+	// transitions to open state.
+	OnNotificationOpen func()
+	// OnNotificationClose is called when the "notifications" DataChannel closes.
+	OnNotificationClose func()
 }
 
 // Session couples one Sender to one Pion PeerConnection + H.264 track.
@@ -105,6 +113,7 @@ type Session struct {
 	trDC    *pion.DataChannel
 	trCh    *rtcchannel.Channel
 	inputDC *pion.DataChannel
+	notifDC *pion.DataChannel
 	sender  *Sender
 }
 
@@ -228,6 +237,25 @@ func NewSession(cfg SessionConfig, sender *Sender) (*Session, error) {
 		inputDC.OnClose(cfg.OnInputClose)
 	}
 
+	// Dedicated notifications DataChannel (DEC-028, Phase 8): reliable and ordered.
+	notifOrdered := true
+	notifDC, err := pc.CreateDataChannel("notifications", &pion.DataChannelInit{
+		Ordered: &notifOrdered,
+	})
+	if err != nil {
+		_ = pc.Close()
+		return nil, fmt.Errorf("webrtc: notifications datachannel: %w", err)
+	}
+	if cfg.OnNotificationMessage != nil {
+		notifDC.OnMessage(func(msg pion.DataChannelMessage) { cfg.OnNotificationMessage(msg.Data) })
+	}
+	if cfg.OnNotificationOpen != nil {
+		notifDC.OnOpen(cfg.OnNotificationOpen)
+	}
+	if cfg.OnNotificationClose != nil {
+		notifDC.OnClose(cfg.OnNotificationClose)
+	}
+
 	if cfg.OnStateChange != nil {
 		pc.OnConnectionStateChange(cfg.OnStateChange)
 	}
@@ -238,7 +266,7 @@ func NewSession(cfg SessionConfig, sender *Sender) (*Session, error) {
 		return track.WriteRTP(&pkt)
 	}))
 
-	return &Session{pc: pc, track: track, dc: dc, cbDC: cbDC, trDC: trDC, trCh: trCh, inputDC: inputDC, sender: sender}, nil
+	return &Session{pc: pc, track: track, dc: dc, cbDC: cbDC, trDC: trDC, trCh: trCh, inputDC: inputDC, notifDC: notifDC, sender: sender}, nil
 }
 
 // Track exposes the underlying track (stats/diagnostics).
@@ -338,6 +366,18 @@ func (s *Session) SendInput(data []byte) error {
 
 // InputChannel exposes the underlying "input" DataChannel.
 func (s *Session) InputChannel() *pion.DataChannel { return s.inputDC }
+
+// NotificationChannel exposes the underlying "notifications" DataChannel.
+func (s *Session) NotificationChannel() *pion.DataChannel { return s.notifDC }
+
+// SendNotification sends an encoded phonebridge.v1.NotificationFrame on the reliable
+// ordered "notifications" DataChannel (DEC-028).
+func (s *Session) SendNotification(data []byte) error {
+	if s.notifDC == nil {
+		return errors.New("webrtc: notifications datachannel not available")
+	}
+	return s.notifDC.Send(data)
+}
 
 // TransferChannel exposes the transfer channel adapter for the transfer engine
 // (DEC-024). It is non-nil for the lifetime of the session, because this is the

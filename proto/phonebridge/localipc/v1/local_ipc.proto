@@ -146,6 +146,9 @@ service LocalEngineService {
   // SendInput injects a remote input event to the active peer over the session's
   // dedicated "input" DataChannel (Phase 7, DEC-027).
   rpc SendInput(SendInputRequest) returns (SendInputResponse);
+
+  // ListNotifications returns the active in-memory mirrored notifications (Phase 8, DEC-028).
+  rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse);
 }
 
 // HandshakeRequest advertises the client's local-IPC protocol support.
@@ -217,6 +220,9 @@ message StreamEventsResponse {
 
   // File-transfer state/progress transitions (DEC-024).
   TransferEvent transfer_event = 6;
+
+  // Mirrored notification events (Phase 8, DEC-028).
+  phonebridge.v1.NotificationFrame notification_event = 7;
 }
 
 // LocalEvent represents a pushed local event containing the relayed device envelope.
@@ -240,6 +246,9 @@ message LocalEvent {
 
   // File-transfer state/progress transitions (DEC-024).
   TransferEvent transfer_event = 6;
+
+  // Mirrored notification events (Phase 8, DEC-028).
+  phonebridge.v1.NotificationFrame notification_event = 7;
 }
 
 // HealthRequest is empty.
@@ -753,4 +762,17 @@ message SendInputResponse {
   bool delivered = 1;
   string error_message = 2;
 }
+
+// ---------------------------------------------------------------------------
+// Notification mirroring IPC definitions (Phase 8, DEC-028)
+// ---------------------------------------------------------------------------
+
+// ListNotificationsRequest queries active mirrored notifications.
+message ListNotificationsRequest {}
+
+// ListNotificationsResponse returns the active notifications, newest first.
+message ListNotificationsResponse {
+  repeated phonebridge.v1.NotificationPosted notifications = 1;
+}
+
 

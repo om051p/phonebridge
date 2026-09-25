@@ -863,6 +863,84 @@ const NotificationDismissed$json = {
 final $typed_data.Uint8List notificationDismissedDescriptor =
     $convert.base64Decode('ChVOb3RpZmljYXRpb25EaXNtaXNzZWQ=');
 
+@$core.Deprecated('Use notificationFrameDescriptor instead')
+const NotificationFrame$json = {
+  '1': 'NotificationFrame',
+  '2': [
+    {'1': 'version', '3': 1, '4': 1, '5': 13, '10': 'version'},
+    {'1': 'timestamp_ms', '3': 2, '4': 1, '5': 4, '10': 'timestampMs'},
+    {
+      '1': 'posted',
+      '3': 10,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.NotificationPosted',
+      '9': 0,
+      '10': 'posted'
+    },
+    {
+      '1': 'removed',
+      '3': 11,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.NotificationRemoved',
+      '9': 0,
+      '10': 'removed'
+    },
+  ],
+  '8': [
+    {'1': 'event'},
+  ],
+};
+
+/// Descriptor for `NotificationFrame`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List notificationFrameDescriptor = $convert.base64Decode(
+    'ChFOb3RpZmljYXRpb25GcmFtZRIYCgd2ZXJzaW9uGAEgASgNUgd2ZXJzaW9uEiEKDHRpbWVzdG'
+    'FtcF9tcxgCIAEoBFILdGltZXN0YW1wTXMSPAoGcG9zdGVkGAogASgLMiIucGhvbmVicmlkZ2Uu'
+    'djEuTm90aWZpY2F0aW9uUG9zdGVkSABSBnBvc3RlZBI/CgdyZW1vdmVkGAsgASgLMiMucGhvbm'
+    'VicmlkZ2UudjEuTm90aWZpY2F0aW9uUmVtb3ZlZEgAUgdyZW1vdmVkQgcKBWV2ZW50');
+
+@$core.Deprecated('Use notificationPostedDescriptor instead')
+const NotificationPosted$json = {
+  '1': 'NotificationPosted',
+  '2': [
+    {'1': 'key', '3': 1, '4': 1, '5': 9, '10': 'key'},
+    {'1': 'package_name', '3': 2, '4': 1, '5': 9, '10': 'packageName'},
+    {'1': 'app_name', '3': 3, '4': 1, '5': 9, '10': 'appName'},
+    {'1': 'title', '3': 4, '4': 1, '5': 9, '10': 'title'},
+    {'1': 'text', '3': 5, '4': 1, '5': 9, '10': 'text'},
+    {'1': 'sub_text', '3': 6, '4': 1, '5': 9, '10': 'subText'},
+    {'1': 'post_time_ms', '3': 7, '4': 1, '5': 3, '10': 'postTimeMs'},
+    {'1': 'is_ongoing', '3': 8, '4': 1, '5': 8, '10': 'isOngoing'},
+    {'1': 'is_clearable', '3': 9, '4': 1, '5': 8, '10': 'isClearable'},
+    {'1': 'category', '3': 10, '4': 1, '5': 9, '10': 'category'},
+  ],
+};
+
+/// Descriptor for `NotificationPosted`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List notificationPostedDescriptor = $convert.base64Decode(
+    'ChJOb3RpZmljYXRpb25Qb3N0ZWQSEAoDa2V5GAEgASgJUgNrZXkSIQoMcGFja2FnZV9uYW1lGA'
+    'IgASgJUgtwYWNrYWdlTmFtZRIZCghhcHBfbmFtZRgDIAEoCVIHYXBwTmFtZRIUCgV0aXRsZRgE'
+    'IAEoCVIFdGl0bGUSEgoEdGV4dBgFIAEoCVIEdGV4dBIZCghzdWJfdGV4dBgGIAEoCVIHc3ViVG'
+    'V4dBIgCgxwb3N0X3RpbWVfbXMYByABKANSCnBvc3RUaW1lTXMSHQoKaXNfb25nb2luZxgIIAEo'
+    'CFIJaXNPbmdvaW5nEiEKDGlzX2NsZWFyYWJsZRgJIAEoCFILaXNDbGVhcmFibGUSGgoIY2F0ZW'
+    'dvcnkYCiABKAlSCGNhdGVnb3J5');
+
+@$core.Deprecated('Use notificationRemovedDescriptor instead')
+const NotificationRemoved$json = {
+  '1': 'NotificationRemoved',
+  '2': [
+    {'1': 'key', '3': 1, '4': 1, '5': 9, '10': 'key'},
+    {'1': 'package_name', '3': 2, '4': 1, '5': 9, '10': 'packageName'},
+    {'1': 'reason', '3': 3, '4': 1, '5': 5, '10': 'reason'},
+  ],
+};
+
+/// Descriptor for `NotificationRemoved`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List notificationRemovedDescriptor = $convert.base64Decode(
+    'ChNOb3RpZmljYXRpb25SZW1vdmVkEhAKA2tleRgBIAEoCVIDa2V5EiEKDHBhY2thZ2VfbmFtZR'
+    'gCIAEoCVILcGFja2FnZU5hbWUSFgoGcmVhc29uGAMgASgFUgZyZWFzb24=');
+
 @$core.Deprecated('Use screenStopDescriptor instead')
 const ScreenStop$json = {
   '1': 'ScreenStop',

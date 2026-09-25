@@ -208,6 +208,14 @@ class LocalEngineServiceClient extends $grpc.Client {
     return $createUnaryCall(_$sendInput, request, options: options);
   }
 
+  /// ListNotifications returns the active in-memory mirrored notifications (Phase 8, DEC-028).
+  $grpc.ResponseFuture<$0.ListNotificationsResponse> listNotifications(
+    $0.ListNotificationsRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$listNotifications, request, options: options);
+  }
+
   // method descriptors
 
   static final _$handshake =
@@ -304,6 +312,11 @@ class LocalEngineServiceClient extends $grpc.Client {
           '/phonebridge.localipc.v1.LocalEngineService/SendInput',
           ($0.SendInputRequest value) => value.writeToBuffer(),
           $0.SendInputResponse.fromBuffer);
+  static final _$listNotifications = $grpc.ClientMethod<
+          $0.ListNotificationsRequest, $0.ListNotificationsResponse>(
+      '/phonebridge.localipc.v1.LocalEngineService/ListNotifications',
+      ($0.ListNotificationsRequest value) => value.writeToBuffer(),
+      $0.ListNotificationsResponse.fromBuffer);
 }
 
 @$pb.GrpcServiceName('phonebridge.localipc.v1.LocalEngineService')
@@ -470,6 +483,15 @@ abstract class LocalEngineServiceBase extends $grpc.Service {
         false,
         ($core.List<$core.int> value) => $0.SendInputRequest.fromBuffer(value),
         ($0.SendInputResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.ListNotificationsRequest,
+            $0.ListNotificationsResponse>(
+        'ListNotifications',
+        listNotifications_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) =>
+            $0.ListNotificationsRequest.fromBuffer(value),
+        ($0.ListNotificationsResponse value) => value.writeToBuffer()));
   }
 
   $async.Future<$0.HandshakeResponse> handshake_Pre($grpc.ServiceCall $call,
@@ -634,4 +656,13 @@ abstract class LocalEngineServiceBase extends $grpc.Service {
 
   $async.Future<$0.SendInputResponse> sendInput(
       $grpc.ServiceCall call, $0.SendInputRequest request);
+
+  $async.Future<$0.ListNotificationsResponse> listNotifications_Pre(
+      $grpc.ServiceCall $call,
+      $async.Future<$0.ListNotificationsRequest> $request) async {
+    return listNotifications($call, await $request);
+  }
+
+  $async.Future<$0.ListNotificationsResponse> listNotifications(
+      $grpc.ServiceCall call, $0.ListNotificationsRequest request);
 }

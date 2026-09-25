@@ -99,6 +99,7 @@ const (
 	LocalEngineService_ListTransfers_FullMethodName        = "/phonebridge.localipc.v1.LocalEngineService/ListTransfers"
 	LocalEngineService_StreamFrames_FullMethodName         = "/phonebridge.localipc.v1.LocalEngineService/StreamFrames"
 	LocalEngineService_SendInput_FullMethodName            = "/phonebridge.localipc.v1.LocalEngineService/SendInput"
+	LocalEngineService_ListNotifications_FullMethodName    = "/phonebridge.localipc.v1.LocalEngineService/ListNotifications"
 )
 
 // LocalEngineServiceClient is the client API for LocalEngineService service.
@@ -164,6 +165,8 @@ type LocalEngineServiceClient interface {
 	// SendInput injects a remote input event to the active peer over the session's
 	// dedicated "input" DataChannel (Phase 7, DEC-027).
 	SendInput(ctx context.Context, in *SendInputRequest, opts ...grpc.CallOption) (*SendInputResponse, error)
+	// ListNotifications returns the active in-memory mirrored notifications (Phase 8, DEC-028).
+	ListNotifications(ctx context.Context, in *ListNotificationsRequest, opts ...grpc.CallOption) (*ListNotificationsResponse, error)
 }
 
 type localEngineServiceClient struct {
@@ -382,6 +385,16 @@ func (c *localEngineServiceClient) SendInput(ctx context.Context, in *SendInputR
 	return out, nil
 }
 
+func (c *localEngineServiceClient) ListNotifications(ctx context.Context, in *ListNotificationsRequest, opts ...grpc.CallOption) (*ListNotificationsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListNotificationsResponse)
+	err := c.cc.Invoke(ctx, LocalEngineService_ListNotifications_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LocalEngineServiceServer is the server API for LocalEngineService service.
 // All implementations should embed UnimplementedLocalEngineServiceServer
 // for forward compatibility.
@@ -445,6 +458,8 @@ type LocalEngineServiceServer interface {
 	// SendInput injects a remote input event to the active peer over the session's
 	// dedicated "input" DataChannel (Phase 7, DEC-027).
 	SendInput(context.Context, *SendInputRequest) (*SendInputResponse, error)
+	// ListNotifications returns the active in-memory mirrored notifications (Phase 8, DEC-028).
+	ListNotifications(context.Context, *ListNotificationsRequest) (*ListNotificationsResponse, error)
 }
 
 // UnimplementedLocalEngineServiceServer should be embedded to have
@@ -510,6 +525,9 @@ func (UnimplementedLocalEngineServiceServer) StreamFrames(*StreamFramesRequest, 
 }
 func (UnimplementedLocalEngineServiceServer) SendInput(context.Context, *SendInputRequest) (*SendInputResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendInput not implemented")
+}
+func (UnimplementedLocalEngineServiceServer) ListNotifications(context.Context, *ListNotificationsRequest) (*ListNotificationsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListNotifications not implemented")
 }
 func (UnimplementedLocalEngineServiceServer) testEmbeddedByValue() {}
 
@@ -859,6 +877,24 @@ func _LocalEngineService_SendInput_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LocalEngineService_ListNotifications_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListNotificationsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalEngineServiceServer).ListNotifications(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalEngineService_ListNotifications_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalEngineServiceServer).ListNotifications(ctx, req.(*ListNotificationsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // LocalEngineService_ServiceDesc is the grpc.ServiceDesc for LocalEngineService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -933,6 +969,10 @@ var LocalEngineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SendInput",
 			Handler:    _LocalEngineService_SendInput_Handler,
+		},
+		{
+			MethodName: "ListNotifications",
+			Handler:    _LocalEngineService_ListNotifications_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

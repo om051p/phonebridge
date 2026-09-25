@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../controllers/phonebridge_controller.dart';
 import '../models/activity_event.dart';
+import '../ui/notification_views.dart';
 import '../ui/transfer_views.dart';
 
 class ActivityScreen extends StatefulWidget {
@@ -35,6 +36,8 @@ class _ActivityScreenState extends State<ActivityScreen> {
         return ListView(
           padding: const EdgeInsets.only(bottom: 16),
           children: [
+            const SizedBox(height: 16),
+            NotificationsSection(controller: widget.controller.notifications),
             const SizedBox(height: 16),
             TransfersSection(controller: widget.controller.transfers),
             const SizedBox(height: 16),

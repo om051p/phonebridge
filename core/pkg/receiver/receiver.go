@@ -64,6 +64,12 @@ type Config struct {
 	OnInputOpen func()
 	// OnInputClose is called when the "input" DataChannel closes.
 	OnInputClose func()
+	// OnNotificationMessage receives notification frames (DEC-028, Phase 8).
+	OnNotificationMessage func([]byte)
+	// OnNotificationOpen is called when the reliable ordered "notifications" DataChannel transitions to open.
+	OnNotificationOpen func()
+	// OnNotificationClose is called when the "notifications" DataChannel closes.
+	OnNotificationClose func()
 }
 
 // Receiver coordinates the WebRTC peer connection, RFC 6184 RTP depacketization,
@@ -76,10 +82,11 @@ type Receiver struct {
 	auChan       chan rtpmedia.AccessUnit
 	workerWg     sync.WaitGroup
 
-	clipboardDC atomic.Pointer[pion.DataChannel]
-	transferDC  atomic.Pointer[pion.DataChannel]
-	transferCh  atomic.Pointer[rtcchannel.Channel]
-	inputDC     atomic.Pointer[pion.DataChannel]
+	clipboardDC    atomic.Pointer[pion.DataChannel]
+	transferDC     atomic.Pointer[pion.DataChannel]
+	transferCh     atomic.Pointer[rtcchannel.Channel]
+	inputDC        atomic.Pointer[pion.DataChannel]
+	notificationDC atomic.Pointer[pion.DataChannel]
 
 	closed     atomic.Bool
 	droppedAUs atomic.Int64
@@ -182,6 +189,25 @@ func NewReceiver(cfg Config) (*Receiver, error) {
 				r.inputDC.Store(nil)
 				if cfg.OnInputClose != nil {
 					cfg.OnInputClose()
+				}
+			})
+		case "notifications":
+			// Dedicated notifications channel (DEC-028, Phase 8): reliable and ordered.
+			r.notificationDC.Store(dc)
+			dc.OnOpen(func() {
+				if cfg.OnNotificationOpen != nil {
+					cfg.OnNotificationOpen()
+				}
+			})
+			dc.OnMessage(func(msg pion.DataChannelMessage) {
+				if cfg.OnNotificationMessage != nil {
+					cfg.OnNotificationMessage(msg.Data)
+				}
+			})
+			dc.OnClose(func() {
+				r.notificationDC.Store(nil)
+				if cfg.OnNotificationClose != nil {
+					cfg.OnNotificationClose()
 				}
 			})
 		default:
@@ -344,6 +370,7 @@ func (r *Receiver) Close() error {
 	r.clipboardDC.Store(nil)
 	r.transferDC.Store(nil)
 	r.inputDC.Store(nil)
+	r.notificationDC.Store(nil)
 	if ch := r.transferCh.Load(); ch != nil {
 		ch.Close()
 	}

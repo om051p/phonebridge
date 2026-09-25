@@ -4,28 +4,37 @@ import '../models/capture_stats.dart';
 import '../models/clipboard_status.dart';
 import '../models/device_state.dart';
 import '../models/discovered_device.dart';
+import '../models/notification_item.dart';
 import '../generated/phonebridge/v1/phonebridge.pb.dart' as pb;
 import '../models/transfer_item.dart';
 import '../models/trusted_device.dart';
 import 'frame_stream.dart';
 import 'local_ipc_client.dart' show LocalIpcClient, LocalIpcState;
+import 'notification_backend.dart';
 import 'platform_bridge_service.dart';
 import 'session_backend.dart';
 
 class LinuxBridgeService
-    implements PlatformBridgeService, SessionBackend, ProvidesFrameStream {
+    implements
+        PlatformBridgeService,
+        SessionBackend,
+        ProvidesFrameStream,
+        NotificationBackend {
   LinuxBridgeService({LocalIpcClient? client})
       : _client = client ?? LocalIpcClient() {
     _initStream();
   }
 
   final LocalIpcClient _client;
+  LocalIpcClient get client => _client;
   final StreamController<Map<dynamic, dynamic>> _rawEventsController =
       StreamController<Map<dynamic, dynamic>>.broadcast();
   final StreamController<CaptureStats> _statsController =
       StreamController<CaptureStats>.broadcast();
   final StreamController<TransferItem> _transferController =
       StreamController<TransferItem>.broadcast();
+  final StreamController<pb.NotificationFrame> _notificationStreamController =
+      StreamController<pb.NotificationFrame>.broadcast();
 
   /// Session transitions, forwarded from the single IPC subscription below
   /// rather than opened as a second stream: the app-level session model must
@@ -92,6 +101,13 @@ class LinuxBridgeService
             if (!_transferController.isClosed) {
               _transferController.add(item);
             }
+          }
+        }
+
+        if (resp.hasNotificationEvent()) {
+          final ne = resp.notificationEvent;
+          if (!_notificationStreamController.isClosed) {
+            _notificationStreamController.add(ne);
           }
         }
 
@@ -340,6 +356,19 @@ class LinuxBridgeService
   @override
   bool get supportsFileTransfer => true;
 
+  @override
+  bool get supportsNotifications => true;
+
+  @override
+  Stream<pb.NotificationFrame> get notificationStream =>
+      _notificationStreamController.stream;
+
+  @override
+  Future<List<NotificationItem>> listNotifications() async {
+    final resp = await _client.listNotifications();
+    return resp.notifications.map(NotificationItem.fromProto).toList();
+  }
+
   /// Transfer history as the daemon sees it. Unlike the other read paths this
   /// one rethrows, because the UI must tell "no transfers yet" apart from
   /// "daemon unreachable / transfer engine disabled".
@@ -491,6 +520,7 @@ class LinuxBridgeService
     _rawEventsController.close();
     _statsController.close();
     _transferController.close();
+    _notificationStreamController.close();
     _sessionEventsController.close();
     _eventPulse.close();
     _client.shutdown();

@@ -19,6 +19,7 @@ import androidx.core.app.NotificationCompat
 import dev.phonebridge.bridge.GoBridge
 import dev.phonebridge.clipboard.AndroidClipboardAdapter
 import dev.phonebridge.input.AndroidInputManager
+import dev.phonebridge.notification.AndroidNotificationManager
 import dev.phonebridge.transfer.AndroidTransferHostRegistry
 import dev.phonebridge.capture.CaptureConfig
 import dev.phonebridge.capture.CodecSelector
@@ -384,6 +385,7 @@ class PhoneBridgeService : Service() {
         stopGoEngine()
         AndroidTransferHostRegistry.release()
         AndroidInputManager.stop()
+        AndroidNotificationManager.stop()
         super.onDestroy()
     }
 
@@ -516,11 +518,13 @@ class PhoneBridgeService : Service() {
             AndroidClipboardAdapter.start(applicationContext)
             AndroidTransferHostRegistry.ensureStarted(applicationContext)
             AndroidInputManager.start(applicationContext)
+            AndroidNotificationManager.start(applicationContext)
         }
     }
 
     private fun stopGoEngine() {
         if (GoBridge.loaded) {
+            AndroidNotificationManager.stop()
             AndroidInputManager.stop()
             AndroidTransferHostRegistry.stopIfStarted()
             AndroidClipboardAdapter.stop()

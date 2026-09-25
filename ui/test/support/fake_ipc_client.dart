@@ -82,6 +82,8 @@ class FakeIpcClient extends LocalIpcClient {
   /// client through the real [LinuxBridgeService]).
   ipc.ListTransfersResponse listTransfersResponse =
       ipc.ListTransfersResponse();
+  ipc.ListNotificationsResponse listNotificationsResponse =
+      ipc.ListNotificationsResponse();
   ipc.GetClipboardStatusResponse clipboardStatusResponse =
       ipc.GetClipboardStatusResponse(state: 'RUNNING');
   ipc.TriggerClipboardPullResponse clipboardPullResponse =
@@ -237,6 +239,10 @@ class FakeIpcClient extends LocalIpcClient {
   @override
   Future<ipc.ListTransfersResponse> listTransfers() async =>
       listTransfersResponse;
+
+  @override
+  Future<ipc.ListNotificationsResponse> listNotifications() async =>
+      listNotificationsResponse;
 
   @override
   Future<ipc.GetClipboardStatusResponse> getClipboardStatus() async =>

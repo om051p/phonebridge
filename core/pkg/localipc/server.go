@@ -88,6 +88,8 @@ type SessionOrchestrator interface {
 	ListTransfers() []transfer.Info
 	// SendInput forwards a validated input frame to the active session (DEC-027).
 	SendInput(ctx context.Context, sessionID string, frame *phonebridgev1.InputFrame) error
+	// ListNotifications returns in-memory active mirrored notifications (Phase 8, DEC-028).
+	ListNotifications() []*phonebridgev1.NotificationPosted
 }
 
 // FrameSource supplies per-session frame streams for the StreamFrames RPC
@@ -136,10 +138,11 @@ type Server struct {
 }
 
 type eventPayload struct {
-	envelope       *phonebridgev1.Envelope
-	sessionEvent   *phonebridgelocalipcv1.SessionEvent
-	clipboardEvent *phonebridgelocalipcv1.ClipboardStatusEvent
-	transferEvent  *phonebridgelocalipcv1.TransferEvent
+	envelope          *phonebridgev1.Envelope
+	sessionEvent      *phonebridgelocalipcv1.SessionEvent
+	clipboardEvent    *phonebridgelocalipcv1.ClipboardStatusEvent
+	transferEvent     *phonebridgelocalipcv1.TransferEvent
+	notificationEvent *phonebridgev1.NotificationFrame
 }
 
 // NewServer creates a new local IPC server with sensible defaults.
@@ -423,12 +426,13 @@ func (s *Server) StreamEvents(_ *phonebridgelocalipcv1.StreamEventsRequest, stre
 				return nil
 			}
 			resp := &phonebridgelocalipcv1.StreamEventsResponse{
-				Seq:              seq,
-				DaemonGeneration: s.cfg.DaemonGeneration,
-				Envelope:         item.envelope,
-				SessionEvent:     item.sessionEvent,
-				ClipboardEvent:   item.clipboardEvent,
-				TransferEvent:    item.transferEvent,
+				Seq:               seq,
+				DaemonGeneration:  s.cfg.DaemonGeneration,
+				Envelope:          item.envelope,
+				SessionEvent:      item.sessionEvent,
+				ClipboardEvent:    item.clipboardEvent,
+				TransferEvent:     item.transferEvent,
+				NotificationEvent: item.notificationEvent,
 			}
 			if err := stream.Send(resp); err != nil {
 				return err
@@ -538,6 +542,15 @@ func (s *Server) BroadcastTransferEvent(event *phonebridgelocalipcv1.TransferEve
 		return
 	}
 	s.broadcastItem(&eventPayload{transferEvent: event})
+}
+
+// BroadcastNotificationEvent pushes a mirrored notification event to all active
+// StreamEvents streams (DEC-028, Phase 8).
+func (s *Server) BroadcastNotificationEvent(event *phonebridgev1.NotificationFrame) {
+	if event == nil {
+		return
+	}
+	s.broadcastItem(&eventPayload{notificationEvent: event})
 }
 
 // StartSession initiates a session targeting the given device ID.
@@ -885,6 +898,19 @@ func (s *Server) SendInput(ctx context.Context, req *phonebridgelocalipcv1.SendI
 	}
 	return &phonebridgelocalipcv1.SendInputResponse{
 		Delivered: true,
+	}, nil
+}
+
+// ListNotifications returns the active in-memory mirrored notifications (Phase 8, DEC-028).
+func (s *Server) ListNotifications(_ context.Context, _ *phonebridgelocalipcv1.ListNotificationsRequest) (*phonebridgelocalipcv1.ListNotificationsResponse, error) {
+	if s.closed.Load() {
+		return nil, status.Error(codes.Unavailable, "daemon is shutting down")
+	}
+	if s.orchestrator == nil {
+		return &phonebridgelocalipcv1.ListNotificationsResponse{}, nil
+	}
+	return &phonebridgelocalipcv1.ListNotificationsResponse{
+		Notifications: s.orchestrator.ListNotifications(),
 	}, nil
 }
 

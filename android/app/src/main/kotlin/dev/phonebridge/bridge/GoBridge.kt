@@ -285,6 +285,55 @@ object GoBridge {
         }
     }
 
+    // ------------------------------------------------------------------
+    // Notifications plane (DEC-028, Phase 8 v0.1).
+    // Mirrors Android notifications to Linux desktop WebRTC "notifications" DataChannel.
+    // ------------------------------------------------------------------
+
+    fun notificationInit(): Boolean {
+        check(isLoaded) { "libphonebridge_core.so is not loaded" }
+        return nativeNotificationInit()
+    }
+
+    fun notificationStop() {
+        if (isLoaded) {
+            nativeNotificationStop()
+        }
+    }
+
+    fun notificationPost(
+        key: String,
+        packageName: String,
+        appName: String,
+        title: String,
+        text: String,
+        subText: String,
+        postTimeMs: Long,
+        isOngoing: Boolean,
+        isClearable: Boolean,
+        category: String,
+    ): Boolean {
+        if (!isLoaded) return false
+        return nativeNotificationPost(
+            key, packageName, appName, title, text, subText,
+            postTimeMs, isOngoing, isClearable, category
+        )
+    }
+
+    fun notificationRemove(
+        key: String,
+        packageName: String,
+        reason: Int,
+    ): Boolean {
+        if (!isLoaded) return false
+        return nativeNotificationRemove(key, packageName, reason)
+    }
+
+    fun notificationStats(): String? {
+        if (!isLoaded) return null
+        return nativeNotificationStats()
+    }
+
     @JvmStatic
     private external fun nativeStart(storageDir: String?): Boolean
 
@@ -362,6 +411,37 @@ object GoBridge {
 
     @JvmStatic
     private external fun nativeInputStop()
+
+    // Notifications plane natives (implemented in core/cmd/android/notification_jni.go)
+    @JvmStatic
+    private external fun nativeNotificationInit(): Boolean
+
+    @JvmStatic
+    private external fun nativeNotificationStop()
+
+    @JvmStatic
+    private external fun nativeNotificationPost(
+        key: String,
+        packageName: String,
+        appName: String,
+        title: String,
+        text: String,
+        subText: String,
+        postTimeMs: Long,
+        isOngoing: Boolean,
+        isClearable: Boolean,
+        category: String,
+    ): Boolean
+
+    @JvmStatic
+    private external fun nativeNotificationRemove(
+        key: String,
+        packageName: String,
+        reason: Int,
+    ): Boolean
+
+    @JvmStatic
+    private external fun nativeNotificationStats(): String?
 }
 
 /**

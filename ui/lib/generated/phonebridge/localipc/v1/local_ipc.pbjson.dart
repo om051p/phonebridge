@@ -281,6 +281,14 @@ const StreamEventsResponse$json = {
       '6': '.phonebridge.localipc.v1.TransferEvent',
       '10': 'transferEvent'
     },
+    {
+      '1': 'notification_event',
+      '3': 7,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.NotificationFrame',
+      '10': 'notificationEvent'
+    },
   ],
 };
 
@@ -292,7 +300,9 @@ final $typed_data.Uint8List streamEventsResponseDescriptor = $convert.base64Deco
     'hvbmVicmlkZ2UubG9jYWxpcGMudjEuU2Vzc2lvbkV2ZW50UgxzZXNzaW9uRXZlbnQSVgoPY2xp'
     'cGJvYXJkX2V2ZW50GAUgASgLMi0ucGhvbmVicmlkZ2UubG9jYWxpcGMudjEuQ2xpcGJvYXJkU3'
     'RhdHVzRXZlbnRSDmNsaXBib2FyZEV2ZW50Ek0KDnRyYW5zZmVyX2V2ZW50GAYgASgLMiYucGhv'
-    'bmVicmlkZ2UubG9jYWxpcGMudjEuVHJhbnNmZXJFdmVudFINdHJhbnNmZXJFdmVudA==');
+    'bmVicmlkZ2UubG9jYWxpcGMudjEuVHJhbnNmZXJFdmVudFINdHJhbnNmZXJFdmVudBJQChJub3'
+    'RpZmljYXRpb25fZXZlbnQYByABKAsyIS5waG9uZWJyaWRnZS52MS5Ob3RpZmljYXRpb25GcmFt'
+    'ZVIRbm90aWZpY2F0aW9uRXZlbnQ=');
 
 @$core.Deprecated('Use localEventDescriptor instead')
 const LocalEvent$json = {
@@ -338,6 +348,14 @@ const LocalEvent$json = {
       '6': '.phonebridge.localipc.v1.TransferEvent',
       '10': 'transferEvent'
     },
+    {
+      '1': 'notification_event',
+      '3': 7,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.NotificationFrame',
+      '10': 'notificationEvent'
+    },
   ],
 };
 
@@ -349,7 +367,9 @@ final $typed_data.Uint8List localEventDescriptor = $convert.base64Decode(
     '5sb2NhbGlwYy52MS5TZXNzaW9uRXZlbnRSDHNlc3Npb25FdmVudBJWCg9jbGlwYm9hcmRfZXZl'
     'bnQYBSABKAsyLS5waG9uZWJyaWRnZS5sb2NhbGlwYy52MS5DbGlwYm9hcmRTdGF0dXNFdmVudF'
     'IOY2xpcGJvYXJkRXZlbnQSTQoOdHJhbnNmZXJfZXZlbnQYBiABKAsyJi5waG9uZWJyaWRnZS5s'
-    'b2NhbGlwYy52MS5UcmFuc2ZlckV2ZW50Ug10cmFuc2ZlckV2ZW50');
+    'b2NhbGlwYy52MS5UcmFuc2ZlckV2ZW50Ug10cmFuc2ZlckV2ZW50ElAKEm5vdGlmaWNhdGlvbl'
+    '9ldmVudBgHIAEoCzIhLnBob25lYnJpZGdlLnYxLk5vdGlmaWNhdGlvbkZyYW1lUhFub3RpZmlj'
+    'YXRpb25FdmVudA==');
 
 @$core.Deprecated('Use healthRequestDescriptor instead')
 const HealthRequest$json = {
@@ -1148,3 +1168,33 @@ const SendInputResponse$json = {
 final $typed_data.Uint8List sendInputResponseDescriptor = $convert.base64Decode(
     'ChFTZW5kSW5wdXRSZXNwb25zZRIcCglkZWxpdmVyZWQYASABKAhSCWRlbGl2ZXJlZBIjCg1lcn'
     'Jvcl9tZXNzYWdlGAIgASgJUgxlcnJvck1lc3NhZ2U=');
+
+@$core.Deprecated('Use listNotificationsRequestDescriptor instead')
+const ListNotificationsRequest$json = {
+  '1': 'ListNotificationsRequest',
+};
+
+/// Descriptor for `ListNotificationsRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listNotificationsRequestDescriptor =
+    $convert.base64Decode('ChhMaXN0Tm90aWZpY2F0aW9uc1JlcXVlc3Q=');
+
+@$core.Deprecated('Use listNotificationsResponseDescriptor instead')
+const ListNotificationsResponse$json = {
+  '1': 'ListNotificationsResponse',
+  '2': [
+    {
+      '1': 'notifications',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.phonebridge.v1.NotificationPosted',
+      '10': 'notifications'
+    },
+  ],
+};
+
+/// Descriptor for `ListNotificationsResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listNotificationsResponseDescriptor =
+    $convert.base64Decode(
+        'ChlMaXN0Tm90aWZpY2F0aW9uc1Jlc3BvbnNlEkgKDW5vdGlmaWNhdGlvbnMYASADKAsyIi5waG'
+        '9uZWJyaWRnZS52MS5Ob3RpZmljYXRpb25Qb3N0ZWRSDW5vdGlmaWNhdGlvbnM=');

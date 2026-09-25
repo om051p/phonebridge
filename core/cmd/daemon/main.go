@@ -21,6 +21,7 @@ import (
 	"github.com/om051p/phonebridge/core/pkg/frames"
 	"github.com/om051p/phonebridge/core/pkg/localipc"
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgelocalipcv1"
+	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgev1"
 	"github.com/om051p/phonebridge/core/pkg/transfer"
 )
 
@@ -93,6 +94,9 @@ func main() {
 	mgr.SetIdentity(identity)
 	mgr.SetTrustStore(trustStore)
 	mgr.SetFrameHub(frameHub)
+	mgr.SetNotificationHandler(func(frame *phonebridgev1.NotificationFrame) {
+		srv.BroadcastNotificationEvent(frame)
+	})
 
 	// Initialize LAN signaling server with inbound session handlers (DEC-022)
 	portToUse := *signalingPort

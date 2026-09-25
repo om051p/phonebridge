@@ -344,6 +344,11 @@ class LocalIpcClient {
       .where((event) => event.hasTransferEvent())
       .map((event) => event.transferEvent);
 
+  /// Pushed stream of notification events (DEC-028, Phase 8 v0.1).
+  Stream<pb.NotificationFrame> get onNotificationEvents => streamEvents()
+      .where((event) => event.hasNotificationEvent())
+      .map((event) => event.notificationEvent);
+
   /// Offers a local file to the active peer over the session's "transfer"
   /// DataChannel. [deviceId] empty means "the active session's peer"; the
   /// daemon reads [localPath] itself, so file bytes never cross local IPC.
@@ -389,6 +394,16 @@ class LocalIpcClient {
     return _callWithAuth(
       (opts) => _service.sendInput(
         request,
+        options: opts,
+      ),
+    );
+  }
+
+  /// Lists active notifications currently held in daemon memory (DEC-028).
+  Future<ListNotificationsResponse> listNotifications() async {
+    return _callWithAuth(
+      (opts) => _service.listNotifications(
+        ListNotificationsRequest(),
         options: opts,
       ),
     );

@@ -101,6 +101,18 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
+        <!-- Notification Listener Service for Mirroring to Linux Desktop (DEC-028) -->
+        <service
+            android:name=".notification.PhoneBridgeNotificationListenerService"
+            android:enabled="true"
+            android:exported="true"
+            android:label="PhoneBridge Notification Mirroring"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
     </application>
 
 </manifest>

@@ -2715,6 +2715,395 @@ class NotificationDismissed extends $pb.GeneratedMessage {
   static NotificationDismissed? _defaultInstance;
 }
 
+enum NotificationFrame_Event { posted, removed, notSet }
+
+/// ---------------------------------------------------------------------------
+/// Notifications (DEC-028, Phase 8)
+/// ---------------------------------------------------------------------------
+/// Carried directly on dedicated reliable ordered WebRTC DataChannel
+/// ("notifications", created alongside "control", "clipboard", "transfer",
+/// and "input"). Every DataChannel message is exactly one NotificationFrame
+/// (matching DEC-023/DEC-024/DEC-027 bare frame rule).
+class NotificationFrame extends $pb.GeneratedMessage {
+  factory NotificationFrame({
+    $core.int? version,
+    $fixnum.Int64? timestampMs,
+    NotificationPosted? posted,
+    NotificationRemoved? removed,
+  }) {
+    final result = NotificationFrame._();
+    if (version != null) result.version = version;
+    if (timestampMs != null) result.timestampMs = timestampMs;
+    if (posted != null) result.posted = posted;
+    if (removed != null) result.removed = removed;
+    return result;
+  }
+
+  NotificationFrame._();
+
+  factory NotificationFrame.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      NotificationFrame()..mergeFromBuffer(data, registry);
+  factory NotificationFrame.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      NotificationFrame()..mergeFromJson(json, registry);
+
+  static const $core.Map<$core.int, NotificationFrame_Event>
+      _NotificationFrame_EventByTag = {
+    10: NotificationFrame_Event.posted,
+    11: NotificationFrame_Event.removed,
+    0: NotificationFrame_Event.notSet
+  };
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'NotificationFrame',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
+      createEmptyInstance: NotificationFrame.$_createMessage)
+    ..oo(0, [10, 11])
+    ..aI(1, _omitFieldNames ? '' : 'version', fieldType: $pb.PbFieldType.OU3)
+    ..a<$fixnum.Int64>(
+        2, _omitFieldNames ? '' : 'timestampMs', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..aOM<NotificationPosted>(10, _omitFieldNames ? '' : 'posted',
+        subBuilder: NotificationPosted.$_createMessage)
+    ..aOM<NotificationRemoved>(11, _omitFieldNames ? '' : 'removed',
+        subBuilder: NotificationRemoved.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  NotificationFrame clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  NotificationFrame copyWith(void Function(NotificationFrame) updates) =>
+      super.copyWith((message) => updates(message as NotificationFrame))
+          as NotificationFrame;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use NotificationFrame() / NotificationFrame.new instead')
+  static NotificationFrame create() => NotificationFrame._();
+  static $pb.GeneratedMessage $_createMessage() => NotificationFrame._();
+  @$core.override
+  NotificationFrame createEmptyInstance() => NotificationFrame._();
+  @$core.pragma('dart2js:noInline')
+  static NotificationFrame getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<NotificationFrame>(
+          NotificationFrame.$_createMessage);
+  static NotificationFrame? _defaultInstance;
+
+  @$pb.TagNumber(10)
+  @$pb.TagNumber(11)
+  NotificationFrame_Event whichEvent() =>
+      _NotificationFrame_EventByTag[$_whichOneof(0)]!;
+  @$pb.TagNumber(10)
+  @$pb.TagNumber(11)
+  void clearEvent() => $_clearField($_whichOneof(0));
+
+  /// Protocol version (1 for v0.1).
+  @$pb.TagNumber(1)
+  $core.int get version => $_getIZ(0);
+  @$pb.TagNumber(1)
+  set version($core.int value) => $_setUnsignedInt32(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasVersion() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearVersion() => $_clearField(1);
+
+  /// Sender wall-clock in milliseconds since Unix epoch.
+  @$pb.TagNumber(2)
+  $fixnum.Int64 get timestampMs => $_getI64(1);
+  @$pb.TagNumber(2)
+  set timestampMs($fixnum.Int64 value) => $_setInt64(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasTimestampMs() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearTimestampMs() => $_clearField(2);
+
+  @$pb.TagNumber(10)
+  NotificationPosted get posted => $_getN(2);
+  @$pb.TagNumber(10)
+  set posted(NotificationPosted value) => $_setField(10, value);
+  @$pb.TagNumber(10)
+  $core.bool hasPosted() => $_has(2);
+  @$pb.TagNumber(10)
+  void clearPosted() => $_clearField(10);
+  @$pb.TagNumber(10)
+  NotificationPosted ensurePosted() => $_ensure(2);
+
+  @$pb.TagNumber(11)
+  NotificationRemoved get removed => $_getN(3);
+  @$pb.TagNumber(11)
+  set removed(NotificationRemoved value) => $_setField(11, value);
+  @$pb.TagNumber(11)
+  $core.bool hasRemoved() => $_has(3);
+  @$pb.TagNumber(11)
+  void clearRemoved() => $_clearField(11);
+  @$pb.TagNumber(11)
+  NotificationRemoved ensureRemoved() => $_ensure(3);
+}
+
+/// NotificationPosted represents an Android notification posted or updated.
+class NotificationPosted extends $pb.GeneratedMessage {
+  factory NotificationPosted({
+    $core.String? key,
+    $core.String? packageName,
+    $core.String? appName,
+    $core.String? title,
+    $core.String? text,
+    $core.String? subText,
+    $fixnum.Int64? postTimeMs,
+    $core.bool? isOngoing,
+    $core.bool? isClearable,
+    $core.String? category,
+  }) {
+    final result = NotificationPosted._();
+    if (key != null) result.key = key;
+    if (packageName != null) result.packageName = packageName;
+    if (appName != null) result.appName = appName;
+    if (title != null) result.title = title;
+    if (text != null) result.text = text;
+    if (subText != null) result.subText = subText;
+    if (postTimeMs != null) result.postTimeMs = postTimeMs;
+    if (isOngoing != null) result.isOngoing = isOngoing;
+    if (isClearable != null) result.isClearable = isClearable;
+    if (category != null) result.category = category;
+    return result;
+  }
+
+  NotificationPosted._();
+
+  factory NotificationPosted.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      NotificationPosted()..mergeFromBuffer(data, registry);
+  factory NotificationPosted.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      NotificationPosted()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'NotificationPosted',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
+      createEmptyInstance: NotificationPosted.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'key')
+    ..aOS(2, _omitFieldNames ? '' : 'packageName')
+    ..aOS(3, _omitFieldNames ? '' : 'appName')
+    ..aOS(4, _omitFieldNames ? '' : 'title')
+    ..aOS(5, _omitFieldNames ? '' : 'text')
+    ..aOS(6, _omitFieldNames ? '' : 'subText')
+    ..aInt64(7, _omitFieldNames ? '' : 'postTimeMs')
+    ..aOB(8, _omitFieldNames ? '' : 'isOngoing')
+    ..aOB(9, _omitFieldNames ? '' : 'isClearable')
+    ..aOS(10, _omitFieldNames ? '' : 'category')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  NotificationPosted clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  NotificationPosted copyWith(void Function(NotificationPosted) updates) =>
+      super.copyWith((message) => updates(message as NotificationPosted))
+          as NotificationPosted;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use NotificationPosted() / NotificationPosted.new instead')
+  static NotificationPosted create() => NotificationPosted._();
+  static $pb.GeneratedMessage $_createMessage() => NotificationPosted._();
+  @$core.override
+  NotificationPosted createEmptyInstance() => NotificationPosted._();
+  @$core.pragma('dart2js:noInline')
+  static NotificationPosted getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<NotificationPosted>(
+          NotificationPosted.$_createMessage);
+  static NotificationPosted? _defaultInstance;
+
+  /// Globally unique notification key (StatusBarNotification.getKey()).
+  @$pb.TagNumber(1)
+  $core.String get key => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set key($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasKey() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearKey() => $_clearField(1);
+
+  /// Originating package name (e.g. "org.telegram.messenger").
+  @$pb.TagNumber(2)
+  $core.String get packageName => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set packageName($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPackageName() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPackageName() => $_clearField(2);
+
+  /// Human-readable app name (e.g. "Telegram").
+  @$pb.TagNumber(3)
+  $core.String get appName => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set appName($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasAppName() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearAppName() => $_clearField(3);
+
+  /// Notification title (Notification.EXTRA_TITLE).
+  @$pb.TagNumber(4)
+  $core.String get title => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set title($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasTitle() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearTitle() => $_clearField(4);
+
+  /// Notification body text (Notification.EXTRA_TEXT).
+  @$pb.TagNumber(5)
+  $core.String get text => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set text($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasText() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearText() => $_clearField(5);
+
+  /// Optional subtext or summary (Notification.EXTRA_SUB_TEXT).
+  @$pb.TagNumber(6)
+  $core.String get subText => $_getSZ(5);
+  @$pb.TagNumber(6)
+  set subText($core.String value) => $_setString(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasSubText() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearSubText() => $_clearField(6);
+
+  /// Wall-clock time in milliseconds when the notification was posted on Android.
+  @$pb.TagNumber(7)
+  $fixnum.Int64 get postTimeMs => $_getI64(6);
+  @$pb.TagNumber(7)
+  set postTimeMs($fixnum.Int64 value) => $_setInt64(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasPostTimeMs() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearPostTimeMs() => $_clearField(7);
+
+  /// True if the notification is ongoing (sticky / foreground service).
+  @$pb.TagNumber(8)
+  $core.bool get isOngoing => $_getBF(7);
+  @$pb.TagNumber(8)
+  set isOngoing($core.bool value) => $_setBool(7, value);
+  @$pb.TagNumber(8)
+  $core.bool hasIsOngoing() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearIsOngoing() => $_clearField(8);
+
+  /// True if the notification can be cleared by the user.
+  @$pb.TagNumber(9)
+  $core.bool get isClearable => $_getBF(8);
+  @$pb.TagNumber(9)
+  set isClearable($core.bool value) => $_setBool(8, value);
+  @$pb.TagNumber(9)
+  $core.bool hasIsClearable() => $_has(8);
+  @$pb.TagNumber(9)
+  void clearIsClearable() => $_clearField(9);
+
+  /// Optional Android notification category ("msg", "call", "alarm", "email", etc.).
+  @$pb.TagNumber(10)
+  $core.String get category => $_getSZ(9);
+  @$pb.TagNumber(10)
+  set category($core.String value) => $_setString(9, value);
+  @$pb.TagNumber(10)
+  $core.bool hasCategory() => $_has(9);
+  @$pb.TagNumber(10)
+  void clearCategory() => $_clearField(10);
+}
+
+/// NotificationRemoved represents an Android notification dismissed or canceled.
+class NotificationRemoved extends $pb.GeneratedMessage {
+  factory NotificationRemoved({
+    $core.String? key,
+    $core.String? packageName,
+    $core.int? reason,
+  }) {
+    final result = NotificationRemoved._();
+    if (key != null) result.key = key;
+    if (packageName != null) result.packageName = packageName;
+    if (reason != null) result.reason = reason;
+    return result;
+  }
+
+  NotificationRemoved._();
+
+  factory NotificationRemoved.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      NotificationRemoved()..mergeFromBuffer(data, registry);
+  factory NotificationRemoved.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      NotificationRemoved()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'NotificationRemoved',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
+      createEmptyInstance: NotificationRemoved.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'key')
+    ..aOS(2, _omitFieldNames ? '' : 'packageName')
+    ..aI(3, _omitFieldNames ? '' : 'reason')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  NotificationRemoved clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  NotificationRemoved copyWith(void Function(NotificationRemoved) updates) =>
+      super.copyWith((message) => updates(message as NotificationRemoved))
+          as NotificationRemoved;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core
+      .Deprecated('Use NotificationRemoved() / NotificationRemoved.new instead')
+  static NotificationRemoved create() => NotificationRemoved._();
+  static $pb.GeneratedMessage $_createMessage() => NotificationRemoved._();
+  @$core.override
+  NotificationRemoved createEmptyInstance() => NotificationRemoved._();
+  @$core.pragma('dart2js:noInline')
+  static NotificationRemoved getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<NotificationRemoved>(
+          NotificationRemoved.$_createMessage);
+  static NotificationRemoved? _defaultInstance;
+
+  /// Globally unique notification key that was removed.
+  @$pb.TagNumber(1)
+  $core.String get key => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set key($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasKey() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearKey() => $_clearField(1);
+
+  /// Package name of the removed notification.
+  @$pb.TagNumber(2)
+  $core.String get packageName => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set packageName($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPackageName() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPackageName() => $_clearField(2);
+
+  /// Android cancellation reason code (e.g. REASON_CANCEL, REASON_DISMISSED).
+  @$pb.TagNumber(3)
+  $core.int get reason => $_getIZ(2);
+  @$pb.TagNumber(3)
+  set reason($core.int value) => $_setSignedInt32(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasReason() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearReason() => $_clearField(3);
+}
+
 class ScreenStop extends $pb.GeneratedMessage {
   factory ScreenStop({
     Code? reasonCode,

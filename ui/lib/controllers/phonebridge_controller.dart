@@ -15,9 +15,11 @@ import '../services/phonebridge_channel.dart';
 import '../services/platform_bridge_service.dart';
 import '../services/android_bridge_service.dart';
 import '../services/linux_bridge_service.dart' show LinuxBridgeService;
+import '../services/notification_backend.dart';
 import '../services/session_backend.dart';
 import 'session_controller.dart';
 import 'transfer_controller.dart';
+import 'notification_controller.dart';
 
 class PhoneBridgeController extends ChangeNotifier {
   PhoneBridgeController({
@@ -52,6 +54,11 @@ class PhoneBridgeController extends ChangeNotifier {
       TransferController(backend: _service);
   TransferController get transfers => _transfers;
 
+  /// Active mirrored Android notifications on Linux desktop (DEC-028, Phase 8 v0.1).
+  late final NotificationController _notifications =
+      NotificationController(backend: _resolveNotificationBackend(_service));
+  NotificationController get notifications => _notifications;
+
   /// Connection/session state for the whole app (Phase 5). Platforms without a
   /// local session state machine report "unsupported" rather than
   /// "disconnected", so the UI never claims a session is missing on a platform
@@ -59,6 +66,13 @@ class PhoneBridgeController extends ChangeNotifier {
   late final SessionController _session =
       SessionController(backend: _resolveSessionBackend(_service));
   SessionController get session => _session;
+
+  /// The notification seam is optional per platform, so it is resolved structurally.
+  static NotificationBackend _resolveNotificationBackend(PlatformBridgeService service) {
+    final Object candidate = service;
+    if (candidate is NotificationBackend) return candidate;
+    return const UnsupportedNotificationBackend();
+  }
 
   /// The session seam is optional per platform, so it is resolved structurally:
   /// a bridge that drives sessions locally also implements [SessionBackend].
@@ -156,9 +170,17 @@ class PhoneBridgeController extends ChangeNotifier {
     // change has to repaint the connection surfaces too — otherwise an in-flight
     // file would only be visible in the transfer list.
     _transfers.addListener(_onChildChanged);
+    // Mirrored notifications subscription and hydration (DEC-028).
+    _notifications.addListener(_onChildChanged);
+    _notifications.initialize();
   }
 
-  void _onChildChanged() => notifyListeners();
+  void _onChildChanged() {
+    if (_session.status.isTerminal) {
+      _notifications.clear();
+    }
+    notifyListeners();
+  }
 
   bool _disposed = false;
 
@@ -170,6 +192,8 @@ class PhoneBridgeController extends ChangeNotifier {
     if (_disposed) return;
     _disposed = true;
     _rawEventsSub?.cancel();
+    _notifications.removeListener(_onChildChanged);
+    _notifications.dispose();
     _transfers.removeListener(_onChildChanged);
     _session.removeListener(_onChildChanged);
     _session.dispose();

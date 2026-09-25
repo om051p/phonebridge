@@ -21,6 +21,7 @@ import (
 	"github.com/om051p/phonebridge/core/pkg/crypto"
 	"github.com/om051p/phonebridge/core/pkg/discovery"
 	"github.com/om051p/phonebridge/core/pkg/frames"
+	"github.com/om051p/phonebridge/core/pkg/notification"
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgelocalipcv1"
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgev1"
 	"github.com/om051p/phonebridge/core/pkg/receiver"
@@ -72,19 +73,23 @@ type SessionManager struct {
 	// frameHub receives completed frames for local-IPC StreamFrames (Phase 6
 	// Slice 3). When set, sessions are wrapped PSIGuard(TapSink(sink)).
 	frameHub *frames.Hub
+
+	notificationStore *notification.Store
+	onNotification    func(*phonebridgev1.NotificationFrame)
 }
 
 // NewSessionManager creates a new session coordinator.
 func NewSessionManager(cfg SessionConfig, disc *discovery.Discovery, sink receiver.FrameSink, onEvent func(SessionEvent)) *SessionManager {
 	return &SessionManager{
-		cfg:             cfg,
-		discovery:       disc,
-		sink:            sink,
-		onEvent:         onEvent,
-		identity:        cfg.Identity,
-		trustStore:      cfg.TrustStore,
-		pendingPairings: make(map[string]*pendingPairing),
-		httpClient:      &http.Client{Timeout: 10 * time.Second},
+		cfg:               cfg,
+		discovery:         disc,
+		sink:              sink,
+		onEvent:           onEvent,
+		identity:          cfg.Identity,
+		trustStore:        cfg.TrustStore,
+		pendingPairings:   make(map[string]*pendingPairing),
+		httpClient:        &http.Client{Timeout: 10 * time.Second},
+		notificationStore: notification.NewStore(),
 	}
 }
 
@@ -316,6 +321,18 @@ func (m *SessionManager) TransferEngineReady() bool {
 	return sess != nil && sess.TransferReady()
 }
 
+// SetNotificationHandler registers a callback invoked when inbound notification frames arrive.
+func (m *SessionManager) SetNotificationHandler(handler func(*phonebridgev1.NotificationFrame)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onNotification = handler
+}
+
+// ListNotifications returns the active in-memory mirrored notifications (DEC-028).
+func (m *SessionManager) ListNotifications() []*phonebridgev1.NotificationPosted {
+	return m.notificationStore.List()
+}
+
 // TrustStore returns the active trust store.
 func (m *SessionManager) TrustStore() *crypto.TrustStore {
 	m.mu.RLock()
@@ -357,6 +374,15 @@ func (m *SessionManager) StartSession(ctx context.Context, deviceID string, requ
 	cfg.Identity = m.identity
 	cfg.TrustStore = m.trustStore
 	cfg.Requested = requested
+	cfg.NotificationStore = m.notificationStore
+	cfg.OnNotification = func(frame *phonebridgev1.NotificationFrame) {
+		m.mu.RLock()
+		handler := m.onNotification
+		m.mu.RUnlock()
+		if handler != nil {
+			handler(frame)
+		}
+	}
 
 	// Captured for the state callback (which must not re-lock m.mu), together
 	// with the hub session token. The callback runs AFTER the transition has
@@ -401,6 +427,7 @@ func (m *SessionManager) StartSession(ctx context.Context, deviceID string, requ
 				// superseded: the newer session's window must stay open.
 				_ = hub.EndSession(tok)
 			}
+			m.notificationStore.Clear()
 		}
 		if m.onEvent != nil {
 			errMsg := ""

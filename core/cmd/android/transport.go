@@ -167,6 +167,17 @@ func (t *MediaTransport) MediaInit() error {
 				_ = ib.OnRemoteBytes(data)
 			}
 		},
+		// Dedicated notifications channel (DEC-028, Phase 8): reliable and ordered.
+		OnNotificationOpen: func() {
+			if nb := currentNotificationBridge(); nb != nil {
+				nb.OnChannelOpen()
+			}
+		},
+		OnNotificationClose: func() {
+			if nb := currentNotificationBridge(); nb != nil {
+				nb.OnChannelClose()
+			}
+		},
 	}
 	sess, err := webrtc.NewSession(cfg, sender)
 	if err != nil {
@@ -422,4 +433,15 @@ func (t *MediaTransport) MediaStatsJSON() []byte {
 	}
 	b, _ := json.Marshal(stats)
 	return b
+}
+
+// SendNotification sends wire bytes over the reliable ordered "notifications" DataChannel (Phase 8, DEC-028).
+func (t *MediaTransport) SendNotification(wireBytes []byte) error {
+	t.mu.Lock()
+	sess := t.session
+	t.mu.Unlock()
+	if sess == nil {
+		return errors.New("media: no active session")
+	}
+	return sess.SendNotification(wireBytes)
 }
