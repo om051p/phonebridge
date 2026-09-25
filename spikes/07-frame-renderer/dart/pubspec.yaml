@@ -1,0 +1,19 @@
+name: p2_bench
+description: Spike 07 P2 — local-IPC frame transport bench (standalone; not part of the ui test suite).
+publish_to: none
+version: 0.0.1
+
+environment:
+  sdk: ">=3.2.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  phonebridge_ui:
+    path: ../../../ui
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:

@@ -270,6 +270,9 @@ class TransferController extends ChangeNotifier {
     // Pending RPC futures may still resolve after the widget tree is gone; the
     // guard below keeps those late notifications from touching a disposed
     // ChangeNotifier. The shared backend is deliberately NOT disposed here.
+    //
+    // Idempotent: an owner teardown plus an explicit call must not throw.
+    if (_disposed) return;
     _disposed = true;
     _streamSub?.cancel();
     _streamSub = null;

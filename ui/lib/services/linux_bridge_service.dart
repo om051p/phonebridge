@@ -4,12 +4,16 @@ import '../models/capture_stats.dart';
 import '../models/clipboard_status.dart';
 import '../models/device_state.dart';
 import '../models/discovered_device.dart';
+import '../generated/phonebridge/v1/phonebridge.pb.dart' as pb;
 import '../models/transfer_item.dart';
 import '../models/trusted_device.dart';
-import 'local_ipc_client.dart';
+import 'frame_stream.dart';
+import 'local_ipc_client.dart' show LocalIpcClient, LocalIpcState;
 import 'platform_bridge_service.dart';
+import 'session_backend.dart';
 
-class LinuxBridgeService implements PlatformBridgeService {
+class LinuxBridgeService
+    implements PlatformBridgeService, SessionBackend, ProvidesFrameStream {
   LinuxBridgeService({LocalIpcClient? client})
       : _client = client ?? LocalIpcClient() {
     _initStream();
@@ -23,8 +27,15 @@ class LinuxBridgeService implements PlatformBridgeService {
   final StreamController<TransferItem> _transferController =
       StreamController<TransferItem>.broadcast();
 
+  /// Session transitions, forwarded from the single IPC subscription below
+  /// rather than opened as a second stream: the app-level session model must
+  /// not cost an extra RPC stream to the daemon.
+  final StreamController<ipc.SessionEvent> _sessionEventsController =
+      StreamController<ipc.SessionEvent>.broadcast();
+
   StreamSubscription<ipc.StreamEventsResponse>? _streamSub;
   String? _activeSessionId;
+  bool _disposed = false;
   CaptureStats _lastStats = CaptureStats.initial;
   String _lastClipboardState = 'STOPPED';
 
@@ -37,11 +48,18 @@ class LinuxBridgeService implements PlatformBridgeService {
   void _initStream() {
     _streamSub = _client.streamEvents().listen(
       (resp) {
+        // One pulse per relayed batch, for screens that only count events.
+        if (!_eventPulse.isClosed) {
+          _eventPulse.add(null);
+        }
         final map = <dynamic, dynamic>{};
 
         if (resp.hasSessionEvent()) {
           final se = resp.sessionEvent;
           _activeSessionId = se.sessionId;
+          if (!_sessionEventsController.isClosed) {
+            _sessionEventsController.add(se);
+          }
           final isStreaming = se.state == ipc.SessionState.SESSION_STATE_STREAMING;
           final isStopped = se.state == ipc.SessionState.SESSION_STATE_STOPPED ||
               se.state == ipc.SessionState.SESSION_STATE_FAILED;
@@ -208,6 +226,11 @@ class LinuxBridgeService implements PlatformBridgeService {
     }
   }
 
+  /// The app's capture control path. The negotiated-parameter screen's selection
+  /// is now actually *requested* instead of being dropped at this boundary — the
+  /// daemon has always accepted a requested tuple (DEC-022); only the transport of
+  /// it was missing here, which meant the phone silently applied its own defaults
+  /// while the UI showed the user's chosen preset.
   @override
   Future<bool> startCapture({
     String? receiverUrl,
@@ -216,12 +239,19 @@ class LinuxBridgeService implements PlatformBridgeService {
     int fps = 30,
     int bitrateKbps = 2500,
   }) async {
+    final target = receiverUrl != null && receiverUrl.isNotEmpty
+        ? receiverUrl
+        : 'peer-auto';
     try {
-      final target = receiverUrl != null && receiverUrl.isNotEmpty
-          ? receiverUrl
-          : 'peer-auto';
-      final resp = await _client.startSession(target);
-      _activeSessionId = resp.sessionId;
+      final resp = await startSession(
+        target: target,
+        requested: mediaParamsRequest(
+          width: width,
+          height: height,
+          fps: fps,
+          bitrateKbps: bitrateKbps,
+        ),
+      );
       return resp.sessionId.isNotEmpty;
     } catch (_) {
       return false;
@@ -230,13 +260,13 @@ class LinuxBridgeService implements PlatformBridgeService {
 
   @override
   Future<bool> stopCapture() async {
+    if (_activeSessionId == null || _activeSessionId!.isEmpty) return true;
     try {
-      if (_activeSessionId != null && _activeSessionId!.isNotEmpty) {
-        final resp = await _client.stopSession(sessionId: _activeSessionId!);
-        _activeSessionId = null;
-        return resp.sessionId.isNotEmpty;
-      }
-      return true;
+      final resp = await stopSession(
+        sessionId: _activeSessionId!,
+        reason: 'user stopped',
+      );
+      return resp.sessionId.isNotEmpty;
     } catch (_) {
       return false;
     }
@@ -254,6 +284,7 @@ class LinuxBridgeService implements PlatformBridgeService {
                 version: d.version,
                 host: d.address,
                 port: d.port,
+                isStale: d.isStale,
               ))
           .toList();
     } catch (_) {
@@ -349,12 +380,103 @@ class LinuxBridgeService implements PlatformBridgeService {
     // Desktop platform does not use Android MethodChannel handlers
   }
 
+  // -------------------------------------------------------------------------
+  // Session state seam (Phase 5): the app-level model reads session state from
+  // here, so a session's state is visible to every screen instead of only the
+  // one widget that happened to hold it.
+  // -------------------------------------------------------------------------
+
+  @override
+  bool get supportsSessions => true;
+
+  @override
+  String get activeSessionId => _activeSessionId ?? '';
+
+  @override
+  Stream<ipc.SessionEvent> get sessionEventStream =>
+      _sessionEventsController.stream;
+
+  @override
+  Future<ipc.GetSessionStateResponse> getSessionSnapshot(String sessionId) =>
+      _client.getSessionState(sessionId: sessionId);
+
+  @override
+  Future<ipc.StartSessionResponse> startSession({
+    required String target,
+    pb.MediaParams? requested,
+  }) async {
+    final resp = await _client.startSession(target, requested: requested);
+    _activeSessionId = resp.sessionId;
+    return resp;
+  }
+
+  @override
+  Future<ipc.StopSessionResponse> stopSession({
+    required String sessionId,
+    String reason = 'user stopped',
+  }) async {
+    final resp = await _client.stopSession(sessionId: sessionId, reason: reason);
+    if (resp.sessionId.isNotEmpty) {
+      _activeSessionId = null;
+    }
+    return resp;
+  }
+
+  // -------------------------------------------------------------------------
+  // Device / diagnostics seam (Phase 5): the production surfaces (Devices,
+  // Diagnostics) read discovery, trust and daemon transport facts through the
+  // app-owned service instead of owning a second IPC client. Discovery
+  // staleness travels on the model-typed mapping; pairing feedback rides the
+  // controller's error channel.
+  // -------------------------------------------------------------------------
+
+  /// Last known transport state of the underlying client.
+  LocalIpcState get ipcState => _client.state;
+
+  /// Local transport state changes of the underlying client. This is the
+  /// client's own broadcast stream — a local signal, **not** a second daemon
+  /// subscription; screens may all listen without adding IPC traffic.
+  Stream<LocalIpcState> get ipcStateStream => _client.onStateChanged;
+
+  final StreamController<void> _eventPulse = StreamController<void>.broadcast();
+
+  /// Fires once per event batch relayed by the daemon on this service's single
+  /// subscription. Screens that only need to *count* relayed events listen to
+  /// this pulse instead of opening their own `streamEvents()` subscription,
+  /// which is how the one-consumer rule is kept without losing the feature.
+  Stream<void> get eventPulse => _eventPulse.stream;
+
+  /// Where the daemon socket lives (rendered in the Diagnostics card).
+  String get socketPath => _client.socketPath;
+
+  Future<ipc.HandshakeResponse> handshake() => _client.handshake();
+
+  Future<ipc.PingResponse> ping({int nonce = 1}) => _client.ping(nonce: nonce);
+
+  Future<ipc.HealthResponse> health() => _client.health();
+
+  // -------------------------------------------------------------------------
+  // Frame stream seam (Phase 6 Slice 3A): a SEPARATE daemon RPC stream from
+  // the single streamEvents subscription above — frame load can never cost
+  // the app a control event (one-consumer rule is about the event stream).
+  // -------------------------------------------------------------------------
+
+  @override
+  FrameStream createFrameStream() =>
+      FrameStream(source: () => _client.streamFrames());
+
   @override
   void dispose() {
+    // Idempotent: the app-level owner and a standalone screen can both tear
+    // the service down, and closing a StreamController twice throws.
+    if (_disposed) return;
+    _disposed = true;
     _streamSub?.cancel();
     _rawEventsController.close();
     _statsController.close();
     _transferController.close();
+    _sessionEventsController.close();
+    _eventPulse.close();
     _client.shutdown();
   }
 }

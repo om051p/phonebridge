@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../controllers/phonebridge_controller.dart';
+import '../models/link_status.dart';
+import '../ui/link_indicator.dart';
 import '../models/activity_event.dart';
 import '../ui/transfer_views.dart';
 
@@ -24,7 +26,10 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isCapturing = controller.isCapturing;
+    // One connection status for the app (Phase 5): the hero card no longer asks
+    // "is capturing?" and infers a connection from it.
+    final link = controller.linkStatus;
+    final isSharing = controller.isSharing;
     final peer = controller.activePeer;
     final stats = controller.captureStats;
     final clipboard = controller.clipboardStatus;
@@ -35,9 +40,9 @@ class HomeScreen extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
-          _buildConnectionCard(context, theme, peer),
+          _buildConnectionCard(context, theme, peer, link),
           const SizedBox(height: 16),
-          _buildScreenShareHeroCard(context, theme, isCapturing, stats),
+          _buildScreenShareHeroCard(context, theme, isSharing, stats, link),
           const SizedBox(height: 16),
           _buildClipboardQuickCard(context, theme, clipboard),
           const SizedBox(height: 16),
@@ -52,7 +57,12 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildConnectionCard(BuildContext context, ThemeData theme, dynamic peer) {
+  Widget _buildConnectionCard(
+    BuildContext context,
+    ThemeData theme,
+    dynamic peer,
+    LinkStatus link,
+  ) {
     final hasPeer = peer != null;
 
     return Card(
@@ -99,6 +109,47 @@ class HomeScreen extends StatelessWidget {
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
+                  const SizedBox(height: 6),
+                  Tooltip(
+                    message: [
+                      link.description,
+                      if (link.actionHint.isNotEmpty) link.actionHint,
+                    ].join('\n'),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: linkPhaseColor(theme, link.phase),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            link.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: linkPhaseColor(theme, link.phase),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Transfer activity is shown beside the connection, never as it.
+                  if (link.transferLine.isNotEmpty)
+                    Text(
+                      link.transferLine,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -121,6 +172,7 @@ class HomeScreen extends StatelessWidget {
     ThemeData theme,
     bool isCapturing,
     dynamic stats,
+    LinkStatus link,
   ) {
     final primaryColor = isCapturing ? Colors.green : theme.colorScheme.primary;
 
@@ -171,9 +223,13 @@ class HomeScreen extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              isCapturing
-                  ? 'Your screen is currently streaming to your connected PC.'
-                  : 'Mirror your Android screen to your desktop in real-time with low latency.',
+              // A failure or a recovery in progress is worth more than the
+              // marketing line: it is the reason the button did not work.
+              link.actionHint.isNotEmpty
+                  ? link.actionHint
+                  : (isCapturing
+                      ? 'Your screen is currently streaming to your connected PC.'
+                      : 'Mirror your Android screen to your desktop in real-time with low latency.'),
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -182,14 +238,20 @@ class HomeScreen extends StatelessWidget {
             Row(
               children: [
                 Chip(
-                  label: Text('${controller.selectedWidth}x${controller.selectedHeight}'),
+                  // A zero selection is the DEC-022 "device default"
+                  // request — worded as the choice it is, never as "0x0".
+                  label: Text(controller.selectedWidth == 0
+                      ? 'Device default'
+                      : '${controller.selectedWidth}x${controller.selectedHeight}'),
                   visualDensity: VisualDensity.compact,
                 ),
-                const SizedBox(width: 8),
-                Chip(
-                  label: Text('${controller.selectedFps} fps'),
-                  visualDensity: VisualDensity.compact,
-                ),
+                if (controller.selectedFps > 0) ...[
+                  const SizedBox(width: 8),
+                  Chip(
+                    label: Text('${controller.selectedFps} fps'),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ],
                 const Spacer(),
                 TextButton(
                   onPressed: () => onNavigateToTab(2), // Go to Screen tab

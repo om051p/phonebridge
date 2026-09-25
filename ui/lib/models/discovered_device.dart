@@ -13,7 +13,13 @@ class DiscoveredDevice {
     required this.version,
     required this.host,
     required this.port,
+    this.isStale = false,
   });
+
+  /// The daemon reports a browse entry as stale when its mDNS record has
+  /// aged out. Surfaced so the Devices tab can refuse to offer pairing on a
+  /// result that may no longer exist on the LAN.
+  final bool isStale;
 
   String get shortId {
     if (id.length <= 12) return id;

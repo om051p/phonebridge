@@ -18,6 +18,7 @@ import (
 	"github.com/om051p/phonebridge/core/pkg/engine"
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgelocalipcv1"
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgev1"
+	"github.com/om051p/phonebridge/core/pkg/rtpmedia"
 	"github.com/om051p/phonebridge/core/pkg/transfer"
 )
 
@@ -595,6 +596,17 @@ func TestRPC_SessionLifecycle_And_Events(t *testing.T) {
 			Requested:         engine.MediaParams{Width: 1080, Height: 2400, FPS: 60, BitrateKbps: 8000},
 			Actual:            engine.MediaParams{Width: 720, Height: 1600, FPS: 30, BitrateKbps: 4000},
 			ActualKnown:       true,
+			// Real receiver state: the sink classification and the
+			// depacketizer's transport counters must ride the same snapshot
+			// that already carries session state and negotiated media.
+			SinkKind:   engine.SinkKindDisplay,
+			SinkActive: true,
+			Stats: rtpmedia.StreamStats{
+				SeqGaps:     7,
+				DupSeq:      8,
+				LatePackets: 9,
+				TSBackward:  10,
+			},
 		},
 		devices: []discovery.Device{
 			{
@@ -723,6 +735,19 @@ func TestRPC_SessionLifecycle_And_Events(t *testing.T) {
 	}
 	if stateResp.GetReasonCode() != phonebridgelocalipcv1.SessionReason_SESSION_REASON_NONE {
 		t.Errorf("reason code = %v, want NONE", stateResp.GetReasonCode())
+	}
+	// Sink classification reaches the client verbatim (display pipe, active).
+	if stateResp.GetSinkKind() != phonebridgelocalipcv1.SinkKind_SINK_KIND_DISPLAY {
+		t.Errorf("sink kind = %v, want SINK_KIND_DISPLAY", stateResp.GetSinkKind())
+	}
+	if !stateResp.GetSinkActive() {
+		t.Error("sink active = false, want true")
+	}
+	// Transport counters reach the client with the receiver's semantics intact.
+	if st := stateResp.GetStats(); st.GetSeqGaps() != 7 || st.GetDupSeq() != 8 ||
+		st.GetLatePackets() != 9 || st.GetTsBackward() != 10 {
+		t.Errorf("transport counters = gaps %d dup %d late %d tsback %d, want 7 8 9 10",
+			st.GetSeqGaps(), st.GetDupSeq(), st.GetLatePackets(), st.GetTsBackward())
 	}
 
 	// 5. Test StopSession

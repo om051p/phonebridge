@@ -1269,6 +1269,10 @@ class StreamStats extends $pb.GeneratedMessage {
     $fixnum.Int64? accessUnits,
     $fixnum.Int64? keyframes,
     $fixnum.Int64? droppedAus,
+    $fixnum.Int64? seqGaps,
+    $fixnum.Int64? dupSeq,
+    $fixnum.Int64? latePackets,
+    $fixnum.Int64? tsBackward,
   }) {
     final result = StreamStats._();
     if (packets != null) result.packets = packets;
@@ -1277,6 +1281,10 @@ class StreamStats extends $pb.GeneratedMessage {
     if (accessUnits != null) result.accessUnits = accessUnits;
     if (keyframes != null) result.keyframes = keyframes;
     if (droppedAus != null) result.droppedAus = droppedAus;
+    if (seqGaps != null) result.seqGaps = seqGaps;
+    if (dupSeq != null) result.dupSeq = dupSeq;
+    if (latePackets != null) result.latePackets = latePackets;
+    if (tsBackward != null) result.tsBackward = tsBackward;
     return result;
   }
 
@@ -1309,6 +1317,16 @@ class StreamStats extends $pb.GeneratedMessage {
         5, _omitFieldNames ? '' : 'keyframes', $pb.PbFieldType.OU6,
         defaultOrMaker: $fixnum.Int64.ZERO)
     ..aInt64(6, _omitFieldNames ? '' : 'droppedAus')
+    ..a<$fixnum.Int64>(7, _omitFieldNames ? '' : 'seqGaps', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..a<$fixnum.Int64>(8, _omitFieldNames ? '' : 'dupSeq', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..a<$fixnum.Int64>(
+        9, _omitFieldNames ? '' : 'latePackets', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..a<$fixnum.Int64>(
+        10, _omitFieldNames ? '' : 'tsBackward', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1386,6 +1404,46 @@ class StreamStats extends $pb.GeneratedMessage {
   $core.bool hasDroppedAus() => $_has(5);
   @$pb.TagNumber(6)
   void clearDroppedAus() => $_clearField(6);
+
+  /// Transport counters from the receiver's depacketizer. They exist with
+  /// stable semantics in rtpmedia.StreamStats and are surfaced so link-quality
+  /// regressions are observable from the UI and from tests rather than only
+  /// from daemon logs.
+  @$pb.TagNumber(7)
+  $fixnum.Int64 get seqGaps => $_getI64(6);
+  @$pb.TagNumber(7)
+  set seqGaps($fixnum.Int64 value) => $_setInt64(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasSeqGaps() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearSeqGaps() => $_clearField(7);
+
+  @$pb.TagNumber(8)
+  $fixnum.Int64 get dupSeq => $_getI64(7);
+  @$pb.TagNumber(8)
+  set dupSeq($fixnum.Int64 value) => $_setInt64(7, value);
+  @$pb.TagNumber(8)
+  $core.bool hasDupSeq() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearDupSeq() => $_clearField(8);
+
+  @$pb.TagNumber(9)
+  $fixnum.Int64 get latePackets => $_getI64(8);
+  @$pb.TagNumber(9)
+  set latePackets($fixnum.Int64 value) => $_setInt64(8, value);
+  @$pb.TagNumber(9)
+  $core.bool hasLatePackets() => $_has(8);
+  @$pb.TagNumber(9)
+  void clearLatePackets() => $_clearField(9);
+
+  @$pb.TagNumber(10)
+  $fixnum.Int64 get tsBackward => $_getI64(9);
+  @$pb.TagNumber(10)
+  set tsBackward($fixnum.Int64 value) => $_setInt64(9, value);
+  @$pb.TagNumber(10)
+  $core.bool hasTsBackward() => $_has(9);
+  @$pb.TagNumber(10)
+  void clearTsBackward() => $_clearField(10);
 }
 
 /// GetSessionStateResponse contains a full point-in-time snapshot.
@@ -1401,6 +1459,9 @@ class GetSessionStateResponse extends $pb.GeneratedMessage {
     $1.MediaParams? actual,
     SessionReason? reasonCode,
     $core.int? reconnectAttempts,
+    SinkKind? sinkKind,
+    $core.bool? sinkActive,
+    $core.String? framesReason,
   }) {
     final result = GetSessionStateResponse._();
     if (sessionId != null) result.sessionId = sessionId;
@@ -1414,6 +1475,9 @@ class GetSessionStateResponse extends $pb.GeneratedMessage {
     if (actual != null) result.actual = actual;
     if (reasonCode != null) result.reasonCode = reasonCode;
     if (reconnectAttempts != null) result.reconnectAttempts = reconnectAttempts;
+    if (sinkKind != null) result.sinkKind = sinkKind;
+    if (sinkActive != null) result.sinkActive = sinkActive;
+    if (framesReason != null) result.framesReason = framesReason;
     return result;
   }
 
@@ -1449,6 +1513,10 @@ class GetSessionStateResponse extends $pb.GeneratedMessage {
         enumValues: SessionReason.values)
     ..aI(10, _omitFieldNames ? '' : 'reconnectAttempts',
         fieldType: $pb.PbFieldType.OU3)
+    ..aE<SinkKind>(11, _omitFieldNames ? '' : 'sinkKind',
+        enumValues: SinkKind.values)
+    ..aOB(12, _omitFieldNames ? '' : 'sinkActive')
+    ..aOS(13, _omitFieldNames ? '' : 'framesReason')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1578,6 +1646,42 @@ class GetSessionStateResponse extends $pb.GeneratedMessage {
   $core.bool hasReconnectAttempts() => $_has(9);
   @$pb.TagNumber(10)
   void clearReconnectAttempts() => $_clearField(10);
+
+  /// Which frame sink the session is writing to, and whether it is currently
+  /// attached. The daemon clears both when the session reaches a terminal
+  /// state, so a stale sink can never outlive its session.
+  @$pb.TagNumber(11)
+  SinkKind get sinkKind => $_getN(10);
+  @$pb.TagNumber(11)
+  set sinkKind(SinkKind value) => $_setField(11, value);
+  @$pb.TagNumber(11)
+  $core.bool hasSinkKind() => $_has(10);
+  @$pb.TagNumber(11)
+  void clearSinkKind() => $_clearField(11);
+
+  @$pb.TagNumber(12)
+  $core.bool get sinkActive => $_getBF(11);
+  @$pb.TagNumber(12)
+  set sinkActive($core.bool value) => $_setBool(11, value);
+  @$pb.TagNumber(12)
+  $core.bool hasSinkActive() => $_has(11);
+  @$pb.TagNumber(12)
+  void clearSinkActive() => $_clearField(12);
+
+  /// Typed reason why the in-app frame stream is (or is not) producing
+  /// frames — empty while frames flow normally. Uppercase codes, e.g.
+  /// "FFMPEG_MISSING" (tap degraded, P4) or "PARAM_SETS_MISSING" (received
+  /// stream carries no SPS/PPS and none was ever cached). Lets the UI
+  /// distinguish "no frames yet" from a diagnosed condition instead of
+  /// showing an unexplained blank surface.
+  @$pb.TagNumber(13)
+  $core.String get framesReason => $_getSZ(12);
+  @$pb.TagNumber(13)
+  set framesReason($core.String value) => $_setString(12, value);
+  @$pb.TagNumber(13)
+  $core.bool hasFramesReason() => $_has(12);
+  @$pb.TagNumber(13)
+  void clearFramesReason() => $_clearField(13);
 }
 
 /// DiscoveredDevice models a LAN device discovered via mDNS.
@@ -3644,6 +3748,224 @@ class TransferEvent extends $pb.GeneratedMessage {
   void clearTransfer() => $_clearField(1);
   @$pb.TagNumber(1)
   TransferInfo ensureTransfer() => $_ensure(0);
+}
+
+/// StreamFramesRequest subscribes to frames of the active session.
+/// Intentionally empty in v1: future filters (session id, fps cap, quality)
+/// are added as optional fields; older servers ignore unknown fields.
+class StreamFramesRequest extends $pb.GeneratedMessage {
+  factory StreamFramesRequest() => StreamFramesRequest._();
+
+  StreamFramesRequest._();
+
+  factory StreamFramesRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      StreamFramesRequest()..mergeFromBuffer(data, registry);
+  factory StreamFramesRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      StreamFramesRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'StreamFramesRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: StreamFramesRequest.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  StreamFramesRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  StreamFramesRequest copyWith(void Function(StreamFramesRequest) updates) =>
+      super.copyWith((message) => updates(message as StreamFramesRequest))
+          as StreamFramesRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core
+      .Deprecated('Use StreamFramesRequest() / StreamFramesRequest.new instead')
+  static StreamFramesRequest create() => StreamFramesRequest._();
+  static $pb.GeneratedMessage $_createMessage() => StreamFramesRequest._();
+  @$core.override
+  StreamFramesRequest createEmptyInstance() => StreamFramesRequest._();
+  @$core.pragma('dart2js:noInline')
+  static StreamFramesRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<StreamFramesRequest>(
+          StreamFramesRequest.$_createMessage);
+  static StreamFramesRequest? _defaultInstance;
+}
+
+/// StreamFramesResponse carries one CHUNK of one JPEG frame. A frame larger
+/// than the DEC-018 bulk ceiling (<= 64 KiB per message) arrives as multiple
+/// chunks; chunk_count == 1 is not guaranteed by the contract even though it
+/// is the common case for 720p q3. Chunks of a frame are contiguous and
+/// ordered; the next frame_id begins only after the previous last_chunk.
+class StreamFramesResponse extends $pb.GeneratedMessage {
+  factory StreamFramesResponse({
+    $fixnum.Int64? frameId,
+    $core.int? chunkIndex,
+    $core.int? chunkCount,
+    $core.bool? lastChunk,
+    $core.int? width,
+    $core.int? height,
+    $core.List<$core.int>? jpeg,
+    $fixnum.Int64? sentUnixMicros,
+  }) {
+    final result = StreamFramesResponse._();
+    if (frameId != null) result.frameId = frameId;
+    if (chunkIndex != null) result.chunkIndex = chunkIndex;
+    if (chunkCount != null) result.chunkCount = chunkCount;
+    if (lastChunk != null) result.lastChunk = lastChunk;
+    if (width != null) result.width = width;
+    if (height != null) result.height = height;
+    if (jpeg != null) result.jpeg = jpeg;
+    if (sentUnixMicros != null) result.sentUnixMicros = sentUnixMicros;
+    return result;
+  }
+
+  StreamFramesResponse._();
+
+  factory StreamFramesResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      StreamFramesResponse()..mergeFromBuffer(data, registry);
+  factory StreamFramesResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      StreamFramesResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'StreamFramesResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: StreamFramesResponse.$_createMessage)
+    ..a<$fixnum.Int64>(1, _omitFieldNames ? '' : 'frameId', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..aI(2, _omitFieldNames ? '' : 'chunkIndex', fieldType: $pb.PbFieldType.OU3)
+    ..aI(3, _omitFieldNames ? '' : 'chunkCount', fieldType: $pb.PbFieldType.OU3)
+    ..aOB(4, _omitFieldNames ? '' : 'lastChunk')
+    ..aI(5, _omitFieldNames ? '' : 'width', fieldType: $pb.PbFieldType.OU3)
+    ..aI(6, _omitFieldNames ? '' : 'height', fieldType: $pb.PbFieldType.OU3)
+    ..a<$core.List<$core.int>>(
+        7, _omitFieldNames ? '' : 'jpeg', $pb.PbFieldType.OY)
+    ..a<$fixnum.Int64>(
+        8, _omitFieldNames ? '' : 'sentUnixMicros', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  StreamFramesResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  StreamFramesResponse copyWith(void Function(StreamFramesResponse) updates) =>
+      super.copyWith((message) => updates(message as StreamFramesResponse))
+          as StreamFramesResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use StreamFramesResponse() / StreamFramesResponse.new instead')
+  static StreamFramesResponse create() => StreamFramesResponse._();
+  static $pb.GeneratedMessage $_createMessage() => StreamFramesResponse._();
+  @$core.override
+  StreamFramesResponse createEmptyInstance() => StreamFramesResponse._();
+  @$core.pragma('dart2js:noInline')
+  static StreamFramesResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<StreamFramesResponse>(
+          StreamFramesResponse.$_createMessage);
+  static StreamFramesResponse? _defaultInstance;
+
+  /// Monotonic frame identity within this subscription, starting at 1.
+  /// Identical on every chunk of the same frame. Gaps are permitted and mean
+  /// the daemon dropped a frame under latest-wins backpressure — a gap is
+  /// never a reason to resubscribe or resynchronize.
+  @$pb.TagNumber(1)
+  $fixnum.Int64 get frameId => $_getI64(0);
+  @$pb.TagNumber(1)
+  set frameId($fixnum.Int64 value) => $_setInt64(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasFrameId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearFrameId() => $_clearField(1);
+
+  /// 0-based position of this chunk within the frame.
+  @$pb.TagNumber(2)
+  $core.int get chunkIndex => $_getIZ(1);
+  @$pb.TagNumber(2)
+  set chunkIndex($core.int value) => $_setUnsignedInt32(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasChunkIndex() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearChunkIndex() => $_clearField(2);
+
+  /// Total chunks composing this frame (>= 1). With frame_id this is the
+  /// ordering authority for reassembly.
+  @$pb.TagNumber(3)
+  $core.int get chunkCount => $_getIZ(2);
+  @$pb.TagNumber(3)
+  set chunkCount($core.int value) => $_setUnsignedInt32(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasChunkCount() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearChunkCount() => $_clearField(3);
+
+  /// True on the final chunk (chunk_index == chunk_count - 1), so a renderer
+  /// can paint the instant the frame completes — explicit rather than derived,
+  /// so a frame that stops arriving is detectable client-side instead of
+  /// silently never rendering.
+  @$pb.TagNumber(4)
+  $core.bool get lastChunk => $_getBF(3);
+  @$pb.TagNumber(4)
+  set lastChunk($core.bool value) => $_setBool(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasLastChunk() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearLastChunk() => $_clearField(4);
+
+  /// Decoded dimensions of the complete frame in pixels. Present on every
+  /// chunk so a renderer can size its surface before the first frame completes.
+  @$pb.TagNumber(5)
+  $core.int get width => $_getIZ(4);
+  @$pb.TagNumber(5)
+  set width($core.int value) => $_setUnsignedInt32(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasWidth() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearWidth() => $_clearField(5);
+
+  @$pb.TagNumber(6)
+  $core.int get height => $_getIZ(5);
+  @$pb.TagNumber(6)
+  set height($core.int value) => $_setUnsignedInt32(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasHeight() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearHeight() => $_clearField(6);
+
+  /// JPEG byte slice of this chunk, <= 64 KiB per message (DEC-018 bulk rule;
+  /// chunking also bounds relay latency and head-of-line blocking).
+  @$pb.TagNumber(7)
+  $core.List<$core.int> get jpeg => $_getN(6);
+  @$pb.TagNumber(7)
+  set jpeg($core.List<$core.int> value) => $_setBytes(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasJpeg() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearJpeg() => $_clearField(7);
+
+  /// Daemon-local wall-clock time (µs since epoch) at which this frame was
+  /// produced by the daemon, present on every chunk. Same clock as the client
+  /// on a LAN host, so a renderer can compute true send→paint frame age for
+  /// telemetry without a clock-anchoring exchange. Diagnostics only: a client
+  /// must not reorder or drop frames because of it.
+  @$pb.TagNumber(8)
+  $fixnum.Int64 get sentUnixMicros => $_getI64(7);
+  @$pb.TagNumber(8)
+  set sentUnixMicros($fixnum.Int64 value) => $_setInt64(7, value);
+  @$pb.TagNumber(8)
+  $core.bool hasSentUnixMicros() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearSentUnixMicros() => $_clearField(8);
 }
 
 const $core.bool _omitFieldNames =

@@ -136,11 +136,14 @@ class LocalIpcClient {
     return _stub!;
   }
 
-  Future<CallOptions> _makeCallOptions({Duration? timeout}) async {
+  Future<CallOptions> _makeCallOptions({
+    Duration? timeout,
+    bool noTimeout = false,
+  }) async {
     final tok = await acquireToken();
     return CallOptions(
       metadata: {'authorization': 'Bearer $tok'},
-      timeout: timeout ?? callTimeout,
+      timeout: noTimeout ? null : (timeout ?? callTimeout),
     );
   }
 
@@ -239,7 +242,8 @@ class LocalIpcClient {
   }
 
   /// Queries the current point-in-time session snapshot.
-  Future<GetSessionStateResponse> getSessionState({String sessionId = ''}) async {
+  Future<GetSessionStateResponse> getSessionState(
+      {String sessionId = ''}) async {
     return _callWithAuth(
       (opts) => _service.getSessionState(
         GetSessionStateRequest(sessionId: sessionId),
@@ -392,7 +396,7 @@ class LocalIpcClient {
     void startSubscription() async {
       if (isClosed) return;
       try {
-        final opts = await _makeCallOptions(timeout: null);
+        final opts = await _makeCallOptions(noTimeout: true);
         final stream = _service.streamEvents(
           StreamEventsRequest(),
           options: opts,
@@ -442,6 +446,77 @@ class LocalIpcClient {
       onListen: () {
         startSubscription();
       },
+      onCancel: () {
+        isClosed = true;
+        subscription?.cancel();
+      },
+    );
+
+    return controller.stream;
+  }
+
+  /// Subscribes to the daemon's frame stream (Phase 6 Slice 3A): one
+  /// [StreamFramesResponse] per <=64 KiB JPEG chunk of the active session.
+  ///
+  /// This is a SEPARATE RPC from [streamEvents] by contract — frame
+  /// backpressure can never cost a client a control event (one-consumer rule:
+  /// this method must never be folded into the event subscription).
+  /// Resubscribes with the same backoff as the event stream, so a daemon
+  /// restart heals both streams independently.
+  Stream<StreamFramesResponse> streamFrames({
+    bool autoReconnect = true,
+  }) {
+    late StreamController<StreamFramesResponse> controller;
+    StreamSubscription<StreamFramesResponse>? subscription;
+    bool isClosed = false;
+
+    void startSubscription() async {
+      if (isClosed) return;
+      try {
+        final opts = await _makeCallOptions(noTimeout: true);
+        final stream = _service.streamFrames(
+          StreamFramesRequest(),
+          options: opts,
+        );
+
+        subscription = stream.listen(
+          (frame) {
+            if (!controller.isClosed) controller.add(frame);
+          },
+          onError: (err) {
+            if (isClosed) return;
+            if (!controller.isClosed) controller.addError(err);
+            if (autoReconnect) {
+              Future.delayed(const Duration(milliseconds: 500), () {
+                if (!isClosed) startSubscription();
+              });
+            }
+          },
+          onDone: () {
+            if (isClosed) return;
+            if (autoReconnect) {
+              Future.delayed(const Duration(milliseconds: 500), () {
+                if (!isClosed) startSubscription();
+              });
+            } else {
+              controller.close();
+            }
+          },
+          cancelOnError: true,
+        );
+      } catch (e) {
+        if (isClosed) return;
+        if (!controller.isClosed) controller.addError(e);
+        if (autoReconnect) {
+          Future.delayed(const Duration(seconds: 1), () {
+            if (!isClosed) startSubscription();
+          });
+        }
+      }
+    }
+
+    controller = StreamController<StreamFramesResponse>(
+      onListen: startSubscription,
       onCancel: () {
         isClosed = true;
         subscription?.cancel();

@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../controllers/phonebridge_controller.dart';
+import '../services/linux_bridge_service.dart' show LinuxBridgeService;
+import '../services/local_ipc_client.dart' show LocalIpcState;
 
 class DiagnosticsScreen extends StatefulWidget {
   const DiagnosticsScreen({
@@ -16,14 +20,108 @@ class DiagnosticsScreen extends StatefulWidget {
 class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
   late final TextEditingController _receiverController;
 
+  // Local-IPC diagnostics (DEC-018), folded in from the retired dashboard
+  // shell. These are *presentations* of the app-owned service's transport
+  // facts — local UI state, never a second source of truth for connection.
+  // The listeners ride the service's local broadcasts off its single daemon
+  // subscription; no screen-level IPC client or event subscription exists.
+  LocalIpcState _ipcState = LocalIpcState.disconnected;
+  String? _ipcServerVersion;
+  int? _ipcNegotiatedVersion;
+  int? _ipcGeneration;
+  int? _lastPingLatencyMs;
+  int _receivedEventCount = 0;
+  StreamSubscription<void>? _pulseSub;
+  StreamSubscription<LocalIpcState>? _stateSub;
+
   @override
   void initState() {
     super.initState();
     _receiverController = TextEditingController(text: widget.controller.receiverUrl);
+    final ipc = widget.controller.linuxService;
+    if (ipc != null) {
+      _stateSub = ipc.ipcStateStream.listen((st) {
+        if (mounted) setState(() => _ipcState = st);
+      });
+      _pulseSub = ipc.eventPulse.listen((_) {
+        if (mounted) setState(() => _receivedEventCount++);
+      });
+      _initLocalIpc(ipc);
+    }
+  }
+
+  Future<void> _initLocalIpc(LinuxBridgeService ipc) async {
+    try {
+      final hs = await ipc.handshake();
+      if (mounted) {
+        setState(() {
+          _ipcServerVersion = hs.serverVersion;
+          _ipcNegotiatedVersion = hs.negotiatedVersion;
+          _ipcGeneration = hs.daemonGeneration.toInt();
+        });
+      }
+    } catch (_) {
+      // Local daemon may not be active yet; the PING/HEALTH actions retry.
+    }
+  }
+
+  Future<void> _pingDaemon() async {
+    final ipc = widget.controller.linuxService;
+    if (ipc == null) return;
+    final sw = Stopwatch()..start();
+    try {
+      await ipc.ping(nonce: DateTime.now().millisecondsSinceEpoch);
+      sw.stop();
+      if (mounted) {
+        setState(() => _lastPingLatencyMs = sw.elapsedMilliseconds);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ping OK (${sw.elapsedMilliseconds} ms)'),
+            duration: const Duration(seconds: 1),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) _showIpcError('Ping failed: $e');
+    }
+  }
+
+  Future<void> _checkDaemonHealth() async {
+    final ipc = widget.controller.linuxService;
+    if (ipc == null) return;
+    try {
+      final h = await ipc.health();
+      if (mounted) {
+        setState(() {
+          _ipcServerVersion = h.serverVersion;
+          _ipcGeneration = h.daemonGeneration.toInt();
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Daemon ready: ${h.ready}, uptime: ${h.uptimeMs} ms'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) _showIpcError('Health check failed: $e');
+    }
+  }
+
+  void _showIpcError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Theme.of(context).colorScheme.error,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   @override
   void dispose() {
+    _stateSub?.cancel();
+    _pulseSub?.cancel();
     _receiverController.dispose();
     super.dispose();
   }
@@ -58,6 +156,10 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
               _buildTelemetryCard(theme, stats, isCapturing),
               const SizedBox(height: 16),
               _buildGoEngineCard(theme, device, stats),
+              if (controller.linuxService != null) ...[
+                const SizedBox(height: 16),
+                _buildLocalIpcCard(theme),
+              ],
               const SizedBox(height: 16),
               _buildClipboardInternalsCard(theme, clip),
               const SizedBox(height: 16),
@@ -186,6 +288,136 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                   : 'Software',
             ),
             _infoRow('Signaling Transport', 'Pion WebRTC / LAN HTTP 7804'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLocalIpcCard(ThemeData theme) {
+    Color stateColor;
+    String stateLabel;
+    switch (_ipcState) {
+      case LocalIpcState.connected:
+        stateColor = Colors.green;
+        stateLabel = 'Connected';
+        break;
+      case LocalIpcState.connecting:
+        stateColor = Colors.amber;
+        stateLabel = 'Connecting';
+        break;
+      case LocalIpcState.reconnecting:
+        stateColor = Colors.orange;
+        stateLabel = 'Reconnecting';
+        break;
+      case LocalIpcState.disconnected:
+      case LocalIpcState.closed:
+        stateColor = Colors.grey;
+        stateLabel = 'Disconnected';
+        break;
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.hub, color: theme.colorScheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text('Local Engine IPC (DEC-018)',
+                      style: theme.textTheme.titleMedium),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: stateColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: stateColor.withValues(alpha: 0.5)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: stateColor,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        stateLabel,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: stateColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const Divider(),
+            _infoRow('Transport', 'UDS + gRPC (SO_PEERCRED + Bearer Token)'),
+            _infoRow(
+              'Socket Path',
+              widget.controller.linuxService?.socketPath ?? '—',
+            ),
+            _infoRow('Daemon Version', _ipcServerVersion ?? 'Not connected'),
+            _infoRow(
+              'Negotiated Version',
+              _ipcNegotiatedVersion != null ? 'v$_ipcNegotiatedVersion' : '—',
+            ),
+            _infoRow(
+              'Daemon Generation',
+              _ipcGeneration != null ? '$_ipcGeneration' : '—',
+            ),
+            _infoRow('Relayed Events', '$_receivedEventCount messages'),
+            _infoRow(
+              'Ping Latency',
+              _lastPingLatencyMs != null ? '$_lastPingLatencyMs ms' : '—',
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _pingDaemon,
+                    icon: const Icon(Icons.network_ping, size: 18),
+                    label: const Text('PING'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _checkDaemonHealth,
+                    icon: const Icon(Icons.health_and_safety, size: 18),
+                    label: const Text('HEALTH'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  // Re-runs the handshake on demand so a daemon that came up
+                  // after mount still reports its negotiated version and
+                  // generation — the on-demand refresh the retired session
+                  // view's daemon card offered, now beside the other two
+                  // daemon probes.
+                  child: OutlinedButton.icon(
+                    onPressed: widget.controller.linuxService == null
+                        ? null
+                        : () => _initLocalIpc(widget.controller.linuxService!),
+                    icon: const Icon(Icons.handshake, size: 18),
+                    label: const Text('HANDSHAKE'),
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),

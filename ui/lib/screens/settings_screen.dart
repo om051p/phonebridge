@@ -25,13 +25,18 @@ class SettingsScreen extends StatelessWidget {
           _sectionHeader(theme, 'Screen Sharing'),
           ListTile(
             title: const Text('Streaming Resolution'),
-            subtitle: Text('${controller.selectedWidth}x${controller.selectedHeight}'),
+            // Zero means the DEC-022 "device default" request, not 0x0.
+            subtitle: Text(controller.selectedWidth == 0
+                ? 'Device default (phone chooses)'
+                : '${controller.selectedWidth}x${controller.selectedHeight}'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => _showResolutionPicker(context),
           ),
           ListTile(
             title: const Text('Target Frame Rate'),
-            subtitle: Text('${controller.selectedFps} fps'),
+            subtitle: Text(controller.selectedFps == 0
+                ? 'Device default (phone chooses)'
+                : '${controller.selectedFps} fps'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => _showFpsPicker(context),
           ),

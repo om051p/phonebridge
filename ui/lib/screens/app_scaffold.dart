@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../controllers/phonebridge_controller.dart';
+import '../models/link_status.dart';
+import '../ui/link_indicator.dart';
 import 'package:flutter/services.dart';
 import 'home_screen.dart';
 import 'devices_screen.dart';
@@ -105,8 +107,9 @@ class _AppScaffoldState extends State<AppScaffold> {
       listenable: widget.controller,
       builder: (context, _) {
         final controller = widget.controller;
-        final isCapturing = controller.isCapturing;
-        final activePeer = controller.activePeer;
+        // One connection status for the whole app (Phase 5): the badge no longer
+        // infers connection from the capture flag plus a paired peer.
+        final link = controller.linkStatus;
 
         final screens = [
           HomeScreen(
@@ -136,7 +139,7 @@ class _AppScaffoldState extends State<AppScaffold> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    _buildStatusBadge(context, isCapturing, activePeer != null),
+                    _buildStatusBadge(context, link),
                   ],
                 ),
                 actions: [
@@ -240,49 +243,52 @@ class _AppScaffoldState extends State<AppScaffold> {
     );
   }
 
-  Widget _buildStatusBadge(BuildContext context, bool isCapturing, bool hasPeer) {
+  Widget _buildStatusBadge(BuildContext context, LinkStatus link) {
     final theme = Theme.of(context);
-    final Color badgeColor;
-    final String label;
+    final badgeColor = linkPhaseColor(theme, link.phase);
+    final label = link.label;
+    final tooltip = [
+      link.description,
+      if (link.transferLine.isNotEmpty) link.transferLine,
+      if (link.actionHint.isNotEmpty) link.actionHint,
+    ].where((line) => line.isNotEmpty).join('\n');
 
-    if (isCapturing) {
-      badgeColor = Colors.green;
-      label = 'Sharing';
-    } else if (hasPeer) {
-      badgeColor = Colors.blue;
-      label = 'Paired';
-    } else {
-      badgeColor = Colors.grey;
-      label = 'Ready';
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: badgeColor.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: badgeColor.withValues(alpha: 0.4)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: badgeColor,
+    return Tooltip(
+      message: tooltip,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: badgeColor.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: badgeColor.withValues(alpha: 0.4)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: badgeColor,
+              ),
             ),
-          ),
-          const SizedBox(width: 5),
-          Text(
-            label,
-            style: theme.textTheme.labelSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: badgeColor,
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: badgeColor,
+              ),
             ),
-          ),
-        ],
+            // Transfer activity is reported alongside the connection, never as
+            // the connection: an in-flight file must not read as a session state.
+            if (link.transfer.isActive) ...[
+              const SizedBox(width: 5),
+              Icon(Icons.swap_vert, size: 12, color: badgeColor),
+            ],
+          ],
+        ),
       ),
     );
   }

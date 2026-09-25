@@ -6,11 +6,15 @@ import '../models/capture_stats.dart';
 import '../models/trusted_device.dart';
 import '../models/clipboard_status.dart';
 import '../models/activity_event.dart';
+import '../generated/phonebridge/localipc/v1/local_ipc.pb.dart' as ipc;
 import '../models/discovered_device.dart';
+import '../models/link_status.dart';
 import '../services/phonebridge_channel.dart';
 import '../services/platform_bridge_service.dart';
 import '../services/android_bridge_service.dart';
-import '../services/linux_bridge_service.dart';
+import '../services/linux_bridge_service.dart' show LinuxBridgeService;
+import '../services/session_backend.dart';
+import 'session_controller.dart';
 import 'transfer_controller.dart';
 
 class PhoneBridgeController extends ChangeNotifier {
@@ -32,12 +36,50 @@ class PhoneBridgeController extends ChangeNotifier {
   final PlatformBridgeService _service;
   PlatformBridgeService get service => _service;
 
+  /// The Linux IPC service, when this platform has one. Screens use this for
+  /// daemon diagnostics (version, transport state) instead of reaching for a
+  /// private client; null on Android, where the phone owns capture and there
+  /// is no local daemon.
+  LinuxBridgeService? get linuxService =>
+      _service is LinuxBridgeService ? _service : null;
+
   /// File-transfer history and live progress (DEC-024). Shares [_service] with
   /// this controller: the service is owned and disposed here, not by the
   /// transfer controller.
   late final TransferController _transfers =
       TransferController(backend: _service);
   TransferController get transfers => _transfers;
+
+  /// Connection/session state for the whole app (Phase 5). Platforms without a
+  /// local session state machine report "unsupported" rather than
+  /// "disconnected", so the UI never claims a session is missing on a platform
+  /// where sessions are not driven from this side.
+  late final SessionController _session =
+      SessionController(backend: _resolveSessionBackend(_service));
+  SessionController get session => _session;
+
+  /// The session seam is optional per platform, so it is resolved structurally:
+  /// a bridge that drives sessions locally also implements [SessionBackend].
+  static SessionBackend _resolveSessionBackend(PlatformBridgeService service) {
+    final Object candidate = service;
+    if (candidate is SessionBackend) return candidate;
+    return const UnsupportedSessionBackend();
+  }
+
+  /// The one connection/transfer status every surface renders.
+  LinkStatus get linkStatus => LinkStatus.compose(
+        session: _session.status,
+        transfer: transferActivity,
+        daemonReachable: _session.daemonReachable,
+      );
+
+  /// What the transfer surface currently knows, in the shape the connection
+  /// model documents.
+  TransferActivity get transferActivity => TransferActivity(
+        activeCount: _transfers.activeCount,
+        latest: _transfers.latest,
+        backendUnavailable: _transfers.isBackendUnavailable,
+      );
 
   DeviceState _deviceState = DeviceState.initial;
   CaptureStats _captureStats = CaptureStats.initial;
@@ -74,6 +116,16 @@ class PhoneBridgeController extends ChangeNotifier {
 
   bool get isCapturing => _captureStats.isCapturing;
 
+  /// True while the phone's screen is actually being streamed.
+  ///
+  /// Where the platform drives sessions from this side (Linux) the session model
+  /// is the truth; elsewhere (Android, which owns capture itself) the capture
+  /// telemetry is. Screens use this instead of picking one source, so the two
+  /// can never disagree on screen.
+  bool get isSharing => _session.supportsSessions
+      ? _session.status.state == ipc.SessionState.SESSION_STATE_STREAMING
+      : _captureStats.isCapturing;
+
   TrustedDevice? get activePeer {
     if (_trustedDevices.isEmpty) return null;
     final nonRevoked = _trustedDevices.where((d) => !d.revoked);
@@ -82,16 +134,43 @@ class PhoneBridgeController extends ChangeNotifier {
 
   void initialize() {
     refreshAll();
+    // Discovery is part of startup on the desktop: the Devices tab populates
+    // from the daemon's mDNS results without requiring a manual scan first
+    // (the retired session view loaded its discovered list the same way, at
+    // init, through this same service).
+    if (_service.isLinux) {
+      unawaited(refreshDiscoveredDevices());
+    }
     _subscribeEvents();
     // Subscribes to the live transfer stream and loads the recent history. The
     // transfers surface has its own retry affordance, so this never blocks the
     // rest of the dashboard.
     _transfers.initialize();
+    // Same contract for the session: hydrate from the backend, then follow its
+    // pushed transitions. One owner for the whole app.
+    _session.addListener(_onChildChanged);
+    _session.initialize();
+    // The composed status also depends on transfer activity, so a transfer
+    // change has to repaint the connection surfaces too — otherwise an in-flight
+    // file would only be visible in the transfer list.
+    _transfers.addListener(_onChildChanged);
   }
+
+  void _onChildChanged() => notifyListeners();
+
+  bool _disposed = false;
 
   @override
   void dispose() {
+    // Idempotent: the owner (a screen) may dispose the controller and so may a
+    // test helper, and the second call must not tear down the shared service
+    // twice.
+    if (_disposed) return;
+    _disposed = true;
     _rawEventsSub?.cancel();
+    _transfers.removeListener(_onChildChanged);
+    _session.removeListener(_onChildChanged);
+    _session.dispose();
     _transfers.dispose();
     _service.dispose();
     super.dispose();
@@ -129,7 +208,11 @@ class PhoneBridgeController extends ChangeNotifier {
           addActivityEvent(
             ActivityCategory.screen,
             'Screen Sharing Started',
-            'Streaming at ${_selectedWidth}x$_selectedHeight @ ${_selectedFps}fps',
+            // A zero selection is the device-default request (DEC-022):
+            // word it as the choice it is, never as "0x0".
+            _selectedWidth > 0 && _selectedFps > 0
+                ? 'Streaming at ${_selectedWidth}x$_selectedHeight @ ${_selectedFps}fps'
+                : 'Streaming at device default quality',
             ActivityLevel.success,
           );
         } else if (prevCapturing && !_captureStats.isCapturing) {
@@ -161,6 +244,9 @@ class PhoneBridgeController extends ChangeNotifier {
       _captureStats = stats;
       _trustedDevices = devices;
       _clipboardStatus = clip;
+      // The connection status is part of "refresh": an explicit refresh must be
+      // able to move the app out of a stale failed/recoverable reading.
+      unawaited(_session.refresh());
       notifyListeners();
     } catch (e) {
       _lastErrorMessage = e.toString();
@@ -200,13 +286,21 @@ class PhoneBridgeController extends ChangeNotifier {
     notifyListeners();
     try {
       final ok = await _service.confirmPairing(deviceId: deviceId, confirmed: confirmed);
-      if (ok && confirmed) {
-        addActivityEvent(
-          ActivityCategory.pairing,
-          'Pairing Successful',
-          'Successfully paired device $deviceId',
-          ActivityLevel.success,
-        );
+      if (ok) {
+        if (confirmed) {
+          addActivityEvent(
+            ActivityCategory.pairing,
+            'Pairing Successful',
+            'Successfully paired device $deviceId',
+            ActivityLevel.success,
+          );
+        }
+      } else {
+        // The daemon refused the confirmation (mismatched SAS, revoked peer, …).
+        // The Devices surface surfaces this instead of silently closing the
+        // verification dialog as if the pairing had succeeded — the feedback
+        // the retired session view's pairing flow used to give.
+        _lastErrorMessage = 'Pairing was rejected or could not be confirmed';
       }
       await refreshAll();
       return ok;

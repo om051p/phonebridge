@@ -181,6 +181,24 @@ class LocalEngineServiceClient extends $grpc.Client {
     return $createUnaryCall(_$listTransfers, request, options: options);
   }
 
+  /// StreamFrames pushes encoded video frames of the active session to the UI
+  /// renderer (Phase 6 Slice 3, additive). Deliberately a SEPARATE stream from
+  /// StreamEvents: control events must never be starved or dropped by frame
+  /// traffic, and frames are opt-in per subscriber (one renderer at a time,
+  /// DEC-018's one-consumer rule). v1 carries JPEG frames produced by the
+  /// daemon-side tap; the message shape is transport-generic (chunked opaque
+  /// image bytes + geometry). The server ends the stream when the session it
+  /// is bound to reaches a terminal state; clients resubscribe via their
+  /// existing backoff pattern only while a session is live.
+  $grpc.ResponseStream<$0.StreamFramesResponse> streamFrames(
+    $0.StreamFramesRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createStreamingCall(
+        _$streamFrames, $async.Stream.fromIterable([request]),
+        options: options);
+  }
+
   // method descriptors
 
   static final _$handshake =
@@ -267,6 +285,11 @@ class LocalEngineServiceClient extends $grpc.Client {
           '/phonebridge.localipc.v1.LocalEngineService/ListTransfers',
           ($0.ListTransfersRequest value) => value.writeToBuffer(),
           $0.ListTransfersResponse.fromBuffer);
+  static final _$streamFrames =
+      $grpc.ClientMethod<$0.StreamFramesRequest, $0.StreamFramesResponse>(
+          '/phonebridge.localipc.v1.LocalEngineService/StreamFrames',
+          ($0.StreamFramesRequest value) => value.writeToBuffer(),
+          $0.StreamFramesResponse.fromBuffer);
 }
 
 @$pb.GrpcServiceName('phonebridge.localipc.v1.LocalEngineService')
@@ -417,6 +440,15 @@ abstract class LocalEngineServiceBase extends $grpc.Service {
             ($core.List<$core.int> value) =>
                 $0.ListTransfersRequest.fromBuffer(value),
             ($0.ListTransfersResponse value) => value.writeToBuffer()));
+    $addMethod(
+        $grpc.ServiceMethod<$0.StreamFramesRequest, $0.StreamFramesResponse>(
+            'StreamFrames',
+            streamFrames_Pre,
+            false,
+            true,
+            ($core.List<$core.int> value) =>
+                $0.StreamFramesRequest.fromBuffer(value),
+            ($0.StreamFramesResponse value) => value.writeToBuffer()));
   }
 
   $async.Future<$0.HandshakeResponse> handshake_Pre($grpc.ServiceCall $call,
@@ -564,4 +596,13 @@ abstract class LocalEngineServiceBase extends $grpc.Service {
 
   $async.Future<$0.ListTransfersResponse> listTransfers(
       $grpc.ServiceCall call, $0.ListTransfersRequest request);
+
+  $async.Stream<$0.StreamFramesResponse> streamFrames_Pre(
+      $grpc.ServiceCall $call,
+      $async.Future<$0.StreamFramesRequest> $request) async* {
+    yield* streamFrames($call, await $request);
+  }
+
+  $async.Stream<$0.StreamFramesResponse> streamFrames(
+      $grpc.ServiceCall call, $0.StreamFramesRequest request);
 }

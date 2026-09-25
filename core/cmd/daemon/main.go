@@ -18,6 +18,7 @@ import (
 	"github.com/om051p/phonebridge/core/pkg/crypto"
 	"github.com/om051p/phonebridge/core/pkg/discovery"
 	"github.com/om051p/phonebridge/core/pkg/engine"
+	"github.com/om051p/phonebridge/core/pkg/frames"
 	"github.com/om051p/phonebridge/core/pkg/localipc"
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgelocalipcv1"
 	"github.com/om051p/phonebridge/core/pkg/transfer"
@@ -48,6 +49,11 @@ func main() {
 		ServerVersion: version,
 		Logf:          log.Printf,
 	}
+
+	// Frame fan-out hub (Phase 6 Slice 3): sessions tee their AU stream into
+	// it behind a PSI guard; local IPC serves it as StreamFrames.
+	frameHub := frames.NewHub()
+	cfg.Frames = frameHub
 
 	srv, err := localipc.NewServer(cfg)
 	if err != nil {
@@ -86,6 +92,7 @@ func main() {
 	})
 	mgr.SetIdentity(identity)
 	mgr.SetTrustStore(trustStore)
+	mgr.SetFrameHub(frameHub)
 
 	// Initialize LAN signaling server with inbound session handlers (DEC-022)
 	portToUse := *signalingPort

@@ -286,6 +286,102 @@ void main() {
     });
   });
 
+  group('sink classification (real receiver state)', () {
+    test('a snapshot carries the daemon-reported sink through', () {
+      final status = SessionStatus.fromSnapshot(
+        GetSessionStateResponse(
+          sessionId: 'sess-1',
+          state: SessionState.SESSION_STATE_STREAMING,
+          sinkKind: SinkKind.SINK_KIND_DISPLAY,
+          sinkActive: true,
+        ),
+      );
+
+      expect(status.sinkKind, SinkKind.SINK_KIND_DISPLAY);
+      expect(status.sinkActive, isTrue);
+      expect(status.hasReportedSink, isTrue);
+    });
+
+    test('no sink is claimed before the daemon classifies one', () {
+      final status = SessionStatus.fromSnapshot(
+        GetSessionStateResponse(state: SessionState.SESSION_STATE_STREAMING),
+      );
+
+      expect(status.hasReportedSink, isFalse);
+      expect(status.sinkActive, isFalse);
+    });
+
+    test('a non-terminal event preserves the sink; events carry none', () {
+      const previous = SessionStatus(
+        state: SessionState.SESSION_STATE_STREAMING,
+        sinkKind: SinkKind.SINK_KIND_DISPLAY,
+        sinkActive: true,
+      );
+
+      final status = SessionStatus.fromEvent(
+        SessionEvent(state: SessionState.SESSION_STATE_RECONNECTING),
+        previous: previous,
+      );
+
+      expect(status.sinkKind, SinkKind.SINK_KIND_DISPLAY);
+      expect(status.sinkActive, isTrue);
+    });
+
+    test('a terminal event clears the sink so it cannot outlive the session',
+        () {
+      const previous = SessionStatus(
+        state: SessionState.SESSION_STATE_STREAMING,
+        sessionId: 'sess-9',
+        sinkKind: SinkKind.SINK_KIND_DISPLAY,
+        sinkActive: true,
+      );
+
+      final failed = SessionStatus.fromEvent(
+        SessionEvent(state: SessionState.SESSION_STATE_FAILED),
+        previous: previous,
+      );
+      expect(failed.hasReportedSink, isFalse);
+      expect(failed.sinkActive, isFalse);
+
+      final stopped = SessionStatus.fromEvent(
+        SessionEvent(state: SessionState.SESSION_STATE_STOPPED),
+        previous: previous,
+      );
+      expect(stopped.hasReportedSink, isFalse);
+
+      final idle = SessionStatus.fromEvent(
+        SessionEvent(state: SessionState.SESSION_STATE_DISCONNECTED),
+        previous: previous,
+      );
+      expect(idle.hasReportedSink, isFalse);
+    });
+
+    test('copyWith into an idle/terminal state drops the sink', () {
+      const live = SessionStatus(
+        state: SessionState.SESSION_STATE_STREAMING,
+        sinkKind: SinkKind.SINK_KIND_DISPLAY,
+        sinkActive: true,
+      );
+
+      // Untouched it survives (a reconnect keeps its sink)...
+      expect(live.copyWith().hasReportedSink, isTrue);
+      // ...but no idle/terminal copyWith can carry a stale classification.
+      expect(
+        live.copyWith(state: SessionState.SESSION_STATE_STOPPED)
+            .hasReportedSink,
+        isFalse,
+      );
+      expect(
+        live.copyWith(state: SessionState.SESSION_STATE_DISCONNECTED).sinkActive,
+        isFalse,
+      );
+      expect(
+        live.copyWith(state: SessionState.SESSION_STATE_FAILED).hasReportedSink,
+        isFalse,
+      );
+    });
+  });
+
   test('media descriptions degrade gracefully for a partial tuple', () {
     final onlyGeometry = SessionStatus(
       state: SessionState.SESSION_STATE_CONNECTED,

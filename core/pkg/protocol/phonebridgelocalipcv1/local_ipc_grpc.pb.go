@@ -97,6 +97,7 @@ const (
 	LocalEngineService_SendFile_FullMethodName             = "/phonebridge.localipc.v1.LocalEngineService/SendFile"
 	LocalEngineService_CancelTransfer_FullMethodName       = "/phonebridge.localipc.v1.LocalEngineService/CancelTransfer"
 	LocalEngineService_ListTransfers_FullMethodName        = "/phonebridge.localipc.v1.LocalEngineService/ListTransfers"
+	LocalEngineService_StreamFrames_FullMethodName         = "/phonebridge.localipc.v1.LocalEngineService/StreamFrames"
 )
 
 // LocalEngineServiceClient is the client API for LocalEngineService service.
@@ -149,6 +150,16 @@ type LocalEngineServiceClient interface {
 	// ListTransfers returns in-flight transfers plus the recent in-memory
 	// history (Phase 4 does not persist history across daemon restarts).
 	ListTransfers(ctx context.Context, in *ListTransfersRequest, opts ...grpc.CallOption) (*ListTransfersResponse, error)
+	// StreamFrames pushes encoded video frames of the active session to the UI
+	// renderer (Phase 6 Slice 3, additive). Deliberately a SEPARATE stream from
+	// StreamEvents: control events must never be starved or dropped by frame
+	// traffic, and frames are opt-in per subscriber (one renderer at a time,
+	// DEC-018's one-consumer rule). v1 carries JPEG frames produced by the
+	// daemon-side tap; the message shape is transport-generic (chunked opaque
+	// image bytes + geometry). The server ends the stream when the session it
+	// is bound to reaches a terminal state; clients resubscribe via their
+	// existing backoff pattern only while a session is live.
+	StreamFrames(ctx context.Context, in *StreamFramesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamFramesResponse], error)
 }
 
 type localEngineServiceClient struct {
@@ -338,6 +349,25 @@ func (c *localEngineServiceClient) ListTransfers(ctx context.Context, in *ListTr
 	return out, nil
 }
 
+func (c *localEngineServiceClient) StreamFrames(ctx context.Context, in *StreamFramesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamFramesResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &LocalEngineService_ServiceDesc.Streams[1], LocalEngineService_StreamFrames_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[StreamFramesRequest, StreamFramesResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type LocalEngineService_StreamFramesClient = grpc.ServerStreamingClient[StreamFramesResponse]
+
 // LocalEngineServiceServer is the server API for LocalEngineService service.
 // All implementations should embed UnimplementedLocalEngineServiceServer
 // for forward compatibility.
@@ -388,6 +418,16 @@ type LocalEngineServiceServer interface {
 	// ListTransfers returns in-flight transfers plus the recent in-memory
 	// history (Phase 4 does not persist history across daemon restarts).
 	ListTransfers(context.Context, *ListTransfersRequest) (*ListTransfersResponse, error)
+	// StreamFrames pushes encoded video frames of the active session to the UI
+	// renderer (Phase 6 Slice 3, additive). Deliberately a SEPARATE stream from
+	// StreamEvents: control events must never be starved or dropped by frame
+	// traffic, and frames are opt-in per subscriber (one renderer at a time,
+	// DEC-018's one-consumer rule). v1 carries JPEG frames produced by the
+	// daemon-side tap; the message shape is transport-generic (chunked opaque
+	// image bytes + geometry). The server ends the stream when the session it
+	// is bound to reaches a terminal state; clients resubscribe via their
+	// existing backoff pattern only while a session is live.
+	StreamFrames(*StreamFramesRequest, grpc.ServerStreamingServer[StreamFramesResponse]) error
 }
 
 // UnimplementedLocalEngineServiceServer should be embedded to have
@@ -447,6 +487,9 @@ func (UnimplementedLocalEngineServiceServer) CancelTransfer(context.Context, *Ca
 }
 func (UnimplementedLocalEngineServiceServer) ListTransfers(context.Context, *ListTransfersRequest) (*ListTransfersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListTransfers not implemented")
+}
+func (UnimplementedLocalEngineServiceServer) StreamFrames(*StreamFramesRequest, grpc.ServerStreamingServer[StreamFramesResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method StreamFrames not implemented")
 }
 func (UnimplementedLocalEngineServiceServer) testEmbeddedByValue() {}
 
@@ -767,6 +810,17 @@ func _LocalEngineService_ListTransfers_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LocalEngineService_StreamFrames_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(StreamFramesRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(LocalEngineServiceServer).StreamFrames(m, &grpc.GenericServerStream[StreamFramesRequest, StreamFramesResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type LocalEngineService_StreamFramesServer = grpc.ServerStreamingServer[StreamFramesResponse]
+
 // LocalEngineService_ServiceDesc is the grpc.ServiceDesc for LocalEngineService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -843,6 +897,11 @@ var LocalEngineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "StreamEvents",
 			Handler:       _LocalEngineService_StreamEvents_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "StreamFrames",
+			Handler:       _LocalEngineService_StreamFrames_Handler,
 			ServerStreams: true,
 		},
 	},

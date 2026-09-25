@@ -25,7 +25,8 @@ void main() {
       expect(
         await daemonBin.exists(),
         isTrue,
-        reason: 'core/build/phonebridge-daemon must be built before running test',
+        reason:
+            'core/build/phonebridge-daemon must be built before running test',
       );
 
       // Start daemon
@@ -94,7 +95,8 @@ void main() {
       try {
         await expectLater(
           badClient.ping(nonce: 1),
-          throwsA(predicate((e) => e.toString().contains('UNAUTHENTICATED') || e is GrpcError)),
+          throwsA(predicate((e) =>
+              e.toString().contains('UNAUTHENTICATED') || e is GrpcError)),
         );
       } finally {
         await badClient.shutdown();
@@ -103,7 +105,11 @@ void main() {
 
     test('streamEvents receives connection and closes cleanly', () async {
       // Connect to stream
-      final eventsFuture = client.streamEvents(autoReconnect: false).first.timeout(
+      final sub = client.streamEvents(autoReconnect: false).listen(
+            (_) {},
+            onError: (_) {},
+          );
+      final eventsFuture = sub.asFuture<void>().timeout(
             const Duration(milliseconds: 300),
             onTimeout: () => throw TimeoutException('no events'),
           );
@@ -113,9 +119,12 @@ void main() {
         await eventsFuture;
       } on TimeoutException {
         // Expected because daemon has not broadcasted anything yet
+      } finally {
+        await sub.cancel();
       }
 
-      expect(client.state, anyOf(LocalIpcState.connected, LocalIpcState.connecting));
+      expect(client.state,
+          anyOf(LocalIpcState.connected, LocalIpcState.connecting));
     });
 
     test('startSession, getSessionState, and stopSession RPC flow', () async {
@@ -127,7 +136,8 @@ void main() {
       expect(startResp.sessionId, isNotEmpty);
       expect(startResp.state, isNotNull);
 
-      final stateResp = await client.getSessionState(sessionId: startResp.sessionId);
+      final stateResp =
+          await client.getSessionState(sessionId: startResp.sessionId);
       expect(stateResp.sessionId, equals(startResp.sessionId));
 
       final stopResp = await client.stopSession(
@@ -137,7 +147,8 @@ void main() {
       expect(stopResp.sessionId, equals(startResp.sessionId));
     });
 
-    test('listTrustedDevices, revokeDevice, and pairDevice RPC methods', () async {
+    test('listTrustedDevices, revokeDevice, and pairDevice RPC methods',
+        () async {
       final trustedResp = await client.listTrustedDevices();
       expect(trustedResp, isNotNull);
       expect(trustedResp.devices, isA<List>());

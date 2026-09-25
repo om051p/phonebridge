@@ -11,6 +11,7 @@ import (
 	"github.com/om051p/phonebridge/core/pkg/clipboard"
 	"github.com/om051p/phonebridge/core/pkg/crypto"
 	"github.com/om051p/phonebridge/core/pkg/discovery"
+	"github.com/om051p/phonebridge/core/pkg/frames"
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgev1"
 	"github.com/om051p/phonebridge/core/pkg/receiver"
 	"github.com/om051p/phonebridge/core/pkg/rtpmedia"
@@ -64,6 +65,38 @@ func (s SessionState) String() string {
 		return "FAILED"
 	default:
 		return "UNKNOWN"
+	}
+}
+
+// SinkKind classifies the frame sink a session writes access units to. It lets
+// the local IPC snapshot report the real display path (a launched ffplay, a
+// generic pipe, a recording file, or nothing) instead of the UI assuming a
+// window exists — a headless daemon silently runs a NullSink.
+type SinkKind int
+
+const (
+	// SinkKindUnspecified means no sink has been classified for this session,
+	// or the session reached a terminal state and its classification was
+	// cleared.
+	SinkKindUnspecified SinkKind = iota
+	SinkKindNull
+	SinkKindDisplay
+	SinkKindPipe
+	SinkKindFile
+)
+
+func (k SinkKind) String() string {
+	switch k {
+	case SinkKindNull:
+		return "NULL"
+	case SinkKindDisplay:
+		return "DISPLAY"
+	case SinkKindPipe:
+		return "PIPE"
+	case SinkKindFile:
+		return "FILE"
+	default:
+		return "UNSPECIFIED"
 	}
 }
 
@@ -146,6 +179,15 @@ type SessionSnapshot struct {
 	ErrorMessage      string
 	Stats             rtpmedia.StreamStats
 	DroppedAUs        int64
+	// SinkKind/SinkActive report where access units are being written while
+	// the session lives; both are cleared on terminal transitions.
+	SinkKind   SinkKind
+	SinkActive bool
+	// FramesReason is the typed condition of the in-app frame stream ("" =
+	// healthy): FFMPEG_MISSING / FFMPEG_EXITED from the frame tap, or
+	// PARAM_SETS_MISSING when IDRs arrived that could never be completed
+	// with SPS/PPS. Cleared with SinkKind.
+	FramesReason string
 	// Requested is what this side asked for; Actual is what the capture device
 	// reported applying. ActualKnown is false when the peer did not report it —
 	// an unknown tuple is never back-filled from Requested, because assuming
@@ -197,6 +239,16 @@ type Session struct {
 	sink       receiver.FrameSink
 	sinkOwned  bool
 	sinkClosed bool
+	// sinkKind classifies the sink above. Only the code that chose the sink
+	// can set it (a display sink is a *PipeSink by construction), and it is
+	// cleared on terminal transitions so it can never outlive the session.
+	sinkKind SinkKind
+
+	// Frame-pipeline diagnostics (Phase 6 Slice 3A): the manager wraps the
+	// chosen sink as PSIGuard(TapSink(inner)) and registers both parts here so
+	// Snapshot can report a typed frames_reason. Cleared with sinkKind.
+	frameGuard *receiver.PSIGuardSink
+	frameTap   *frames.TapSink
 
 	stopped  atomic.Bool
 	terminal atomic.Bool
@@ -410,6 +462,14 @@ func (s *Session) transitionLocked(next SessionState, reason string, code Sessio
 
 	old := s.state
 	s.state = next
+	// A sink classification describes a live session. Clear it when entering
+	// any terminal or idle state so a snapshot can never report a sink for a
+	// session that no longer has one (stop closes it, failure discards it).
+	if next == StateStopped || next == StateFailed || next == StateDisconnected {
+		s.sinkKind = SinkKindUnspecified
+		s.frameGuard = nil
+		s.frameTap = nil
+	}
 	if code != ReasonNone || next == StateFailed {
 		s.reasonCode = code
 	}
@@ -489,6 +549,9 @@ func (s *Session) Snapshot() SessionSnapshot {
 		ErrorMessage:      errMsg,
 		Stats:             stats,
 		DroppedAUs:        dropped,
+		SinkKind:          s.sinkKind,
+		SinkActive:        s.sinkKind != SinkKindUnspecified && s.sink != nil && !s.sinkClosed,
+		FramesReason:      s.framesReasonLocked(),
 		Requested:         s.requested,
 		Actual:            s.actual,
 		ActualKnown:       s.actualKnown,
@@ -501,6 +564,42 @@ func (s *Session) SetTargetDevice(dev discovery.Device) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.targetDevice = dev
+}
+
+// SetSinkKind records which kind of frame sink this session will write to.
+// The manager sets it before connecting: the classification must be present in
+// a snapshot taken during DISCOVERING/CONNECTING, and a later failure clears
+// it through the terminal-transition rule in transitionLocked.
+func (s *Session) SetSinkKind(kind SinkKind) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sinkKind = kind
+}
+
+// SetFrameDiag registers the frame-pipeline wrappers the manager installed
+// around this session's sink (Phase 6 Slice 3A). Cleared with sinkKind on
+// terminal transitions so diagnostics can never outlive the session.
+func (s *Session) SetFrameDiag(guard *receiver.PSIGuardSink, tap *frames.TapSink) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.frameGuard = guard
+	s.frameTap = tap
+}
+
+// framesReasonLocked derives the typed frames_reason for Snapshot. Tap
+// conditions (binary missing / converter dead) win over the PSI diagnosis;
+// "" means the frame stream is healthy or has not been exercised yet.
+// Caller holds s.mu.
+func (s *Session) framesReasonLocked() string {
+	if s.frameTap != nil {
+		if r := s.frameTap.Reason(); r != "" {
+			return r
+		}
+	}
+	if s.frameGuard != nil && s.frameGuard.NeedsParamSets() {
+		return frames.ReasonParamSetsMissing
+	}
+	return ""
 }
 
 // SetReceiver attaches the active transport. Retained for tests and for callers

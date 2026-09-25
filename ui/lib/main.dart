@@ -2,10 +2,8 @@ import 'package:flutter/material.dart';
 import 'controllers/phonebridge_controller.dart';
 import 'screens/app_scaffold.dart';
 
-export 'screens/dashboard_screen.dart';
 export 'screens/app_scaffold.dart';
 export 'controllers/phonebridge_controller.dart';
-export 'ui/linux_session_view.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();

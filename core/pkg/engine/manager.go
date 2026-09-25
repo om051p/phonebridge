@@ -20,6 +20,7 @@ import (
 	"github.com/om051p/phonebridge/core/pkg/clipboard"
 	"github.com/om051p/phonebridge/core/pkg/crypto"
 	"github.com/om051p/phonebridge/core/pkg/discovery"
+	"github.com/om051p/phonebridge/core/pkg/frames"
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgelocalipcv1"
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgev1"
 	"github.com/om051p/phonebridge/core/pkg/receiver"
@@ -68,6 +69,9 @@ type SessionManager struct {
 	clipboardAdapter clipboard.PlatformAdapter
 	pendingPairings  map[string]*pendingPairing
 	httpClient       *http.Client
+	// frameHub receives completed frames for local-IPC StreamFrames (Phase 6
+	// Slice 3). When set, sessions are wrapped PSIGuard(TapSink(sink)).
+	frameHub *frames.Hub
 }
 
 // NewSessionManager creates a new session coordinator.
@@ -112,6 +116,21 @@ func (m *SessionManager) SetDiscovery(disc *discovery.Discovery) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.discovery = disc
+}
+
+// SetFrameHub installs the frame fan-out hub (Phase 6 Slice 3). Must be set
+// before StartSession; nil keeps the previous behaviour (no in-app frames).
+func (m *SessionManager) SetFrameHub(hub *frames.Hub) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.frameHub = hub
+}
+
+// FrameHub returns the installed hub (local IPC uses it to serve StreamFrames).
+func (m *SessionManager) FrameHub() *frames.Hub {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.frameHub
 }
 
 // SetClipboardEngine configures the clipboard engine for all managed sessions.
@@ -324,11 +343,23 @@ func (m *SessionManager) StartSession(ctx context.Context, deviceID string, requ
 	cfg.TrustStore = m.trustStore
 	cfg.Requested = requested
 
+	// Captured for the state callback (which must not re-lock m.mu).
+	hub := m.frameHub
+
 	reg := m.discovery.Registry()
 	// Declared first because the state callback reads the session's negotiated
 	// parameters; the callback only ever runs after StartSession returns.
 	var sess *Session
 	sess = NewSession(sessionID, cfg, reg, func(oldState, newState SessionState, reason string, code SessionReason) {
+		// Frame-session lifecycle follows the session's terminal states: once
+		// the session is gone the hub closes every StreamFrames subscription so
+		// no stale frame can outlive it (Slice 3A). Idempotent.
+		switch newState {
+		case StateFailed, StateStopped, StateDisconnected:
+			if hub != nil {
+				hub.EndSession()
+			}
+		}
 		if m.onEvent != nil {
 			errMsg := ""
 			if newState == StateFailed {
@@ -354,26 +385,49 @@ func (m *SessionManager) StartSession(ctx context.Context, deviceID string, requ
 	// Asynchronously locate and connect to target device
 	go func() {
 		var sink receiver.FrameSink
+		var kind SinkKind
 		m.mu.RLock()
 		factory := m.sinkFactory
 		staticSink := m.sink
+		hub := m.frameHub
 		m.mu.RUnlock()
 
 		if factory != nil {
 			if s, err := factory(); err == nil {
 				sink = s
+				kind = classifySinkKind(s)
 			}
 		}
 		if sink == nil && staticSink != nil {
 			sink = staticSink
+			kind = classifySinkKind(staticSink)
 		}
 		if sink == nil && (os.Getenv("DISPLAY") != "" || os.Getenv("WAYLAND_DISPLAY") != "") {
 			if ds, err := receiver.NewDisplaySink("PhoneBridge Screen Mirror", true); err == nil {
 				sink = ds
+				// NewDisplaySink is a *PipeSink by construction: only this
+				// branch launched ffplay, so only this branch can say so.
+				kind = SinkKindDisplay
 			}
 		}
 		if sink == nil {
 			sink = receiver.NewNullSink()
+			kind = SinkKindNull
+		}
+		// Record the classification before connecting, so a snapshot taken
+		// during DISCOVERING/CONNECTING already reports the real sink.
+		sess.SetSinkKind(kind)
+		// Frame pipeline (Slice 3A): tee the AU stream into the local-IPC
+		// StreamFrames hub behind a session-scoped PSI guard, so ffmpeg and the
+		// display sink both receive decodable AUs even when the wire carries no
+		// SPS/PPS. Existing sinks stay functional underneath (tap forwards first,
+		// non-blocking), and no frame stage can block session control.
+		if hub != nil {
+			hub.BeginSession()
+			tap := frames.NewTapSink(sink, hub)
+			guard := receiver.NewPSIGuardSink(tap)
+			sess.SetFrameDiag(guard, tap)
+			sink = guard
 		}
 		// Run on the session's OWN lifecycle context: a request-scoped ctx
 		// (the gRPC handler's) is cancelled the moment StartSession returns,
@@ -427,6 +481,22 @@ func (m *SessionManager) ActiveSession() *Session {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.activeSess
+}
+
+// classifySinkKind maps a concrete sink to the kind reported over local IPC.
+// The display sink is deliberately NOT listed here: it is a *PipeSink by
+// construction and is classified by the caller that chose to launch it.
+func classifySinkKind(s receiver.FrameSink) SinkKind {
+	switch s.(type) {
+	case *receiver.NullSink:
+		return SinkKindNull
+	case *receiver.FileSink:
+		return SinkKindFile
+	case *receiver.PipeSink:
+		return SinkKindPipe
+	default:
+		return SinkKindUnspecified
+	}
 }
 
 func generateSessionID() string {

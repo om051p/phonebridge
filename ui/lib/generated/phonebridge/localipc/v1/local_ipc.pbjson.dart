@@ -72,6 +72,24 @@ final $typed_data.Uint8List sessionReasonDescriptor = $convert.base64Decode(
     'lPTl9SRUFTT05fUkVDT05ORUNUX1RJTUVPVVQQChIjCh9TRVNTSU9OX1JFQVNPTl9TSUdOQUxJ'
     'TkdfRkFJTEVEEAsSHwobU0VTU0lPTl9SRUFTT05fVVNFUl9TVE9QUEVEEAw=');
 
+@$core.Deprecated('Use sinkKindDescriptor instead')
+const SinkKind$json = {
+  '1': 'SinkKind',
+  '2': [
+    {'1': 'SINK_KIND_UNSPECIFIED', '2': 0},
+    {'1': 'SINK_KIND_NULL', '2': 1},
+    {'1': 'SINK_KIND_DISPLAY', '2': 2},
+    {'1': 'SINK_KIND_PIPE', '2': 3},
+    {'1': 'SINK_KIND_FILE', '2': 4},
+  ],
+};
+
+/// Descriptor for `SinkKind`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List sinkKindDescriptor = $convert.base64Decode(
+    'CghTaW5rS2luZBIZChVTSU5LX0tJTkRfVU5TUEVDSUZJRUQQABISCg5TSU5LX0tJTkRfTlVMTB'
+    'ABEhUKEVNJTktfS0lORF9ESVNQTEFZEAISEgoOU0lOS19LSU5EX1BJUEUQAxISCg5TSU5LX0tJ'
+    'TkRfRklMRRAE');
+
 @$core.Deprecated('Use transferDirectionDescriptor instead')
 const TransferDirection$json = {
   '1': 'TransferDirection',
@@ -502,6 +520,10 @@ const StreamStats$json = {
     {'1': 'access_units', '3': 4, '4': 1, '5': 4, '10': 'accessUnits'},
     {'1': 'keyframes', '3': 5, '4': 1, '5': 4, '10': 'keyframes'},
     {'1': 'dropped_aus', '3': 6, '4': 1, '5': 3, '10': 'droppedAus'},
+    {'1': 'seq_gaps', '3': 7, '4': 1, '5': 4, '10': 'seqGaps'},
+    {'1': 'dup_seq', '3': 8, '4': 1, '5': 4, '10': 'dupSeq'},
+    {'1': 'late_packets', '3': 9, '4': 1, '5': 4, '10': 'latePackets'},
+    {'1': 'ts_backward', '3': 10, '4': 1, '5': 4, '10': 'tsBackward'},
   ],
 };
 
@@ -510,7 +532,9 @@ final $typed_data.Uint8List streamStatsDescriptor = $convert.base64Decode(
     'CgtTdHJlYW1TdGF0cxIYCgdwYWNrZXRzGAEgASgEUgdwYWNrZXRzEhsKCWJ5dGVzX3J0cBgCIA'
     'EoBFIIYnl0ZXNSdHASHQoKYnl0ZXNfaDI2NBgDIAEoBFIJYnl0ZXNIMjY0EiEKDGFjY2Vzc191'
     'bml0cxgEIAEoBFILYWNjZXNzVW5pdHMSHAoJa2V5ZnJhbWVzGAUgASgEUglrZXlmcmFtZXMSHw'
-    'oLZHJvcHBlZF9hdXMYBiABKANSCmRyb3BwZWRBdXM=');
+    'oLZHJvcHBlZF9hdXMYBiABKANSCmRyb3BwZWRBdXMSGQoIc2VxX2dhcHMYByABKARSB3NlcUdh'
+    'cHMSFwoHZHVwX3NlcRgIIAEoBFIGZHVwU2VxEiEKDGxhdGVfcGFja2V0cxgJIAEoBFILbGF0ZV'
+    'BhY2tldHMSHwoLdHNfYmFja3dhcmQYCiABKARSCnRzQmFja3dhcmQ=');
 
 @$core.Deprecated('Use getSessionStateResponseDescriptor instead')
 const GetSessionStateResponse$json = {
@@ -573,6 +597,16 @@ const GetSessionStateResponse$json = {
       '5': 13,
       '10': 'reconnectAttempts'
     },
+    {
+      '1': 'sink_kind',
+      '3': 11,
+      '4': 1,
+      '5': 14,
+      '6': '.phonebridge.localipc.v1.SinkKind',
+      '10': 'sinkKind'
+    },
+    {'1': 'sink_active', '3': 12, '4': 1, '5': 8, '10': 'sinkActive'},
+    {'1': 'frames_reason', '3': 13, '4': 1, '5': 9, '10': 'framesReason'},
   ],
 };
 
@@ -587,7 +621,9 @@ final $typed_data.Uint8List getSessionStateResponseDescriptor = $convert.base64D
     'ZWRpYVBhcmFtc1IJcmVxdWVzdGVkEjMKBmFjdHVhbBgIIAEoCzIbLnBob25lYnJpZGdlLnYxLk'
     '1lZGlhUGFyYW1zUgZhY3R1YWwSRwoLcmVhc29uX2NvZGUYCSABKA4yJi5waG9uZWJyaWRnZS5s'
     'b2NhbGlwYy52MS5TZXNzaW9uUmVhc29uUgpyZWFzb25Db2RlEi0KEnJlY29ubmVjdF9hdHRlbX'
-    'B0cxgKIAEoDVIRcmVjb25uZWN0QXR0ZW1wdHM=');
+    'B0cxgKIAEoDVIRcmVjb25uZWN0QXR0ZW1wdHMSPgoJc2lua19raW5kGAsgASgOMiEucGhvbmVi'
+    'cmlkZ2UubG9jYWxpcGMudjEuU2lua0tpbmRSCHNpbmtLaW5kEh8KC3NpbmtfYWN0aXZlGAwgAS'
+    'gIUgpzaW5rQWN0aXZlEiMKDWZyYW1lc19yZWFzb24YDSABKAlSDGZyYW1lc1JlYXNvbg==');
 
 @$core.Deprecated('Use discoveredDeviceDescriptor instead')
 const DiscoveredDevice$json = {
@@ -1045,3 +1081,35 @@ const TransferEvent$json = {
 final $typed_data.Uint8List transferEventDescriptor = $convert.base64Decode(
     'Cg1UcmFuc2ZlckV2ZW50EkEKCHRyYW5zZmVyGAEgASgLMiUucGhvbmVicmlkZ2UubG9jYWxpcG'
     'MudjEuVHJhbnNmZXJJbmZvUgh0cmFuc2Zlcg==');
+
+@$core.Deprecated('Use streamFramesRequestDescriptor instead')
+const StreamFramesRequest$json = {
+  '1': 'StreamFramesRequest',
+};
+
+/// Descriptor for `StreamFramesRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List streamFramesRequestDescriptor =
+    $convert.base64Decode('ChNTdHJlYW1GcmFtZXNSZXF1ZXN0');
+
+@$core.Deprecated('Use streamFramesResponseDescriptor instead')
+const StreamFramesResponse$json = {
+  '1': 'StreamFramesResponse',
+  '2': [
+    {'1': 'frame_id', '3': 1, '4': 1, '5': 4, '10': 'frameId'},
+    {'1': 'chunk_index', '3': 2, '4': 1, '5': 13, '10': 'chunkIndex'},
+    {'1': 'chunk_count', '3': 3, '4': 1, '5': 13, '10': 'chunkCount'},
+    {'1': 'last_chunk', '3': 4, '4': 1, '5': 8, '10': 'lastChunk'},
+    {'1': 'width', '3': 5, '4': 1, '5': 13, '10': 'width'},
+    {'1': 'height', '3': 6, '4': 1, '5': 13, '10': 'height'},
+    {'1': 'jpeg', '3': 7, '4': 1, '5': 12, '10': 'jpeg'},
+    {'1': 'sent_unix_micros', '3': 8, '4': 1, '5': 4, '10': 'sentUnixMicros'},
+  ],
+};
+
+/// Descriptor for `StreamFramesResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List streamFramesResponseDescriptor = $convert.base64Decode(
+    'ChRTdHJlYW1GcmFtZXNSZXNwb25zZRIZCghmcmFtZV9pZBgBIAEoBFIHZnJhbWVJZBIfCgtjaH'
+    'Vua19pbmRleBgCIAEoDVIKY2h1bmtJbmRleBIfCgtjaHVua19jb3VudBgDIAEoDVIKY2h1bmtD'
+    'b3VudBIdCgpsYXN0X2NodW5rGAQgASgIUglsYXN0Q2h1bmsSFAoFd2lkdGgYBSABKA1SBXdpZH'
+    'RoEhYKBmhlaWdodBgGIAEoDVIGaGVpZ2h0EhIKBGpwZWcYByABKAxSBGpwZWcSKAoQc2VudF91'
+    'bml4X21pY3JvcxgIIAEoBFIOc2VudFVuaXhNaWNyb3M=');

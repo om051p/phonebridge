@@ -75,9 +75,25 @@ class DevicesScreen extends StatelessWidget {
             child: const Text('REJECT'),
           ),
           FilledButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(ctx);
-              controller.confirmPairing(deviceId: dev.id, confirmed: true);
+              final ok = await controller.confirmPairing(
+                deviceId: dev.id,
+                confirmed: true,
+              );
+              // A rejected confirmation must not close the dialog as if the
+              // pairing had succeeded — surface it where the action ran.
+              if (!ok && context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      controller.lastErrorMessage ??
+                          'Pairing was rejected or could not be confirmed',
+                    ),
+                    backgroundColor: Theme.of(context).colorScheme.error,
+                  ),
+                );
+              }
             },
             child: const Text('CONFIRM MATCH'),
           ),
@@ -168,6 +184,37 @@ class DevicesScreen extends StatelessWidget {
                         ),
                         onPressed: () async {
                           Navigator.pop(ctx);
+                          // Revoking trust is destructive and requires a fresh
+                          // pairing to undo: an explicit confirmation gate
+                          // stands between the tap and the daemon call (the
+                          // same guard the retired session view's trust card
+                          // had).
+                          if (!context.mounted) return;
+                          final confirmed = await showDialog<bool>(
+                            context: context,
+                            builder: (dialogCtx) => AlertDialog(
+                              title: const Text('Revoke Trust'),
+                              content: Text(
+                                'Are you sure you want to revoke trust for device '
+                                '${device.deviceId}? You will need to pair again to connect.',
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(dialogCtx, false),
+                                  child: const Text('CANCEL'),
+                                ),
+                                FilledButton(
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor:
+                                        Theme.of(dialogCtx).colorScheme.error,
+                                  ),
+                                  onPressed: () => Navigator.pop(dialogCtx, true),
+                                  child: const Text('REVOKE'),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (confirmed != true || !context.mounted) return;
                           await controller.revokeDevice(device.deviceId);
                         },
                         icon: const Icon(Icons.block, size: 18),
@@ -297,6 +344,13 @@ class DevicesScreen extends StatelessWidget {
 
   Widget _buildDiscoveredDeviceTile(
       BuildContext context, ThemeData theme, DiscoveredDevice dev) {
+    // Trust state is cross-referenced against the trust store, so a result
+    // that is both discovered and already paired reads as paired here — and
+    // a browse entry the daemon has aged out is visibly stale.
+    final isTrusted = controller.trustedDevices
+        .any((t) => t.deviceId == dev.id && !t.revoked);
+    final isStale = dev.isStale;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       elevation: 0,
@@ -313,9 +367,24 @@ class DevicesScreen extends StatelessWidget {
             color: theme.colorScheme.primary,
           ),
         ),
-        title: Text(
-          dev.name,
-          style: const TextStyle(fontWeight: FontWeight.bold),
+        title: Row(
+          children: [
+            Flexible(
+              child: Text(
+                dev.name,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 8),
+            isTrusted
+                ? _statusBadge('PAIRED', Colors.green)
+                : _statusBadge('UNPAIRED', Colors.amber),
+            if (isStale) ...[
+              const SizedBox(width: 8),
+              _statusBadge('STALE', Colors.orange),
+            ],
+          ],
         ),
         subtitle: Text(
           '${dev.model} · ${dev.host}:${dev.port}',
@@ -324,9 +393,33 @@ class DevicesScreen extends StatelessWidget {
             color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
-        trailing: FilledButton.tonal(
-          onPressed: controller.isLoading ? null : () => _startPairingFlow(context, dev),
-          child: const Text('PAIR'),
+        // Pairing is only offered for a fresh, untrusted result: a stale
+        // browse entry or an already-trusted peer has nothing to pair.
+        trailing: (isTrusted || isStale)
+            ? null
+            : FilledButton.tonal(
+                onPressed: controller.isLoading
+                    ? null
+                    : () => _startPairingFlow(context, dev),
+                child: const Text('PAIR'),
+              ),
+      ),
+    );
+  }
+
+  Widget _statusBadge(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+          color: color,
         ),
       ),
     );

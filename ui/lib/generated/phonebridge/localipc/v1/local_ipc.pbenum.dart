@@ -144,6 +144,37 @@ class SessionReason extends $pb.ProtobufEnum {
   const SessionReason._(super.value, super.name);
 }
 
+/// SinkKind classifies where a session's decoded frames are written, so the
+/// UI reports the real display path instead of assuming ffplay is running (a
+/// headless daemon silently uses a null sink).
+class SinkKind extends $pb.ProtobufEnum {
+  static const SinkKind SINK_KIND_UNSPECIFIED =
+      SinkKind._(0, _omitEnumNames ? '' : 'SINK_KIND_UNSPECIFIED');
+  static const SinkKind SINK_KIND_NULL =
+      SinkKind._(1, _omitEnumNames ? '' : 'SINK_KIND_NULL');
+  static const SinkKind SINK_KIND_DISPLAY =
+      SinkKind._(2, _omitEnumNames ? '' : 'SINK_KIND_DISPLAY');
+  static const SinkKind SINK_KIND_PIPE =
+      SinkKind._(3, _omitEnumNames ? '' : 'SINK_KIND_PIPE');
+  static const SinkKind SINK_KIND_FILE =
+      SinkKind._(4, _omitEnumNames ? '' : 'SINK_KIND_FILE');
+
+  static const $core.List<SinkKind> values = <SinkKind>[
+    SINK_KIND_UNSPECIFIED,
+    SINK_KIND_NULL,
+    SINK_KIND_DISPLAY,
+    SINK_KIND_PIPE,
+    SINK_KIND_FILE,
+  ];
+
+  static final $core.List<SinkKind?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 4);
+  static SinkKind? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const SinkKind._(super.value, super.name);
+}
+
 /// TransferDirection states which way the bytes flow for this device.
 class TransferDirection extends $pb.ProtobufEnum {
   static const TransferDirection TRANSFER_DIRECTION_UNSPECIFIED =

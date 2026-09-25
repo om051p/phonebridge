@@ -3,7 +3,7 @@
 > **Status:** `COMPLETE` · **Classification:** `VALIDATED` (beryllium)
 > **Date:** 2026-09-25 · **Prerequisites:** Spike 04 (DEC-021), DEC-022,
 > Spike 07 prototypes · **Decision:** DEC-025 · **Commits:**
-> `<PSI-FIX-HASH>` + `<RENDERER-HASH>` (fill at commit time)
+> `37b9ca2` (producer PSI) + this renderer-stack commit
 
 ## 1. What shipped
 

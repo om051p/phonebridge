@@ -131,6 +131,17 @@ service LocalEngineService {
   // ListTransfers returns in-flight transfers plus the recent in-memory
   // history (Phase 4 does not persist history across daemon restarts).
   rpc ListTransfers(ListTransfersRequest) returns (ListTransfersResponse);
+
+  // StreamFrames pushes encoded video frames of the active session to the UI
+  // renderer (Phase 6 Slice 3, additive). Deliberately a SEPARATE stream from
+  // StreamEvents: control events must never be starved or dropped by frame
+  // traffic, and frames are opt-in per subscriber (one renderer at a time,
+  // DEC-018's one-consumer rule). v1 carries JPEG frames produced by the
+  // daemon-side tap; the message shape is transport-generic (chunked opaque
+  // image bytes + geometry). The server ends the stream when the session it
+  // is bound to reaches a terminal state; clients resubscribe via their
+  // existing backoff pattern only while a session is live.
+  rpc StreamFrames(StreamFramesRequest) returns (stream StreamFramesResponse);
 }
 
 // HandshakeRequest advertises the client's local-IPC protocol support.
@@ -352,6 +363,25 @@ message StreamStats {
   uint64 access_units = 4;
   uint64 keyframes = 5;
   int64 dropped_aus = 6;
+  // Transport counters from the receiver's depacketizer. They exist with
+  // stable semantics in rtpmedia.StreamStats and are surfaced so link-quality
+  // regressions are observable from the UI and from tests rather than only
+  // from daemon logs.
+  uint64 seq_gaps = 7;
+  uint64 dup_seq = 8;
+  uint64 late_packets = 9;
+  uint64 ts_backward = 10;
+}
+
+// SinkKind classifies where a session's decoded frames are written, so the
+// UI reports the real display path instead of assuming ffplay is running (a
+// headless daemon silently uses a null sink).
+enum SinkKind {
+  SINK_KIND_UNSPECIFIED = 0;
+  SINK_KIND_NULL = 1;
+  SINK_KIND_DISPLAY = 2;
+  SINK_KIND_PIPE = 3;
+  SINK_KIND_FILE = 4;
 }
 
 // GetSessionStateResponse contains a full point-in-time snapshot.
@@ -374,6 +404,18 @@ message GetSessionStateResponse {
   // Exposed so recovery is observable from the UI and from tests rather than
   // inferred from a state label.
   uint32 reconnect_attempts = 10;
+  // Which frame sink the session is writing to, and whether it is currently
+  // attached. The daemon clears both when the session reaches a terminal
+  // state, so a stale sink can never outlive its session.
+  SinkKind sink_kind = 11;
+  bool sink_active = 12;
+  // Typed reason why the in-app frame stream is (or is not) producing
+  // frames — empty while frames flow normally. Uppercase codes, e.g.
+  // "FFMPEG_MISSING" (tap degraded, P4) or "PARAM_SETS_MISSING" (received
+  // stream carries no SPS/PPS and none was ever cached). Lets the UI
+  // distinguish "no frames yet" from a diagnosed condition instead of
+  // showing an unexplained blank surface.
+  string frames_reason = 13;
 }
 
 // DiscoveredDevice models a LAN device discovered via mDNS.
@@ -640,4 +682,58 @@ message ListTransfersResponse {
 // TransferEvent is one pushed transfer transition on StreamEvents.
 message TransferEvent {
   TransferInfo transfer = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Screen-frame streaming (Phase 6 Slice 3, additive)
+// ---------------------------------------------------------------------------
+// No frame bytes ever ride StreamEvents (the DEC-018 control plane): a client
+// that never calls StreamFrames sees zero behavior or wire change, and frame
+// backpressure can never cost the UI a session/clipboard/transfer event.
+
+// StreamFramesRequest subscribes to frames of the active session.
+// Intentionally empty in v1: future filters (session id, fps cap, quality)
+// are added as optional fields; older servers ignore unknown fields.
+message StreamFramesRequest {}
+
+// StreamFramesResponse carries one CHUNK of one JPEG frame. A frame larger
+// than the DEC-018 bulk ceiling (<= 64 KiB per message) arrives as multiple
+// chunks; chunk_count == 1 is not guaranteed by the contract even though it
+// is the common case for 720p q3. Chunks of a frame are contiguous and
+// ordered; the next frame_id begins only after the previous last_chunk.
+message StreamFramesResponse {
+  // Monotonic frame identity within this subscription, starting at 1.
+  // Identical on every chunk of the same frame. Gaps are permitted and mean
+  // the daemon dropped a frame under latest-wins backpressure — a gap is
+  // never a reason to resubscribe or resynchronize.
+  uint64 frame_id = 1;
+
+  // 0-based position of this chunk within the frame.
+  uint32 chunk_index = 2;
+
+  // Total chunks composing this frame (>= 1). With frame_id this is the
+  // ordering authority for reassembly.
+  uint32 chunk_count = 3;
+
+  // True on the final chunk (chunk_index == chunk_count - 1), so a renderer
+  // can paint the instant the frame completes — explicit rather than derived,
+  // so a frame that stops arriving is detectable client-side instead of
+  // silently never rendering.
+  bool last_chunk = 4;
+
+  // Decoded dimensions of the complete frame in pixels. Present on every
+  // chunk so a renderer can size its surface before the first frame completes.
+  uint32 width = 5;
+  uint32 height = 6;
+
+  // JPEG byte slice of this chunk, <= 64 KiB per message (DEC-018 bulk rule;
+  // chunking also bounds relay latency and head-of-line blocking).
+  bytes jpeg = 7;
+
+  // Daemon-local wall-clock time (µs since epoch) at which this frame was
+  // produced by the daemon, present on every chunk. Same clock as the client
+  // on a LAN host, so a renderer can compute true send→paint frame age for
+  // telemetry without a clock-anchoring exchange. Diagnostics only: a client
+  // must not reorder or drop frames because of it.
+  uint64 sent_unix_micros = 8;
 }

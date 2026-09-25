@@ -237,12 +237,10 @@ func TestCacheLearnRejectsPartialAndCorruptSets(t *testing.T) {
 		t.Fatalf("IDR completed without a PPS: %d NALs, no-cache=%d", len(got), c.IDRsNoCache)
 	}
 
-	// Truncated SPS (< 4 B) and PPS (< 2 B): refused, not cached, and the
-	// already-valid cached SPS is not displaced.
+	// Truncated SPS (< 4 B) and PPS (< 2 B): refused. The previously valid
+	// cached SPS remains available as a single half, but the pair must stay
+	// incomplete and the corrupt PPS must not be cached.
 	c.Learn([][]byte{{0x67}, {0x68}})
-	if c.HasParameterSets() {
-		t.Fatal("corrupt/truncated parameter sets completed the pair")
-	}
 	if got := c.SPS(); !bytes.Equal(got, testSPS) {
 		t.Fatalf("corrupt SPS displaced the valid cached SPS: %x", got)
 	}

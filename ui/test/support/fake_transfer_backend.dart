@@ -4,6 +4,8 @@
 
 import 'dart:async';
 
+import 'package:phonebridge_ui/generated/phonebridge/localipc/v1/local_ipc.pb.dart' as ipc;
+import 'package:phonebridge_ui/generated/phonebridge/v1/phonebridge.pb.dart' as pb;
 import 'package:phonebridge_ui/models/capture_stats.dart';
 import 'package:phonebridge_ui/models/clipboard_status.dart';
 import 'package:phonebridge_ui/models/device_state.dart';
@@ -11,7 +13,10 @@ import 'package:phonebridge_ui/models/discovered_device.dart';
 import 'package:phonebridge_ui/models/transfer_item.dart';
 import 'package:phonebridge_ui/models/trusted_device.dart';
 import 'package:phonebridge_ui/services/platform_bridge_service.dart';
+import 'package:phonebridge_ui/services/session_backend.dart';
 import 'package:phonebridge_ui/services/transfer_backend.dart';
+
+import 'fake_session_backend.dart';
 
 /// In-memory [TransferBackend] that records every call and lets each failure mode
 /// be switched on, so the controller and widget tests can drive exact states.
@@ -85,13 +90,20 @@ class FakeTransferBackend implements TransferBackend {
 }
 
 /// Minimal [PlatformBridgeService] whose device/clipboard surface is inert and
-/// whose transfer surface is a [FakeTransferBackend].
-class FakeBridgeService implements PlatformBridgeService {
-  FakeBridgeService({bool supportsFileTransfer = true})
-      : transfers =
-            FakeTransferBackend(supportsFileTransfer: supportsFileTransfer);
+/// whose transfer/session surfaces are fakes.
+///
+/// It also implements [SessionBackend], which is how a platform that drives
+/// sessions locally looks to [PhoneBridgeController].
+class FakeBridgeService implements PlatformBridgeService, SessionBackend {
+  FakeBridgeService({
+    bool supportsFileTransfer = true,
+    bool supportsSessions = true,
+  })  : transfers =
+            FakeTransferBackend(supportsFileTransfer: supportsFileTransfer),
+        sessions = FakeSessionBackend(supportsSessions: supportsSessions);
 
   final FakeTransferBackend transfers;
+  final FakeSessionBackend sessions;
 
   final StreamController<CaptureStats> _statsCtrl =
       StreamController<CaptureStats>.broadcast();
@@ -185,6 +197,35 @@ class FakeBridgeService implements PlatformBridgeService {
   Future<bool> cancelTransfer(String transferId) =>
       transfers.cancelTransfer(transferId);
 
+  // ---------------------------------------------------------------- sessions
+
+  @override
+  bool get supportsSessions => sessions.supportsSessions;
+
+  @override
+  String get activeSessionId => sessions.activeSessionId;
+
+  @override
+  Stream<ipc.SessionEvent> get sessionEventStream => sessions.sessionEventStream;
+
+  @override
+  Future<ipc.GetSessionStateResponse> getSessionSnapshot(String sessionId) =>
+      sessions.getSessionSnapshot(sessionId);
+
+  @override
+  Future<ipc.StartSessionResponse> startSession({
+    required String target,
+    pb.MediaParams? requested,
+  }) =>
+      sessions.startSession(target: target, requested: requested);
+
+  @override
+  Future<ipc.StopSessionResponse> stopSession({
+    required String sessionId,
+    String reason = 'user stopped',
+  }) =>
+      sessions.stopSession(sessionId: sessionId, reason: reason);
+
   @override
   void setNativeCallHandler(Future<dynamic> Function(dynamic call)? handler) {}
 
@@ -193,5 +234,6 @@ class FakeBridgeService implements PlatformBridgeService {
     _statsCtrl.close();
     _rawEventsCtrl.close();
     transfers.close();
+    sessions.close();
   }
 }

@@ -25,6 +25,8 @@ class SessionStatus {
     this.requested,
     this.actual,
     this.reconnectAttempts = 0,
+    this.sinkKind = SinkKind.SINK_KIND_UNSPECIFIED,
+    this.sinkActive = false,
   });
 
   final SessionState state;
@@ -43,6 +45,19 @@ class SessionStatus {
 
   final int reconnectAttempts;
 
+  /// Where the daemon is writing decoded frames, as classified by the local
+  /// engine. UNSPECIFIED until a snapshot classifies it, and cleared again
+  /// when the session reaches an idle/terminal state.
+  final SinkKind sinkKind;
+
+  /// Whether that sink is currently attached to a live session.
+  final bool sinkActive;
+
+  /// True once the daemon has actually classified a sink — gates the display
+  /// banner so "Active (ffplay)" is never rendered on assumption (a headless
+  /// daemon runs a null sink and says so).
+  bool get hasReportedSink => sinkKind != SinkKind.SINK_KIND_UNSPECIFIED;
+
   static const SessionStatus idle = SessionStatus(
     state: SessionState.SESSION_STATE_DISCONNECTED,
   );
@@ -54,6 +69,13 @@ class SessionStatus {
     SessionEvent event, {
     SessionStatus? previous,
   }) {
+    // Entering an idle or terminal state ends the session's sink, so the model
+    // clears it right here: a stale classification must not outlive its
+    // session even between snapshot polls.
+    final eventClearsSink =
+        event.state == SessionState.SESSION_STATE_STOPPED ||
+        event.state == SessionState.SESSION_STATE_FAILED ||
+        event.state == SessionState.SESSION_STATE_DISCONNECTED;
     return SessionStatus(
       state: event.state,
       sessionId: event.sessionId.isNotEmpty ? event.sessionId : previous?.sessionId,
@@ -65,6 +87,12 @@ class SessionStatus {
       requested: previous?.requested,
       actual: previous?.actual,
       reconnectAttempts: previous?.reconnectAttempts ?? 0,
+      // Events do not carry sink state: non-terminal transitions preserve
+      // the previous classification.
+      sinkKind: eventClearsSink
+          ? SinkKind.SINK_KIND_UNSPECIFIED
+          : (previous?.sinkKind ?? SinkKind.SINK_KIND_UNSPECIFIED),
+      sinkActive: !eventClearsSink && (previous?.sinkActive ?? false),
     );
   }
 
@@ -89,6 +117,10 @@ class SessionStatus {
       // An unreported tuple must stay unreported; a stale one would be a lie.
       actual: hasActual ? snapshot.actual : null,
       reconnectAttempts: snapshot.reconnectAttempts,
+      // The snapshot is authoritative for sink state — the daemon clears both
+      // fields itself on terminal transitions.
+      sinkKind: snapshot.sinkKind,
+      sinkActive: snapshot.sinkActive,
     );
   }
 
@@ -104,9 +136,19 @@ class SessionStatus {
     bool clearActual = false,
     bool clearError = false,
     int? reconnectAttempts,
+    SinkKind? sinkKind,
+    bool? sinkActive,
   }) {
+    final nextState = state ?? this.state;
+    // An idle/terminal state owns no sink: copyWith must never be a path for
+    // a stale classification to survive a stop or failure (the controller's
+    // stop goes through here).
+    final sinkGone =
+        nextState == SessionState.SESSION_STATE_STOPPED ||
+        nextState == SessionState.SESSION_STATE_FAILED ||
+        nextState == SessionState.SESSION_STATE_DISCONNECTED;
     return SessionStatus(
-      state: state ?? this.state,
+      state: nextState,
       sessionId: sessionId ?? this.sessionId,
       reasonCode: reasonCode ?? this.reasonCode,
       reasonDetail: reasonDetail ?? this.reasonDetail,
@@ -115,6 +157,9 @@ class SessionStatus {
       requested: requested ?? this.requested,
       actual: clearActual ? null : (actual ?? this.actual),
       reconnectAttempts: reconnectAttempts ?? this.reconnectAttempts,
+      sinkKind: sinkKind ??
+          (sinkGone ? SinkKind.SINK_KIND_UNSPECIFIED : this.sinkKind),
+      sinkActive: sinkActive ?? (sinkGone ? false : this.sinkActive),
     );
   }
 

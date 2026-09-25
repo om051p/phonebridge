@@ -25,6 +25,7 @@ import (
 	"github.com/om051p/phonebridge/core/pkg/crypto"
 	"github.com/om051p/phonebridge/core/pkg/discovery"
 	"github.com/om051p/phonebridge/core/pkg/engine"
+	"github.com/om051p/phonebridge/core/pkg/frames"
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgelocalipcv1"
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgev1"
 	"github.com/om051p/phonebridge/core/pkg/transfer"
@@ -87,6 +88,14 @@ type SessionOrchestrator interface {
 	ListTransfers() []transfer.Info
 }
 
+// FrameSource supplies per-session frame streams for the StreamFrames RPC
+// (Phase 6 Slice 3). Subscribe blocks until a frame session begins (or ctx
+// is done); the returned channel closes when that session ends, after which
+// the handler subscribes again. *frames.Hub implements this.
+type FrameSource interface {
+	Subscribe(ctx context.Context) (<-chan *frames.Frame, error)
+}
+
 // Config configures the production local IPC server.
 type Config struct {
 	SocketPath       string
@@ -98,7 +107,10 @@ type Config struct {
 	DaemonGeneration uint64
 	MaxRecvBytes     int
 	Orchestrator     SessionOrchestrator
-	Logf             func(format string, args ...any)
+	// Frames serves the StreamFrames RPC. Nil disables frame streaming
+	// (Unimplemented), so hosts without a daemon-side tap keep working.
+	Frames FrameSource
+	Logf   func(format string, args ...any)
 }
 
 // Server implements phonebridgelocalipcv1.LocalEngineServiceServer.
@@ -424,6 +436,58 @@ func (s *Server) StreamEvents(_ *phonebridgelocalipcv1.StreamEventsRequest, stre
 	}
 }
 
+// StreamFrames pushes the active session's encoded video frames to the UI
+// (Phase 6 Slice 3). Separate from StreamEvents by contract: frame
+// backpressure can never cost a client a control event. The handler loops
+// across sessions — Subscribe blocks until a frame session begins, the
+// channel closes at session end (so no stale frame is ever sent), and the
+// next iteration waits for the next session or the client's cancel.
+func (s *Server) StreamFrames(_ *phonebridgelocalipcv1.StreamFramesRequest, stream grpc.ServerStreamingServer[phonebridgelocalipcv1.StreamFramesResponse]) error {
+	if s.closed.Load() {
+		return status.Error(codes.Unavailable, "daemon is shutting down")
+	}
+	if s.cfg.Frames == nil {
+		return status.Error(codes.Unimplemented, "frame streaming not configured")
+	}
+
+	ctx := stream.Context()
+	for {
+		ch, err := s.cfg.Frames.Subscribe(ctx)
+		if err != nil {
+			// Client cancelled (clean unsubscribe) or the server is going away.
+			return nil
+		}
+		// Per-subscription frame ids start at 1 (proto contract) while gaps
+		// remain meaningful: the hub id is rebased on first delivery, so a
+		// frame dropped by latest-wins before delivery still shows as a jump.
+		var base uint64
+		haveBase := false
+		for f := range ch {
+			if !haveBase {
+				base, haveBase = f.ID, true
+			}
+			id := f.ID - base + 1
+			chunks := f.Chunks()
+			for i, c := range chunks {
+				resp := &phonebridgelocalipcv1.StreamFramesResponse{
+					FrameId:        id,
+					ChunkIndex:     uint32(i),
+					ChunkCount:     uint32(len(chunks)),
+					LastChunk:      i == len(chunks)-1,
+					Width:          f.Width,
+					Height:         f.Height,
+					Jpeg:           c,
+					SentUnixMicros: f.SentUnixMicros,
+				}
+				if err := stream.Send(resp); err != nil {
+					return err // client gone; only this subscription is affected
+				}
+			}
+		}
+		// Session ended: loop and wait for the next one (or ctx cancellation).
+	}
+}
+
 func (s *Server) broadcastItem(item *eventPayload) {
 	if s.closed.Load() || item == nil {
 		return
@@ -548,6 +612,9 @@ func (s *Server) GetSessionState(_ context.Context, req *phonebridgelocalipcv1.G
 		// happens to equal the request (DEC-022: no silent substitution).
 		Actual:            ToProtoMediaParamsKnown(snap.Actual, snap.ActualKnown),
 		ReconnectAttempts: uint32(snap.ReconnectAttempts),
+		SinkKind:          ToProtoSinkKind(snap.SinkKind),
+		SinkActive:        snap.SinkActive,
+		FramesReason:      snap.FramesReason,
 		Stats: &phonebridgelocalipcv1.StreamStats{
 			Packets:     uint64(snap.Stats.Packets),
 			BytesRtp:    uint64(snap.Stats.BytesRTP),
@@ -555,6 +622,10 @@ func (s *Server) GetSessionState(_ context.Context, req *phonebridgelocalipcv1.G
 			AccessUnits: uint64(snap.Stats.AccessUnits),
 			Keyframes:   uint64(snap.Stats.Keyframes),
 			DroppedAus:  snap.DroppedAUs,
+			SeqGaps:     uint64(snap.Stats.SeqGaps),
+			DupSeq:      uint64(snap.Stats.DupSeq),
+			LatePackets: uint64(snap.Stats.LatePackets),
+			TsBackward:  uint64(snap.Stats.TSBackward),
 		},
 	}, nil
 }
@@ -977,6 +1048,22 @@ func ToProtoSessionState(st engine.SessionState) phonebridgelocalipcv1.SessionSt
 		return phonebridgelocalipcv1.SessionState_SESSION_STATE_FAILED
 	default:
 		return phonebridgelocalipcv1.SessionState_SESSION_STATE_UNSPECIFIED
+	}
+}
+
+// ToProtoSinkKind converts an internal engine.SinkKind to the protobuf SinkKind enum.
+func ToProtoSinkKind(k engine.SinkKind) phonebridgelocalipcv1.SinkKind {
+	switch k {
+	case engine.SinkKindNull:
+		return phonebridgelocalipcv1.SinkKind_SINK_KIND_NULL
+	case engine.SinkKindDisplay:
+		return phonebridgelocalipcv1.SinkKind_SINK_KIND_DISPLAY
+	case engine.SinkKindPipe:
+		return phonebridgelocalipcv1.SinkKind_SINK_KIND_PIPE
+	case engine.SinkKindFile:
+		return phonebridgelocalipcv1.SinkKind_SINK_KIND_FILE
+	default:
+		return phonebridgelocalipcv1.SinkKind_SINK_KIND_UNSPECIFIED
 	}
 }
 
