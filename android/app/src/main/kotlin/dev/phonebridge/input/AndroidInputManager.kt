@@ -21,6 +21,10 @@ object AndroidInputManager : InputHostCallback {
 
     private const val TAG = "AndroidInputManager"
 
+    // Protobuf KeyEvent.Action constants
+    const val KEY_ACTION_DOWN = 1
+    const val KEY_ACTION_UP = 2
+
     @Volatile
     private var appContext: Context? = null
 
@@ -88,7 +92,7 @@ object AndroidInputManager : InputHostCallback {
     override fun onKey(action: Int, keyCode: Int, metaState: Int): Boolean {
         if (!isDeviceUnlocked()) return false
         Log.d(TAG, "onKey action=$action")
-        if (keyCode == KeyEvent.KEYCODE_BACK && action == KeyEvent.ACTION_UP) {
+        if (keyCode == KeyEvent.KEYCODE_BACK && (action == KEY_ACTION_UP || action == KeyEvent.ACTION_UP)) {
             val acc = PhoneBridgeAccessibilityService.getInstance()
             return acc?.onGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK) ?: false
         }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/om051p/phonebridge/core/pkg/localipc"
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgelocalipcv1"
+	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgev1"
 	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"
 )
@@ -131,6 +132,297 @@ func main() {
 			default:
 			}
 		}
+	case "input-tap":
+		if len(os.Args) < 4 {
+			fmt.Println("usage: ipcdrv input-tap <normX> <normY> [sessionId]")
+			os.Exit(2)
+		}
+		var x, y float64
+		fmt.Sscanf(os.Args[2], "%f", &x)
+		fmt.Sscanf(os.Args[3], "%f", &y)
+		sessID := ""
+		if len(os.Args) > 4 {
+			sessID = os.Args[4]
+		} else {
+			st, err := c.GetSessionState(rpcCtx, &phonebridgelocalipcv1.GetSessionStateRequest{})
+			if err != nil {
+				fmt.Println("ERR get session:", err)
+				os.Exit(1)
+			}
+			sessID = st.SessionId
+		}
+		_, err = c.SendInput(rpcCtx, &phonebridgelocalipcv1.SendInputRequest{
+			SessionId: sessID,
+			Frame: &phonebridgev1.InputFrame{
+				TimestampMs: uint64(time.Now().UnixMilli()),
+				Event: &phonebridgev1.InputFrame_Touch{
+					Touch: &phonebridgev1.TouchEvent{
+						Action:      phonebridgev1.TouchEvent_ACTION_DOWN,
+						PointerId:   0,
+						NormalizedX: float32(x),
+						NormalizedY: float32(y),
+					},
+				},
+			},
+		})
+		if err != nil {
+			fmt.Println("ERR down:", err)
+			os.Exit(1)
+		}
+		time.Sleep(50 * time.Millisecond)
+		r, err := c.SendInput(rpcCtx, &phonebridgelocalipcv1.SendInputRequest{
+			SessionId: sessID,
+			Frame: &phonebridgev1.InputFrame{
+				TimestampMs: uint64(time.Now().UnixMilli()),
+				Event: &phonebridgev1.InputFrame_Touch{
+					Touch: &phonebridgev1.TouchEvent{
+						Action:      phonebridgev1.TouchEvent_ACTION_UP,
+						PointerId:   0,
+						NormalizedX: float32(x),
+						NormalizedY: float32(y),
+					},
+				},
+			},
+		})
+		show(r, err)
+	case "input-longpress":
+		if len(os.Args) < 4 {
+			fmt.Println("usage: ipcdrv input-longpress <normX> <normY> [sessionId]")
+			os.Exit(2)
+		}
+		var x, y float64
+		fmt.Sscanf(os.Args[2], "%f", &x)
+		fmt.Sscanf(os.Args[3], "%f", &y)
+		sessID := ""
+		if len(os.Args) > 4 {
+			sessID = os.Args[4]
+		} else {
+			st, err := c.GetSessionState(rpcCtx, &phonebridgelocalipcv1.GetSessionStateRequest{})
+			if err != nil {
+				fmt.Println("ERR get session:", err)
+				os.Exit(1)
+			}
+			sessID = st.SessionId
+		}
+		_, err = c.SendInput(rpcCtx, &phonebridgelocalipcv1.SendInputRequest{
+			SessionId: sessID,
+			Frame: &phonebridgev1.InputFrame{
+				TimestampMs: uint64(time.Now().UnixMilli()),
+				Event: &phonebridgev1.InputFrame_Touch{
+					Touch: &phonebridgev1.TouchEvent{
+						Action:      phonebridgev1.TouchEvent_ACTION_DOWN,
+						PointerId:   0,
+						NormalizedX: float32(x),
+						NormalizedY: float32(y),
+					},
+				},
+			},
+		})
+		if err != nil {
+			fmt.Println("ERR down:", err)
+			os.Exit(1)
+		}
+		time.Sleep(550 * time.Millisecond)
+		r, err := c.SendInput(rpcCtx, &phonebridgelocalipcv1.SendInputRequest{
+			SessionId: sessID,
+			Frame: &phonebridgev1.InputFrame{
+				TimestampMs: uint64(time.Now().UnixMilli()),
+				Event: &phonebridgev1.InputFrame_Touch{
+					Touch: &phonebridgev1.TouchEvent{
+						Action:      phonebridgev1.TouchEvent_ACTION_UP,
+						PointerId:   0,
+						NormalizedX: float32(x),
+						NormalizedY: float32(y),
+					},
+				},
+			},
+		})
+		show(r, err)
+	case "input-swipe":
+		if len(os.Args) < 6 {
+			fmt.Println("usage: ipcdrv input-swipe <x1> <y1> <x2> <y2> [sessionId]")
+			os.Exit(2)
+		}
+		var x1, y1, x2, y2 float64
+		fmt.Sscanf(os.Args[2], "%f", &x1)
+		fmt.Sscanf(os.Args[3], "%f", &y1)
+		fmt.Sscanf(os.Args[4], "%f", &x2)
+		fmt.Sscanf(os.Args[5], "%f", &y2)
+		sessID := ""
+		if len(os.Args) > 6 {
+			sessID = os.Args[6]
+		} else {
+			st, err := c.GetSessionState(rpcCtx, &phonebridgelocalipcv1.GetSessionStateRequest{})
+			if err != nil {
+				fmt.Println("ERR get session:", err)
+				os.Exit(1)
+			}
+			sessID = st.SessionId
+		}
+		_, err = c.SendInput(rpcCtx, &phonebridgelocalipcv1.SendInputRequest{
+			SessionId: sessID,
+			Frame: &phonebridgev1.InputFrame{
+				TimestampMs: uint64(time.Now().UnixMilli()),
+				Event: &phonebridgev1.InputFrame_Touch{
+					Touch: &phonebridgev1.TouchEvent{
+						Action:      phonebridgev1.TouchEvent_ACTION_DOWN,
+						PointerId:   0,
+						NormalizedX: float32(x1),
+						NormalizedY: float32(y1),
+					},
+				},
+			},
+		})
+		if err != nil {
+			fmt.Println("ERR down:", err)
+			os.Exit(1)
+		}
+		// Interpolate steps
+		steps := 5
+		for i := 1; i <= steps; i++ {
+			t := float64(i) / float64(steps)
+			curX := x1 + (x2-x1)*t
+			curY := y1 + (y2-y1)*t
+			time.Sleep(30 * time.Millisecond)
+			c.SendInput(rpcCtx, &phonebridgelocalipcv1.SendInputRequest{
+				SessionId: sessID,
+				Frame: &phonebridgev1.InputFrame{
+					TimestampMs: uint64(time.Now().UnixMilli()),
+					Event: &phonebridgev1.InputFrame_Touch{
+						Touch: &phonebridgev1.TouchEvent{
+							Action:      phonebridgev1.TouchEvent_ACTION_MOVE,
+							PointerId:   0,
+							NormalizedX: float32(curX),
+							NormalizedY: float32(curY),
+						},
+					},
+				},
+			})
+		}
+		time.Sleep(30 * time.Millisecond)
+		r, err := c.SendInput(rpcCtx, &phonebridgelocalipcv1.SendInputRequest{
+			SessionId: sessID,
+			Frame: &phonebridgev1.InputFrame{
+				TimestampMs: uint64(time.Now().UnixMilli()),
+				Event: &phonebridgev1.InputFrame_Touch{
+					Touch: &phonebridgev1.TouchEvent{
+						Action:      phonebridgev1.TouchEvent_ACTION_UP,
+						PointerId:   0,
+						NormalizedX: float32(x2),
+						NormalizedY: float32(y2),
+					},
+				},
+			},
+		})
+		show(r, err)
+	case "input-action":
+		if len(os.Args) < 3 {
+			fmt.Println("usage: ipcdrv input-action <back|home|recents|notifications|quick_settings> [sessionId]")
+			os.Exit(2)
+		}
+		var actType phonebridgev1.GlobalActionEvent_Type
+		switch os.Args[2] {
+		case "back":
+			actType = phonebridgev1.GlobalActionEvent_TYPE_GLOBAL_ACTION_BACK
+		case "home":
+			actType = phonebridgev1.GlobalActionEvent_TYPE_GLOBAL_ACTION_HOME
+		case "recents":
+			actType = phonebridgev1.GlobalActionEvent_TYPE_GLOBAL_ACTION_RECENTS
+		case "notifications":
+			actType = phonebridgev1.GlobalActionEvent_TYPE_GLOBAL_ACTION_NOTIFICATIONS
+		case "quick_settings":
+			actType = phonebridgev1.GlobalActionEvent_TYPE_GLOBAL_ACTION_QUICK_SETTINGS
+		default:
+			fmt.Println("unknown action:", os.Args[2])
+			os.Exit(2)
+		}
+		sessID := ""
+		if len(os.Args) > 3 {
+			sessID = os.Args[3]
+		} else {
+			st, err := c.GetSessionState(rpcCtx, &phonebridgelocalipcv1.GetSessionStateRequest{})
+			if err != nil {
+				fmt.Println("ERR get session:", err)
+				os.Exit(1)
+			}
+			sessID = st.SessionId
+		}
+		r, err := c.SendInput(rpcCtx, &phonebridgelocalipcv1.SendInputRequest{
+			SessionId: sessID,
+			Frame: &phonebridgev1.InputFrame{
+				TimestampMs: uint64(time.Now().UnixMilli()),
+				Event: &phonebridgev1.InputFrame_Action{
+					Action: &phonebridgev1.GlobalActionEvent{
+						Type: actType,
+					},
+				},
+			},
+		})
+		show(r, err)
+	case "input-text":
+		if len(os.Args) < 3 {
+			fmt.Println("usage: ipcdrv input-text <text> [sessionId]")
+			os.Exit(2)
+		}
+		text := os.Args[2]
+		sessID := ""
+		if len(os.Args) > 3 {
+			sessID = os.Args[3]
+		} else {
+			st, err := c.GetSessionState(rpcCtx, &phonebridgelocalipcv1.GetSessionStateRequest{})
+			if err != nil {
+				fmt.Println("ERR get session:", err)
+				os.Exit(1)
+			}
+			sessID = st.SessionId
+		}
+		r, err := c.SendInput(rpcCtx, &phonebridgelocalipcv1.SendInputRequest{
+			SessionId: sessID,
+			Frame: &phonebridgev1.InputFrame{
+				TimestampMs: uint64(time.Now().UnixMilli()),
+				Event: &phonebridgev1.InputFrame_Text{
+					Text: &phonebridgev1.TextEvent{
+						Text: text,
+					},
+				},
+			},
+		})
+		show(r, err)
+	case "input-raw":
+		// Raw coordinate test (allows out-of-bounds, e.g. -0.5 or 1.5)
+		if len(os.Args) < 4 {
+			fmt.Println("usage: ipcdrv input-raw <normX> <normY> [sessionId]")
+			os.Exit(2)
+		}
+		var x, y float64
+		fmt.Sscanf(os.Args[2], "%f", &x)
+		fmt.Sscanf(os.Args[3], "%f", &y)
+		sessID := ""
+		if len(os.Args) > 4 {
+			sessID = os.Args[4]
+		} else {
+			st, err := c.GetSessionState(rpcCtx, &phonebridgelocalipcv1.GetSessionStateRequest{})
+			if err != nil {
+				fmt.Println("ERR get session:", err)
+				os.Exit(1)
+			}
+			sessID = st.SessionId
+		}
+		r, err := c.SendInput(rpcCtx, &phonebridgelocalipcv1.SendInputRequest{
+			SessionId: sessID,
+			Frame: &phonebridgev1.InputFrame{
+				TimestampMs: uint64(time.Now().UnixMilli()),
+				Event: &phonebridgev1.InputFrame_Touch{
+					Touch: &phonebridgev1.TouchEvent{
+						Action:      phonebridgev1.TouchEvent_ACTION_DOWN,
+						PointerId:   0,
+						NormalizedX: float32(x),
+						NormalizedY: float32(y),
+					},
+				},
+			},
+		})
+		show(r, err)
 	default:
 		fmt.Println("unknown cmd")
 		os.Exit(2)

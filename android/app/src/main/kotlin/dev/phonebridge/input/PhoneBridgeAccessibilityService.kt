@@ -27,10 +27,10 @@ class PhoneBridgeAccessibilityService : AccessibilityService() {
 
         fun getInstance(): PhoneBridgeAccessibilityService? = instance
 
-        const val ACTION_DOWN = 0
-        const val ACTION_UP = 1
+        const val ACTION_DOWN = 1
         const val ACTION_MOVE = 2
-        const val ACTION_CANCEL = 3
+        const val ACTION_UP = 3
+        const val ACTION_CANCEL = 4
     }
 
     private var downX = 0f
