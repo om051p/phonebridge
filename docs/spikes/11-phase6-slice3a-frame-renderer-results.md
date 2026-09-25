@@ -1,6 +1,6 @@
 # Phase 6 Slice 3A Results: Frame Renderer + Producer-Side PSI Fix
 
-> **Status:** `COMPLETE` · **Classification:** `VALIDATED` (beryllium)
+> **Status:** `COMPLETE` · **Classification:** `VALIDATED` (beryllium + SM7475 / POCO F5)
 > **Date:** 2026-09-25 · **Prerequisites:** Spike 04 (DEC-021), DEC-022,
 > Spike 07 prototypes · **Decision:** DEC-025 · **Commits:**
 > `37b9ca2` (producer PSI) + this renderer-stack commit
@@ -55,9 +55,31 @@ Flow: consent ("Entire screen" — the Android 15 dialog defaults to
 | no stale frame after Stop | painted count frozen after `stopSession` |
 | reconnect restores video | Wi-Fi down/up → `TRANSPORT_FAILED` → 1 attempt → STREAMING |
 
-**Device caveat:** the established POCO F5 (DEC-021 baseline, SM7475) was not
-attached (serial `89ceabd9` absent). All numbers are **cross-device evidence**
-on beryllium/SD845 (`OMX.qcom.video.encoder.avc`); re-validate on the F5.
+**Device caveat (resolved in Slice 3C):** the established POCO F5 (DEC-021 baseline,
+SM7475) was initially unattached during Slice 3A. The cross-device numbers on
+beryllium/SD845 (`OMX.qcom.video.encoder.avc`) were subsequently complemented
+by direct POCO F5 hardware validation in Slice 3C (§3.1).
+
+### 3.1. Baseline Device Evidence (POCO F5 / SM7475 / marblein, Android 15)
+
+Hardware validation on the baseline device (`89ceabd9`, `c2.qti.avc.encoder`,
+120 Hz AMOLED panel) executed in Slice 3C via multi-session probe runs across
+both 120 Hz and 60 Hz motion regimes.
+
+| Metric | 120 Hz Composition (`EXTRA_ANIMATE`) | 60 Hz Composition (Chrome Canvas) |
+|---|---|---|
+| Encoder FPS (measured) | 120.0 fps (`Δenc=240` / 2 s) | 59.9 fps (`Δenc=120` / 2 s) |
+| Keyframe Cadence (measured) | 4.0 IDR/s (`Δkf=8` / 2 s; 250 ms interval) | 2.0 IDR/s (`Δkf=4` / 2 s; 500 ms interval) |
+| GOP Length (arithmetic) | 30 AUs (30 frames configured interval) | 30 AUs (30 frames configured interval) |
+| Admitted AU/s (arithmetic) | **32.0 admitted AU/s** ($8 \times 4$ GOP/s) | **16.0 admitted AU/s** ($8 \times 2$ GOP/s) |
+| Delivered FPS (measured mean) | **30.2 delivered fps** (range 28.0–31.6) | **14.5 delivered fps** (range 14.1–15.2) |
+| Access Units / 12 s (measured) | ~390 AUs (~32.5 AU/s) | ~196 AUs (~16.3 AU/s) |
+| Multi-cycle run result | **8/8 cycles delivered** (0 failures) | **6/6 cycles delivered** (0 failures) |
+| `frames_reason` | `""` across all cycles | `""` across all cycles |
+| Max chunk / decode failures | ≤64 KiB / 0 decode failures | ≤64 KiB / 0 decode failures |
+
+Teardown across all cycles was clean: daemon PID unchanged, zero lingering
+processes (`ffmpeg`/`ffplay`), port 7804 preserved.
 
 ## 4. Secondary fixes found during validation
 
@@ -143,12 +165,16 @@ its inner sink).
 > Rerunning with continuous motion (a long-drag swipe that cannot expire
 > mid-run) reproduced the intended clean 6/6.
 
-## 7. Delivered-FPS cause — measured (Slice 3B)
+## 7. Delivered-FPS cause — measured (Slice 3B & 3C)
 
-The requested tuple is 30 fps; delivery measures **16.0 fps** with a sustained
-motion source. The cause is the **sender-side GOP-tail filter**, not encoder
-scheduling, the receiver, the tap, ffmpeg, or Flutter. Evidence from the
-device (`adb -s <serial> logcat -s ScreenCaptureEngine`), steady state:
+The requested tuple is 30 fps; delivery measures **16.0 fps** on 60 Hz panels
+(or 60 Hz composition) and **30.2–32.0 fps** on 120 Hz panels under sustained
+motion. The cause is the **sender-side GOP-tail filter**, not encoder
+scheduling, the receiver, the tap, ffmpeg, or Flutter.
+
+### 7.1. POCO F1 (beryllium, SD845, 60 Hz Panel) Evidence (Slice 3B)
+
+Evidence from the device (`adb -s <serial> logcat -s ScreenCaptureEngine`), steady state:
 
 ```text
 CAPTURE_STATS: encoded=5299 (60.0 fps), delivered=1140 (16.0 fps), gop_dropped=3883, keyframes=177
@@ -157,38 +183,107 @@ CAPTURE_STATS: encoded=5299 (60.0 fps), delivered=1140 (16.0 fps), gop_dropped=3
 Chain, each link measured rather than inferred:
 
 - The Android hardware H.264 encoder ignores the requested fps and runs at
-  panel refresh — **~60 fps measured** here (DEC-020 observed ~120 fps on
-  SM7475; beryllium/SD845 measures 60). So the encoder is *not* the limiter.
+  panel refresh — **~60 fps measured** on beryllium/SD845 (`OMX.qcom.video.encoder.avc`).
 - `core/pkg/frames/tap.go`'s `ffmpegArgs()` carries **no `-r`/framerate flag**,
   so the tap publishes at whatever rate AUs arrive; the tap is not the limiter.
 - `GopTailFilter` (`CaptureConfig`: `KEY_FRAME_RATE=30`,
   `KEY_I_FRAME_INTERVAL=1`, `DEFAULT_KEEP_FRAMES=8`) admits a contiguous
-  **prefix** of each GOP — the IDR plus the first 8 AUs — and drops the tail.
-  The prefix rule is deliberate and prediction-safe (DEC-021: a naive 1-of-4
-  stride drops P-frames whose references are needed later; the contiguous
-  prefix is safe by construction, SSIM = 1.000000).
+  **prefix** of each GOP — the IDR plus the first 7 P-frames (8 AUs total) —
+  and drops the tail. The prefix rule is deliberate and prediction-safe
+  (DEC-021: a naive 1-of-4 stride drops P-frames whose references are needed
+  later; the contiguous prefix is safe by construction, SSIM = 1.000000).
 
 **The arithmetic closes exactly.** Differencing two consecutive sampled
 `CAPTURE_STATS` lines (Δt = 2.0 s) gives `Δencoded = 120`, `Δdelivered = 32`,
-`Δgop_dropped = 88`, `Δkeyframes = 4` — reproducible across runs:
+`Δgop_dropped = 88`, `Δkeyframes = 4`:
 
 ```text
 dt=2s: enc+120 del+32 drop+88 kf+4 | GOP~30 AUs  IDR_every=0.5s
 ```
 
-- GOP ≈ 120/4 = **30 AUs**
+- GOP ≈ 120 / 4 = **30 AUs**
 - IDR actually every **0.5 s**, not the requested 1 s — the encoder ignores
-  `KEY_I_FRAME_INTERVAL` exactly as it ignores `KEY_FRAME_RATE`
-- 8 admitted × 4 GOP per 2 s = 32 per 2 s = **16.0 fps** — the measured value
+  `KEY_I_FRAME_INTERVAL` wall-clock seconds and produces an IDR every 30 frames
+- 8 admitted × 4 GOP per 2 s = 32 per 2 s = **16.0 fps** — matching the measured value
 
-So the ~15–16 fps result is **expected, deterministic GopTail behavior, not a
-defect**: the pipeline delivers exactly the frames the filter admits, with zero
-decode failures and p95 ≈ 11 ms send→paint. (The `CaptureConfig` comment
-"~32 delivered AUs/sec" assumes the requested 1 s interval; with the encoder's
-actual 0.5 s IDR cadence the admitted rate is 16 fps. That comment is
-informational only — changing `keepFrames` is a tuning decision, deferred,
-since the brief forbids pipeline redesign and the tuple gate is met by the
-requested-parameter contract `capture 720×1600 @ 30`.)
+### 7.2. POCO F5 (marblein, SM7475, 120 Hz AMOLED) Evidence (Slice 3C)
+
+Evidence from the POCO F5 (`89ceabd9`, `c2.qti.avc.encoder`, Android 15)
+confirms the identical GOP arithmetic at both 120 Hz and 60 Hz composition.
+
+#### A. 120 Hz Panel Refresh (`EXTRA_ANIMATE` test pattern)
+
+Measured `CAPTURE_STATS` delta (Δt = 2.0 s):
+```text
+CAPTURE_STATS: encoded=12140 (120.0 fps), delivered=3237 (32.0 fps), gop_dropped=8903, keyframes=405
+dt=2s: Δenc=240  Δdel=64  Δdrop=176  Δkf=8 | GOP=30 AUs  IDR_every=0.25s
+```
+
+- **Encoder FPS (measured):** 120.0 fps (runs at 120 Hz panel refresh)
+- **IDR Cadence (measured):** 8 keyframes per 2 s = 4.0 IDR/s = **0.25 s interval** (250 ms)
+- **GOP AU count (arithmetic):** 240 / 8 = **30 AUs** per GOP
+- **Admitted AU rate (arithmetic):** 8 admitted AUs × 4.0 GOP/s = **32.0 admitted AU/s**
+- **Delivered FPS (measured via probe):** 8-cycle consecutive run (12 s each):
+  366, 366, 379, 364, 372, 336, 344, 372 frames = **30.2 delivered fps mean**
+  (30.5, 30.5, 31.6, 30.3, 31.0, 28.0, 28.7, 31.0 fps)
+- **Access units (measured):** ~390 AUs per 12 s = **32.5 AU/s**
+- **Result:** `8/8 cycles delivered frames, 0 failures`, `frames_reason=""`.
+
+This directly validates the `CaptureConfig.kt` doc comment:
+`"Keep first 8 frames per GOP -> ~32 delivered AUs/sec"`.
+That comment was authored on the SM7475 where the 120 Hz panel refresh drives
+4 GOP/s!
+
+#### B. 60 Hz Composition (Browser canvas motion)
+
+Measured `CAPTURE_STATS` delta (Δt = 2.0 s):
+```text
+CAPTURE_STATS: encoded=4820 (59.9 fps), delivered=1285 (16.0 fps), gop_dropped=3535, keyframes=161
+dt=2s: Δenc=120  Δdel=32  Δdrop=88  Δkf=4 | GOP=30 AUs  IDR_every=0.50s
+```
+
+- **Encoder FPS (measured):** 59.9 fps
+- **IDR Cadence (measured):** 4 keyframes per 2 s = 2.0 IDR/s = **0.50 s interval** (500 ms)
+- **GOP AU count (arithmetic):** 120 / 4 = **30 AUs** per GOP
+- **Admitted AU rate (arithmetic):** 8 admitted AUs × 2.0 GOP/s = **16.0 admitted AU/s**
+- **Delivered FPS (measured via probe):** 6-cycle consecutive run (12 s each):
+  174, 182, 174, 169, 173 frames = **14.5 delivered fps mean** (14.1–15.2 fps)
+- **Access units (measured):** ~196 AUs per 12 s = **16.3 AU/s**
+- **Result:** `6/6 cycles delivered frames, 0 failures`, `frames_reason=""`.
+
+### 7.3. Universal Qualcomm Hardware Encoder GOP Sizing Model
+
+Both Qualcomm encoders (`c2.qti.avc.encoder` on SM7475 and
+`OMX.qcom.video.encoder.avc` on SD845) compute GOP length by counting frames,
+not by measuring wall-clock time:
+
+$$\text{GOP AU count} = \text{KEY\_FRAME\_RATE} \times \text{KEY\_I\_FRAME\_INTERVAL} = 30 \times 1 = 30\text{ frames}$$
+
+Because screen capture is damage-driven, the encoder produces frames at the
+effective display composition rate ($R_{\text{comp}}$):
+
+$$\text{GOP rate (GOP/s)} = \frac{R_{\text{comp}}}{\text{GOP AU count}} = \frac{R_{\text{comp}}}{30}$$
+
+$$\text{IDR interval (s)} = \frac{1}{\text{GOP rate}} = \frac{30}{R_{\text{comp}}}$$
+
+Under `DEFAULT_KEEP_FRAMES = 8`, the admitted frame rate is strictly:
+
+$$\text{Admitted FPS} = \text{keepFrames} \times \text{GOP rate} = 8 \times \frac{R_{\text{comp}}}{30}$$
+
+| Parameter | 60 Hz Composition / Panel (F1 or F5) | 120 Hz Panel Refresh (F5) |
+|---|---|---|
+| Encoder rate $R_{\text{comp}}$ | 60 fps | 120 fps |
+| GOP AU count | 30 AUs | 30 AUs |
+| IDR interval | 0.50 s (500 ms) | 0.25 s (250 ms) |
+| GOP cadence | 2.0 GOP/s | 4.0 GOP/s |
+| Tail drop per GOP | 22 AUs dropped (73.3%) | 22 AUs dropped (73.3%) |
+| Admitted AU rate | **16.0 AU/s** | **32.0 AU/s** |
+| Measured Delivered FPS | **14.5–16.0 fps** | **30.2–31.6 fps** |
+
+Conclusion: the ~15–16 fps (at 60 Hz) and ~30–32 fps (at 120 Hz) results are
+**expected, deterministic GopTail behavior, not defects**: the pipeline delivers
+exactly what the filter admits with zero decode failures and p95 ≈ 11 ms
+send→paint. Tuning `keepFrames` remains a future policy choice (deferred).
 
 ## 8. How to re-run
 
