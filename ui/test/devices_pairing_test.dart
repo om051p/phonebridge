@@ -102,16 +102,36 @@ void main() {
 
     // Badges: fresh+untrusted reads UNPAIRED, the stale browse entry reads
     // STALE (plus UNPAIRED — it is also untrusted), and the peer that is
-    // both discovered and in the trust store reads PAIRED.
-    expect(find.text('PAIRED'), findsOneWidget);
+    // both discovered and in the trust store reads TRUSTED (with RE-PAIR available).
+    expect(find.text('TRUSTED'), findsOneWidget);
     expect(find.text('UNPAIRED'), findsNWidgets(2));
     expect(find.text('STALE'), findsOneWidget);
 
-    // Pairing is offered only for the fresh, untrusted device.
+    // Pairing is offered for the fresh untrusted device; re-pairing for the trusted device.
     expect(find.widgetWithText(FilledButton, 'PAIR'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, 'RE-PAIR'), findsOneWidget);
 
     // The screen added no daemon subscription of its own.
     expect(client.streamEventsCalls, 1);
+  });
+
+  testWidgets('re-pairing triggers SAS confirmation flow for locally-trusted device',
+      (tester) async {
+    await mountDevices(tester);
+
+    await tester.tap(find.widgetWithText(OutlinedButton, 'RE-PAIR'));
+    await tester.pumpAndSettle();
+
+    expect(client.startPairingCalls, 1);
+    expect(find.text('Confirm Pairing Code'), findsOneWidget);
+    expect(find.text('736500'), findsOneWidget);
+
+    await tester.tap(find.text('CONFIRM MATCH'));
+    await tester.pumpAndSettle();
+
+    expect(client.completePairingCalls, 1);
+    expect(client.lastConfirmedPairing!.deviceId, 'trusted-1');
+    expect(client.lastConfirmedPairing!.userConfirmed, isTrue);
   });
 
   testWidgets('pairing runs through the existing controller → service → client path',

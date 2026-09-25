@@ -17,7 +17,15 @@ class DevicesScreen extends StatelessWidget {
     if (result == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(controller.lastErrorMessage ?? 'Pairing initiation failed'),
+          content: Row(
+            children: [
+              const Icon(Icons.error_outline, color: Colors.white, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(controller.lastErrorMessage ?? 'Pairing initiation failed'),
+              ),
+            ],
+          ),
           backgroundColor: Theme.of(context).colorScheme.error,
         ),
       );
@@ -27,78 +35,113 @@ class DevicesScreen extends StatelessWidget {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.security, color: Colors.blue),
-            SizedBox(width: 8),
-            Text('Confirm Pairing Code'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Pairing with ${result.deviceName} (${dev.shortId})'),
-            const SizedBox(height: 16),
-            const Text(
-              'Compare the 6-digit Short Authentication String (SAS) code with the code shown on the other device:',
-              style: TextStyle(fontSize: 13),
-            ),
-            const SizedBox(height: 16),
-            Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        return AlertDialog(
+          icon: Icon(
+            Icons.shield_outlined,
+            size: 36,
+            color: theme.colorScheme.primary,
+          ),
+          title: const Text(
+            'Confirm Pairing Code',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text(
+                'Pairing with ${result.deviceName} (${dev.shortId})',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primaryContainer,
+                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
                   borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, size: 16, color: theme.colorScheme.primary),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Compare this 6-digit Short Authentication String (SAS) code with the code shown on the other device:',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer.withValues(alpha: 0.7),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.3),
+                    width: 1.5,
+                  ),
                 ),
                 child: Text(
                   result.sasCode,
                   style: TextStyle(
-                    fontSize: 28,
+                    fontFamily: 'monospace',
+                    fontSize: 32,
                     fontWeight: FontWeight.bold,
-                    letterSpacing: 4,
-                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                    letterSpacing: 6,
+                    color: theme.colorScheme.onPrimaryContainer,
                   ),
                 ),
               ),
+            ],
+          ),
+          actionsAlignment: MainAxisAlignment.spaceBetween,
+          actions: [
+            TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: theme.colorScheme.error,
+              ),
+              onPressed: () {
+                Navigator.pop(ctx);
+                controller.confirmPairing(deviceId: dev.id, confirmed: false);
+              },
+              child: const Text('REJECT'),
+            ),
+            FilledButton.icon(
+              icon: const Icon(Icons.check, size: 18),
+              onPressed: () async {
+                Navigator.pop(ctx);
+                final ok = await controller.confirmPairing(
+                  deviceId: dev.id,
+                  confirmed: true,
+                );
+                // A rejected confirmation must not close the dialog as if the
+                // pairing had succeeded — surface it where the action ran.
+                if (!ok && context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        controller.lastErrorMessage ??
+                            'Pairing was rejected or could not be confirmed',
+                      ),
+                      backgroundColor: Theme.of(context).colorScheme.error,
+                    ),
+                  );
+                }
+              },
+              label: const Text('CONFIRM MATCH'),
             ),
           ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              controller.confirmPairing(deviceId: dev.id, confirmed: false);
-            },
-            child: const Text('REJECT'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              final ok = await controller.confirmPairing(
-                deviceId: dev.id,
-                confirmed: true,
-              );
-              // A rejected confirmation must not close the dialog as if the
-              // pairing had succeeded — surface it where the action ran.
-              if (!ok && context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      controller.lastErrorMessage ??
-                          'Pairing was rejected or could not be confirmed',
-                    ),
-                    backgroundColor: Theme.of(context).colorScheme.error,
-                  ),
-                );
-              }
-            },
-            child: const Text('CONFIRM MATCH'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -125,14 +168,14 @@ class DevicesScreen extends StatelessWidget {
               Row(
                 children: [
                   Container(
-                    width: 44,
-                    height: 44,
+                    width: 48,
+                    height: 48,
                     decoration: BoxDecoration(
                       color: theme.colorScheme.primaryContainer,
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(14),
                     ),
                     child: Icon(
-                      Icons.computer,
+                      device.isLinux ? Icons.computer : Icons.phone_android,
                       color: theme.colorScheme.onPrimaryContainer,
                     ),
                   ),
@@ -156,15 +199,10 @@ class DevicesScreen extends StatelessWidget {
                       ],
                     ),
                   ),
-                  Chip(
-                    label: Text(device.revoked ? 'Revoked' : 'Trusted'),
-                    backgroundColor: device.revoked
-                        ? theme.colorScheme.errorContainer
-                        : Colors.green.withValues(alpha: 0.15),
-                    labelStyle: TextStyle(
-                      color: device.revoked ? theme.colorScheme.error : Colors.green,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  _statusBadge(
+                    device.revoked ? 'REVOKED' : 'TRUSTED',
+                    device.revoked ? theme.colorScheme.error : Colors.green,
+                    icon: device.revoked ? Icons.block : Icons.verified_outlined,
                   ),
                 ],
               ),
@@ -184,11 +222,6 @@ class DevicesScreen extends StatelessWidget {
                         ),
                         onPressed: () async {
                           Navigator.pop(ctx);
-                          // Revoking trust is destructive and requires a fresh
-                          // pairing to undo: an explicit confirmation gate
-                          // stands between the tap and the daemon call (the
-                          // same guard the retired session view's trust card
-                          // had).
                           if (!context.mounted) return;
                           final confirmed = await showDialog<bool>(
                             context: context,
@@ -253,7 +286,7 @@ class DevicesScreen extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontFamily: 'monospace')),
         ],
       ),
     );
@@ -302,14 +335,25 @@ class DevicesScreen extends StatelessWidget {
               Card(
                 elevation: 0,
                 color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.25),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                child: const Padding(
-                  padding: EdgeInsets.all(16.0),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 24.0, horizontal: 16.0),
                   child: Center(
-                    child: Text(
-                      'No new PhoneBridge devices discovered yet.\nTap "Scan" to search the local network via mDNS.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 12),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.radar_outlined,
+                          size: 36,
+                          color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+                        ),
+                        const SizedBox(height: 10),
+                        const Text(
+                          'No new PhoneBridge devices discovered yet.\nEnsure Android PhoneBridge is running on the same LAN.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -344,83 +388,178 @@ class DevicesScreen extends StatelessWidget {
 
   Widget _buildDiscoveredDeviceTile(
       BuildContext context, ThemeData theme, DiscoveredDevice dev) {
-    // Trust state is cross-referenced against the trust store, so a result
-    // that is both discovered and already paired reads as paired here — and
-    // a browse entry the daemon has aged out is visibly stale.
+    // Distinct state resolution:
+    // 1. isTrusted: Local trust store holds a record for this device.
+    // 2. isConnected: Session is actively established with this device.
+    // 3. isStale: mDNS record has aged out.
     final isTrusted = controller.trustedDevices
         .any((t) => t.deviceId == dev.id && !t.revoked);
     final isStale = dev.isStale;
+    final isConnected = controller.session.status.isActive &&
+        controller.activePeer?.deviceId == dev.id;
+
+    final Color statusColor;
+    final String statusLabel;
+    final IconData statusIcon;
+
+    if (isConnected) {
+      statusColor = Colors.green;
+      statusLabel = 'CONNECTED';
+      statusIcon = Icons.link;
+    } else if (isTrusted) {
+      statusColor = theme.colorScheme.primary;
+      statusLabel = 'TRUSTED';
+      statusIcon = Icons.verified_user_outlined;
+    } else {
+      statusColor = Colors.amber.shade700;
+      statusLabel = 'UNPAIRED';
+      statusIcon = Icons.link_off;
+    }
+
+    Widget? actionButton;
+    if (isStale) {
+      actionButton = null;
+    } else if (isTrusted) {
+      actionButton = OutlinedButton(
+        onPressed: controller.isLoading
+            ? null
+            : () => _startPairingFlow(context, dev),
+        child: const Text('RE-PAIR'),
+      );
+    } else {
+      actionButton = FilledButton.tonal(
+        onPressed: controller.isLoading
+            ? null
+            : () => _startPairingFlow(context, dev),
+        child: const Text('PAIR'),
+      );
+    }
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 10),
+      margin: const EdgeInsets.only(bottom: 12),
       elevation: 0,
       color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
-      ),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: theme.colorScheme.primaryContainer,
-          child: Icon(
-            Icons.phone_android,
-            color: theme.colorScheme.primary,
-          ),
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: isConnected
+              ? Colors.green.withValues(alpha: 0.5)
+              : theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
         ),
-        title: Row(
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Flexible(
-              child: Text(
-                dev.name,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-                overflow: TextOverflow.ellipsis,
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: isConnected
+                      ? Colors.green.withValues(alpha: 0.15)
+                      : theme.colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.phone_android,
+                  color: isConnected
+                      ? Colors.green
+                      : theme.colorScheme.onPrimaryContainer,
+                ),
               ),
+              title: Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      dev.name,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _statusBadge(statusLabel, statusColor, icon: statusIcon),
+                  if (isStale) ...[
+                    const SizedBox(width: 6),
+                    _statusBadge('STALE', Colors.orange, icon: Icons.access_time),
+                  ],
+                ],
+              ),
+              subtitle: Padding(
+                padding: const EdgeInsets.only(top: 4.0),
+                child: Text(
+                  '${dev.model} · ${dev.host}:${dev.port}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              trailing: actionButton,
             ),
-            const SizedBox(width: 8),
-            isTrusted
-                ? _statusBadge('PAIRED', Colors.green)
-                : _statusBadge('UNPAIRED', Colors.amber),
-            if (isStale) ...[
-              const SizedBox(width: 8),
-              _statusBadge('STALE', Colors.orange),
+            if (isTrusted && !isConnected) ...[
+              const SizedBox(height: 4),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHigh.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      size: 14,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Stored in local trust. If remote phone was reset or cleared, tap Re-Pair.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ],
         ),
-        subtitle: Text(
-          '${dev.model} · ${dev.host}:${dev.port}',
-          style: TextStyle(
-            fontSize: 12,
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        // Pairing is only offered for a fresh, untrusted result: a stale
-        // browse entry or an already-trusted peer has nothing to pair.
-        trailing: (isTrusted || isStale)
-            ? null
-            : FilledButton.tonal(
-                onPressed: controller.isLoading
-                    ? null
-                    : () => _startPairingFlow(context, dev),
-                child: const Text('PAIR'),
-              ),
       ),
     );
   }
 
-  Widget _statusBadge(String label, Color color) {
+  Widget _statusBadge(String label, Color color, {IconData? icon}) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(4),
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.3), width: 1),
       ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.bold,
-          color: color,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 10, color: color),
+            const SizedBox(width: 4),
+          ],
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.4,
+              color: color,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -428,25 +567,26 @@ class DevicesScreen extends StatelessWidget {
   Widget _buildThisDeviceCard(ThemeData theme, dynamic deviceState, bool isLinux) {
     return Card(
       elevation: 0,
-      color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: theme.colorScheme.primary.withValues(alpha: 0.2)),
+        side: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Row(
           children: [
             Container(
-              width: 44,
-              height: 44,
+              width: 48,
+              height: 48,
               decoration: BoxDecoration(
-                color: theme.colorScheme.primary,
-                borderRadius: BorderRadius.circular(12),
+                color: theme.colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(14),
               ),
               child: Icon(
-                isLinux ? Icons.desktop_windows : Icons.phone_android,
-                color: Colors.white,
+                isLinux ? Icons.desktop_windows_outlined : Icons.phone_android_outlined,
+                color: theme.colorScheme.onPrimaryContainer,
+                size: 24,
               ),
             ),
             const SizedBox(width: 14),
@@ -473,14 +613,26 @@ class DevicesScreen extends StatelessWidget {
               ),
             ),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
                 color: Colors.green.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
               ),
-              child: const Text(
-                'Discoverable',
-                style: TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.bold),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.wifi_tethering, size: 12, color: Colors.green),
+                  SizedBox(width: 4),
+                  Text(
+                    'Discoverable',
+                    style: TextStyle(
+                      color: Colors.green,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -492,18 +644,27 @@ class DevicesScreen extends StatelessWidget {
   Widget _buildEmptyTrustedCard(ThemeData theme) {
     return Card(
       elevation: 0,
-      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.25),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3)),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 32.0, horizontal: 20.0),
         child: Column(
           children: [
-            Icon(
-              Icons.devices_other,
-              size: 44,
-              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHigh,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.devices_other_outlined,
+                size: 28,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: 12),
             Text(
@@ -512,7 +673,7 @@ class DevicesScreen extends StatelessWidget {
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
             Text(
               'Initiate pairing from your Linux desktop to connect securely using SAS verification.',
               textAlign: TextAlign.center,
@@ -532,16 +693,28 @@ class DevicesScreen extends StatelessWidget {
       elevation: 0,
       color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: dev.revoked
+              ? theme.colorScheme.error.withValues(alpha: 0.3)
+              : theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+        ),
       ),
       child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         onTap: () => _showDeviceDetails(context, dev),
-        leading: CircleAvatar(
-          backgroundColor: theme.colorScheme.surfaceContainerHighest,
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: dev.revoked
+                ? theme.colorScheme.errorContainer.withValues(alpha: 0.4)
+                : theme.colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(12),
+          ),
           child: Icon(
-            Icons.computer,
-            color: dev.revoked ? Colors.grey : theme.colorScheme.primary,
+            dev.isLinux ? Icons.computer : Icons.phone_android,
+            color: dev.revoked ? theme.colorScheme.error : theme.colorScheme.primary,
           ),
         ),
         title: Text(
@@ -550,6 +723,7 @@ class DevicesScreen extends StatelessWidget {
             fontWeight: FontWeight.bold,
             decoration: dev.revoked ? TextDecoration.lineThrough : null,
           ),
+          overflow: TextOverflow.ellipsis,
         ),
         subtitle: Text(
           '${dev.platform.toUpperCase()} · ${dev.revoked ? "Trust revoked" : "Paired"}',
@@ -569,7 +743,7 @@ class DevicesScreen extends StatelessWidget {
       color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.2),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+        side: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -578,29 +752,58 @@ class DevicesScreen extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.shield_outlined, color: theme.colorScheme.primary, size: 20),
+                Icon(Icons.security, size: 18, color: theme.colorScheme.primary),
                 const SizedBox(width: 8),
                 Text(
-                  'Zero-Configuration Pairing',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                  'Zero-Trust Pairing Guide',
+                  style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              '1. Ensure both devices are on the same Wi-Fi network.\n'
-              '2. Launch PhoneBridge on your Linux PC.\n'
-              '3. Select this phone from the discovered list.\n'
-              '4. Verify the 6-digit SAS code on both screens to establish an Ed25519 authenticated link.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                height: 1.4,
-              ),
-            ),
+            const SizedBox(height: 12),
+            _guideStep(theme, '1', 'Connect both devices to the same LAN or Wi-Fi network.'),
+            _guideStep(theme, '2', 'Initiate pairing from Linux: tap "Pair" or "Re-Pair" on the discovered device.'),
+            _guideStep(theme, '3', 'Verify that the 6-digit SAS code matches on both screens to establish mutual Ed25519 trust.'),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _guideStep(ThemeData theme, String num, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 20,
+            height: 20,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+            ),
+            child: Text(
+              num,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
