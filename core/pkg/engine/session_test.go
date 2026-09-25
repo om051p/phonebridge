@@ -152,6 +152,53 @@ func TestSession_LocateTargetFromRegistry(t *testing.T) {
 	}
 }
 
+func TestSession_LocateTargetPeerAuto(t *testing.T) {
+	tempDir := t.TempDir()
+	storePath := filepath.Join(tempDir, "trusted_devices.json")
+	ts, err := crypto.NewTrustStore(storePath)
+	if err != nil {
+		t.Fatalf("create trust store: %v", err)
+	}
+
+	reg := discovery.NewDeviceRegistry(discovery.DefaultRegistryConfig(), nil)
+	reg.Upsert(discovery.Device{
+		ID:   "random-phone",
+		Name: "Random Device",
+	})
+	reg.Upsert(discovery.Device{
+		ID:   "trusted-poco",
+		Name: "POCO F5",
+	})
+
+	err = ts.AddTrusted(crypto.TrustEntry{
+		DeviceID:    "trusted-poco",
+		DisplayName: "POCO F5",
+		PublicKey:   []byte("test-pub-key-32-bytes-long-12345"),
+	})
+	if err != nil {
+		t.Fatalf("add trusted: %v", err)
+	}
+
+	cfg := DefaultSessionConfig()
+	cfg.TargetDeviceID = "peer-auto"
+	cfg.TrustStore = ts
+	sess := NewSession("sess-auto", cfg, reg, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	dev, err := sess.LocateTarget(ctx)
+	if err != nil {
+		t.Fatalf("failed to locate peer-auto target: %v", err)
+	}
+	if dev.ID != "trusted-poco" {
+		t.Fatalf("expected trusted-poco, got %s", dev.ID)
+	}
+	if sess.TargetDeviceID() != "trusted-poco" {
+		t.Fatalf("expected session TargetDeviceID to be updated to trusted-poco, got %s", sess.TargetDeviceID())
+	}
+}
+
 func TestSession_LocateTargetTimeout(t *testing.T) {
 	reg := discovery.NewDeviceRegistry(discovery.DefaultRegistryConfig(), nil)
 	cfg := DefaultSessionConfig()

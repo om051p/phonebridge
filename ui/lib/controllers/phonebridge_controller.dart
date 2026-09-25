@@ -339,14 +339,19 @@ class PhoneBridgeController extends ChangeNotifier {
     }
   }
 
-  Future<bool> startScreenSharing() async {
+  Future<bool> startScreenSharing({String? targetDeviceId}) async {
     _isLoading = true;
     _lastErrorMessage = null;
     notifyListeners();
 
     try {
+      final target = (targetDeviceId != null && targetDeviceId.isNotEmpty)
+          ? targetDeviceId
+          : (_receiverUrl.trim().isNotEmpty
+              ? _receiverUrl.trim()
+              : (activePeer?.deviceId ?? ''));
       final ok = await _service.startCapture(
-        receiverUrl: _receiverUrl.trim().isEmpty ? null : _receiverUrl.trim(),
+        receiverUrl: target.isEmpty ? null : target,
         width: _selectedWidth,
         height: _selectedHeight,
         fps: _selectedFps,

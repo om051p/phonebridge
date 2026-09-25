@@ -621,6 +621,13 @@ func (s *Session) Snapshot() SessionSnapshot {
 	}
 }
 
+// TargetDeviceID returns the target device ID configured or resolved for this session.
+func (s *Session) TargetDeviceID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.cfg.TargetDeviceID
+}
+
 // SetTargetDevice associates the resolved device with the session.
 func (s *Session) SetTargetDevice(dev discovery.Device) {
 	s.mu.Lock()
@@ -1401,16 +1408,54 @@ func (s *Session) LocateAndConnect(ctx context.Context, sink receiver.FrameSink)
 	return s.Connect(ctx, endpoint, sink)
 }
 
-// LocateTarget resolves the target device in the registry within the discovery timeout.
-func (s *Session) LocateTarget(ctx context.Context) (discovery.Device, error) {
-	if s.cfg.TargetDeviceID == "" {
-		return discovery.Device{}, errors.New("target device ID cannot be empty")
+// resolveTarget resolves the target device from the registry. If targetID is empty
+// or "peer-auto", it resolves the active peer by prioritizing non-stale trusted devices,
+// then any non-stale discovered device.
+func (s *Session) resolveTarget(targetID string) (discovery.Device, bool) {
+	if s.registry == nil {
+		return discovery.Device{}, false
+	}
+	if targetID != "" && targetID != "peer-auto" {
+		if dev, ok := s.registry.Get(targetID); ok && !dev.IsStale {
+			return dev, true
+		}
+		return discovery.Device{}, false
 	}
 
+	devs := s.registry.List()
+	if len(devs) == 0 {
+		return discovery.Device{}, false
+	}
+
+	if s.trustStore != nil {
+		for _, dev := range devs {
+			if dev.IsStale {
+				continue
+			}
+			if td, ok := s.trustStore.Get(dev.ID); ok && !td.Revoked {
+				return dev, true
+			}
+		}
+	}
+
+	for _, dev := range devs {
+		if !dev.IsStale {
+			return dev, true
+		}
+	}
+
+	return discovery.Device{}, false
+}
+
+// LocateTarget resolves the target device in the registry within the discovery timeout.
+func (s *Session) LocateTarget(ctx context.Context) (discovery.Device, error) {
 	_ = s.Transition(StateDiscovering, "locating device via mDNS")
 
 	// Check registry immediately
-	if dev, ok := s.registry.Get(s.cfg.TargetDeviceID); ok && !dev.IsStale {
+	if dev, ok := s.resolveTarget(s.cfg.TargetDeviceID); ok {
+		s.mu.Lock()
+		s.cfg.TargetDeviceID = dev.ID
+		s.mu.Unlock()
 		s.SetTargetDevice(dev)
 		return dev, nil
 	}
@@ -1436,7 +1481,10 @@ func (s *Session) LocateTarget(ctx context.Context) (discovery.Device, error) {
 			s.Fail(ReasonDeviceNotFound, err)
 			return discovery.Device{}, err
 		case <-ticker.C:
-			if dev, ok := s.registry.Get(s.cfg.TargetDeviceID); ok && !dev.IsStale {
+			if dev, ok := s.resolveTarget(s.cfg.TargetDeviceID); ok {
+				s.mu.Lock()
+				s.cfg.TargetDeviceID = dev.ID
+				s.mu.Unlock()
 				s.SetTargetDevice(dev)
 				return dev, nil
 			}

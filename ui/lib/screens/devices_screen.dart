@@ -72,14 +72,14 @@ class DevicesScreen extends StatelessWidget {
                     const SizedBox(width: 8),
                     const Expanded(
                       child: Text(
-                        'Compare this 6-digit Short Authentication String (SAS) code with the code shown on the other device:',
+                        'Verify this 6-digit Short Authentication String (SAS). No code entry is needed on mobile — just ensure the numbers match to confirm zero-trust identity:',
                         style: TextStyle(fontSize: 12),
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 decoration: BoxDecoration(
@@ -99,6 +99,14 @@ class DevicesScreen extends StatelessWidget {
                     letterSpacing: 6,
                     color: theme.colorScheme.onPrimaryContainer,
                   ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Once confirmed, your devices establish mutual Ed25519 cryptographic trust.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
             ],
@@ -123,9 +131,20 @@ class DevicesScreen extends StatelessWidget {
                   deviceId: dev.id,
                   confirmed: true,
                 );
-                // A rejected confirmation must not close the dialog as if the
-                // pairing had succeeded — surface it where the action ran.
-                if (!ok && context.mounted) {
+                if (ok && context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Paired with ${dev.name}. Ready to connect!'),
+                      backgroundColor: Colors.green.shade700,
+                      behavior: SnackBarBehavior.floating,
+                      action: SnackBarAction(
+                        label: 'CONNECT NOW',
+                        textColor: Colors.white,
+                        onPressed: () => _connectDevice(context, dev),
+                      ),
+                    ),
+                  );
+                } else if (!ok && context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
@@ -143,6 +162,29 @@ class DevicesScreen extends StatelessWidget {
         );
       },
     );
+  }
+
+  Future<void> _connectDevice(BuildContext context, DiscoveredDevice dev) async {
+    final ok = await controller.startScreenSharing(targetDeviceId: dev.id);
+    if (!context.mounted) return;
+    if (ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Connecting to ${dev.name}...'),
+          backgroundColor: Theme.of(context).colorScheme.primary,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else {
+      final err = controller.lastErrorMessage ?? controller.session.lastError ?? 'Failed to connect';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(err),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   String _formatDate(int ms) {
@@ -238,6 +280,23 @@ class DevicesScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 16),
+              ],
+              if (!device.revoked && controller.discoveredDevices.any((d) => d.id == device.deviceId && !d.isStale)) ...[
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: FilledButton.icon(
+                    onPressed: controller.isLoading
+                        ? null
+                        : () async {
+                            Navigator.pop(ctx);
+                            await controller.startScreenSharing(targetDeviceId: device.deviceId);
+                          },
+                    icon: const Icon(Icons.link),
+                    label: const Text('CONNECT / START SESSION'),
+                  ),
+                ),
+                const SizedBox(height: 12),
               ],
               Row(
                 children: [
@@ -458,12 +517,49 @@ class DevicesScreen extends StatelessWidget {
     if (isStale) {
       actionButton = null;
     } else if (isKnown) {
-      actionButton = OutlinedButton(
-        onPressed: controller.isLoading
-            ? null
-            : () => _startPairingFlow(context, dev),
-        child: const Text('RE-PAIR'),
-      );
+      if (isConnected) {
+        actionButton = Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            FilledButton.tonalIcon(
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.green.withValues(alpha: 0.15),
+                foregroundColor: Colors.green.shade700,
+              ),
+              onPressed: null,
+              icon: const Icon(Icons.check_circle_outline, size: 16),
+              label: const Text('CONNECTED'),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton(
+              onPressed: controller.isLoading
+                  ? null
+                  : () => _startPairingFlow(context, dev),
+              child: const Text('RE-PAIR'),
+            ),
+          ],
+        );
+      } else {
+        actionButton = Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            FilledButton.icon(
+              onPressed: controller.isLoading
+                  ? null
+                  : () => _connectDevice(context, dev),
+              icon: const Icon(Icons.link, size: 16),
+              label: const Text('CONNECT'),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton(
+              onPressed: controller.isLoading
+                  ? null
+                  : () => _startPairingFlow(context, dev),
+              child: const Text('RE-PAIR'),
+            ),
+          ],
+        );
+      }
     } else {
       actionButton = FilledButton.tonal(
         onPressed: controller.isLoading
