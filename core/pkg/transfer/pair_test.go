@@ -424,10 +424,10 @@ func TestPair_EmptyAndChunkAlignedFiles(t *testing.T) {
 }
 
 func TestPair_LocalBusyRefusesSecondOutbound(t *testing.T) {
-	p := newPair(t, pairOptions{})
+	p := newPair(t, pairOptions{tune: func(c *Config) { c.OutboundQueueDepth = 1 }})
 
 	path, _ := writeSource(t, p.srcDir, "big.bin", 2<<20)
-	p.senderCh.PauseAfter(1) // the offer goes out; the chunk loop then stalls
+	p.senderCh.PauseAfter(1)
 
 	id, err := p.senderEng.SendFile(context.Background(), path, "")
 	if err != nil {
@@ -436,14 +436,47 @@ func TestPair_LocalBusyRefusesSecondOutbound(t *testing.T) {
 	waitForState(t, p.senderEng, id, StateActive, 5*time.Second)
 
 	second, _ := writeSource(t, p.srcDir, "second.bin", 1024)
-	if _, err := p.senderEng.SendFile(context.Background(), second, ""); err == nil {
-		t.Fatalf("second outbound transfer was accepted while one is in flight")
+	secondID, err := p.senderEng.SendFile(context.Background(), second, "")
+	if err != nil {
+		t.Fatalf("second send (queued): %v", err)
+	}
+	if info, _ := p.senderEng.Get(secondID); info.State != StateQueued {
+		t.Fatalf("second transfer state = %s, want QUEUED", info.State)
+	}
+	third, _ := writeSource(t, p.srcDir, "third.bin", 1024)
+	if _, err := p.senderEng.SendFile(context.Background(), third, ""); err == nil {
+		t.Fatalf("third outbound should be BUSY when queue full")
 	} else if f, ok := IsFailure(err); !ok || f.Reason != ReasonBusy {
-		t.Fatalf("second send error = %v, want a BUSY failure", err)
+		t.Fatalf("third send error = %v, want a BUSY failure", err)
 	}
 
 	p.senderCh.Release()
 	waitForState(t, p.senderEng, id, StateComplete, 20*time.Second)
+	waitForState(t, p.senderEng, secondID, StateComplete, 20*time.Second)
+}
+
+func TestPair_QueuedSmallFileBurstDrainsFIFO(t *testing.T) {
+	p := newPair(t, pairOptions{})
+
+	// Sequential burst: outbound queue guarantees FIFO order, receiver
+	// finishes each before the next offer arrives so no inbound BUSY.
+	const burst = 8
+	ids := make([]string, burst)
+	for i := 0; i < burst; i++ {
+		path, _ := writeSource(t, p.srcDir, "burst.bin", 1024)
+		id, err := p.senderEng.SendFile(context.Background(), path, "")
+		if err != nil {
+			t.Fatalf("burst %d: %v", i, err)
+		}
+		ids[i] = id
+		waitForState(t, p.senderEng, id, StateComplete, 10*time.Second)
+	}
+	for _, id := range ids {
+		info, ok := p.senderEng.Get(id)
+		if !ok || info.State != StateComplete {
+			t.Fatalf("id %s state = %v, want COMPLETE", id, info.State)
+		}
+	}
 }
 
 func TestPair_BackpressureBoundsReadAhead(t *testing.T) {

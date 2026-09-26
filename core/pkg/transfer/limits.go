@@ -72,6 +72,12 @@ const (
 	// DefaultVerifyThroughput is the assumed receiver verify+promote throughput
 	// used to scale the FileResult timeout with file size.
 	DefaultVerifyThroughput uint64 = 100 << 20 // 100 MB/s
+
+	// DefaultOutboundQueueDepth is the max number of queued outbound sends that
+	// have not yet started on the wire (see Engine.SendFile). One more may be
+	// active on the wire. Bounded to keep small-file bursts from growing
+	// unbounded memory/FDs.
+	DefaultOutboundQueueDepth = 16
 )
 
 // Config configures an Engine. Zero values fall back to the defaults above, so
@@ -106,6 +112,10 @@ type Config struct {
 
 	// ProgressInterval throttles progress events.
 	ProgressInterval time.Duration
+
+	// OutboundQueueDepth is the max queued (not yet active) outbound sends.
+	// Zero means DefaultOutboundQueueDepth.
+	OutboundQueueDepth int
 
 	// Now is the clock seam (tests inject a deterministic clock).
 	Now func() time.Time
@@ -160,6 +170,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.ProgressInterval <= 0 {
 		c.ProgressInterval = DefaultProgressInterval
+	}
+	if c.OutboundQueueDepth <= 0 {
+		c.OutboundQueueDepth = DefaultOutboundQueueDepth
 	}
 	if c.Now == nil {
 		c.Now = time.Now

@@ -950,6 +950,8 @@ func ToProtoTransferDirection(d transfer.Direction) phonebridgelocalipcv1.Transf
 // ToProtoTransferState maps the engine's lifecycle state onto the wire enum.
 func ToProtoTransferState(st transfer.State) phonebridgelocalipcv1.TransferState {
 	switch st {
+	case transfer.StateQueued:
+		return phonebridgelocalipcv1.TransferState_TRANSFER_STATE_PENDING
 	case transfer.StatePending:
 		return phonebridgelocalipcv1.TransferState_TRANSFER_STATE_PENDING
 	case transfer.StateActive:

@@ -25,6 +25,9 @@ type State int
 
 const (
 	StateUnspecified State = iota
+	// Queued: accepted locally, waiting for the wire (bounded FIFO behind an
+	// active outbound; see Engine.SendFile/pumpQueue for D2/D5).
+	StateQueued
 	// Pending: offer sent/received, awaiting FileAccept.
 	StatePending
 	// Active: chunks are flowing.
@@ -42,6 +45,8 @@ const (
 
 func (s State) String() string {
 	switch s {
+	case StateQueued:
+		return "QUEUED"
 	case StatePending:
 		return "PENDING"
 	case StateActive:

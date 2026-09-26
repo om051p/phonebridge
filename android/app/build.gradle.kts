@@ -41,10 +41,27 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            val ksPath = System.getenv("PHONEBRIDGE_KEYSTORE") ?: findProperty("phonebridge.keystore.path") as String?
+            val ksPass = System.getenv("PHONEBRIDGE_KEYSTORE_PASSWORD") ?: findProperty("phonebridge.keystore.password") as String?
+            val keyAlias = System.getenv("PHONEBRIDGE_KEY_ALIAS") ?: findProperty("phonebridge.key.alias") as String? ?: "phonebridge"
+            val keyPass = System.getenv("PHONEBRIDGE_KEY_PASSWORD") ?: findProperty("phonebridge.key.password") as String? ?: ksPass
+            if (ksPath != null && ksPass != null && file(ksPath).exists()) {
+                storeFile = file(ksPath)
+                storePassword = ksPass
+                this.keyAlias = keyAlias
+                keyPassword = keyPass
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
-            signingConfig = signingConfigs.getByName("debug")
+            val hasReleaseKeystore = System.getenv("PHONEBRIDGE_KEYSTORE")?.let { file(it).exists() } == true ||
+                (findProperty("phonebridge.keystore.path") as String?)?.let { file(it).exists() } == true
+            signingConfig = if (hasReleaseKeystore) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

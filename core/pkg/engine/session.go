@@ -1317,7 +1317,9 @@ func (s *Session) reconnectLoop() {
 		code, msg := s.attemptTransport(s.ctx)
 		if code == CodeOK {
 			if s.waitForTransportUp(s.cfg.ConnectTimeout) {
-				_ = s.TransitionCode(StateConnected, "WebRTC reconnected", ReasonNone)
+				if s.State() != StateStreaming {
+					_ = s.TransitionCode(StateConnected, "WebRTC reconnected", ReasonNone)
+				}
 				return
 			}
 			// The attempt completed but the transport never came up: keep

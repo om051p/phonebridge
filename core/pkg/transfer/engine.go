@@ -132,6 +132,14 @@ func (r *record) finish(state State, reason Reason, message, savedName string, n
 // Engine owns file-transfer state for one session. It is transport-agnostic:
 // AttachChannel supplies the dedicated "transfer" DataChannel, and every rule in
 // this package is provable with a fake Channel.
+type queuedSend struct {
+	path     string
+	filename string
+	sizeHint uint64
+	id       string
+	rec      *record
+}
+
 type Engine struct {
 	cfg        Config
 	baseCtx    context.Context
@@ -143,6 +151,10 @@ type Engine struct {
 	active map[string]*record
 	// history is newest-first and capped by Config.HistoryLimit.
 	history []Info
+	// pendingOutbound serializes concurrent SendFile calls: at most one
+	// outbound is active on the wire, the rest wait in a bounded FIFO.
+	// Bounded so a burst of small files cannot grow unbounded memory/FDs.
+	pendingOutbound []*queuedSend
 }
 
 // NewEngine builds an engine with defaults applied and the configuration
@@ -265,12 +277,16 @@ func (e *Engine) SendFile(ctx context.Context, path, name string) (string, error
 	e.mu.Lock()
 	ch := e.ch
 	outbound := e.activeLocked(DirectionOutbound)
+	queueDepth := e.cfg.OutboundQueueDepth
+	pendingLen := len(e.pendingOutbound)
 	e.mu.Unlock()
 	if ch == nil {
 		return "", newFailure(phonebridgev1.Code_CODE_UNAVAILABLE, ReasonNoSession, "no active session with file-transfer support")
 	}
 	if outbound != nil {
-		return "", newFailure(phonebridgev1.Code_CODE_TRANSFER_BUSY, ReasonBusy, "a transfer is already in flight (id=%s)", outbound.snapshot().TransferID)
+		if pendingLen >= queueDepth {
+			return "", newFailure(phonebridgev1.Code_CODE_TRANSFER_BUSY, ReasonBusy, "outbound queue full (%d queued, id=%s)", pendingLen, outbound.snapshot().TransferID)
+		}
 	}
 
 	file, info, err := openRegularReadonly(path)
@@ -324,12 +340,64 @@ func (e *Engine) SendFile(ctx context.Context, path, name string) (string, error
 	file = nil // ownership passes to the sender goroutine
 
 	e.mu.Lock()
+	active := e.activeLocked(DirectionOutbound)
+	hasPending := active != nil && active.snapshot().State != StateQueued
+	if hasPending {
+		// An outbound is already on the wire: queue this one as QUEUED and
+		// start it when the active one finishes (see pumpQueue).
+		rec.info.State = StateQueued
+		e.pendingOutbound = append(e.pendingOutbound, &queuedSend{
+			path:     path,
+			filename: filename,
+			sizeHint: size,
+			id:       id,
+			rec:      rec,
+		})
+		e.active[id] = rec
+		e.mu.Unlock()
+		e.emit(rec)
+		return id, nil
+	}
 	e.active[id] = rec
 	e.mu.Unlock()
 
 	e.emit(rec)
 	go e.runSender(rec)
 	return id, nil
+}
+
+// pumpQueue starts the next queued outbound, if any. Must be called after the
+// active outbound has been removed from e.active (i.e. from finish).
+func (e *Engine) pumpQueue() {
+	e.mu.Lock()
+	if len(e.pendingOutbound) == 0 {
+		e.mu.Unlock()
+		return
+	}
+	if e.ch == nil {
+		e.mu.Unlock()
+		return
+	}
+	if active := e.activeLocked(DirectionOutbound); active != nil && active.snapshot().State != StateQueued {
+		e.mu.Unlock()
+		return
+	}
+	next := e.pendingOutbound[0]
+	e.pendingOutbound = e.pendingOutbound[1:]
+	// Promote QUEUED -> PENDING so runSender's offer/accept logic applies.
+	next.rec.mu.Lock()
+	if next.rec.finished {
+		next.rec.mu.Unlock()
+		e.mu.Unlock()
+		// Cancelled while queued; try next.
+		e.pumpQueue()
+		return
+	}
+	next.rec.info.State = StatePending
+	next.rec.mu.Unlock()
+	e.mu.Unlock()
+	e.emit(next.rec)
+	go e.runSender(next.rec)
 }
 
 // OnFrame dispatches one decoded DataChannel message. It is called from the
@@ -397,6 +465,36 @@ func (e *Engine) Cancel(ctx context.Context, transferID string) error {
 		e.abortInbound(rec, reason, message, false)
 		return nil
 	}
+	// Queued outbound has not yet sent its offer: cancel synchronously and pump.
+	e.mu.Lock()
+	isQueued := rec.snapshot().State == StateQueued
+	if isQueued {
+		// Remove from pending queue.
+		for i, q := range e.pendingOutbound {
+			if q.id == transferID {
+				e.pendingOutbound = append(e.pendingOutbound[:i], e.pendingOutbound[i+1:]...)
+				break
+			}
+		}
+		if fin, ok := rec.finish(StateCancelled, reason, message, "", e.nowMs()); ok {
+			// Close file that was never handed to runSender.
+			if rec.file != nil {
+				_ = rec.file.Close()
+				rec.file = nil
+			}
+			delete(e.active, transferID)
+			e.history = append([]Info{fin}, e.history...)
+			if len(e.history) > e.cfg.HistoryLimit {
+				e.history = e.history[:e.cfg.HistoryLimit]
+			}
+			e.mu.Unlock()
+			e.publish(fin)
+			return nil
+		}
+		e.mu.Unlock()
+		return nil
+	}
+	e.mu.Unlock()
 	rec.markCancel(reason, message)
 	rec.cancel()
 	return nil
@@ -472,9 +570,13 @@ func (e *Engine) finish(rec *record, state State, reason Reason, message, savedN
 	if len(e.history) > e.cfg.HistoryLimit {
 		e.history = e.history[:e.cfg.HistoryLimit]
 	}
+	needsPump := info.Direction == DirectionOutbound
 	e.mu.Unlock()
 
 	e.publish(info)
+	if needsPump {
+		e.pumpQueue()
+	}
 }
 
 // send encodes and transmits one frame on the bound channel.
