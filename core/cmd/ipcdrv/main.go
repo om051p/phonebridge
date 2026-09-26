@@ -110,6 +110,12 @@ func main() {
 	case "notifications":
 		r, err := c.ListNotifications(rpcCtx, &phonebridgelocalipcv1.ListNotificationsRequest{})
 		show(r, err)
+	case "clipboard":
+		r, err := c.GetClipboardStatus(rpcCtx, &phonebridgelocalipcv1.GetClipboardStatusRequest{})
+		show(r, err)
+	case "clipboard-pull":
+		r, err := c.TriggerClipboardPull(rpcCtx, &phonebridgelocalipcv1.TriggerClipboardPullRequest{})
+		show(r, err)
 	case "events":
 		secs := 30
 		if len(os.Args) > 2 {

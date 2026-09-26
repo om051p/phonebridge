@@ -205,6 +205,8 @@ func (m *SessionManager) GetClipboardStatus(ctx context.Context) (*phonebridgelo
 				resp.State = "COSMIC_FLAG_REQUIRED"
 			case clipboard.AdapterStatusNoDataControl:
 				resp.State = "NO_DATA_CONTROL"
+			case clipboard.AdapterStatusNoBackend:
+				resp.State = "NO_BACKEND"
 			case clipboard.AdapterStatusWaylandUnavailable:
 				resp.State = "WAYLAND_UNAVAILABLE"
 			case clipboard.AdapterStatusCrashed:

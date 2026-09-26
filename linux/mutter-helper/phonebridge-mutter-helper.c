@@ -76,14 +76,28 @@ static void on_selection_owner_changed(GDBusConnection *conn,
         return;
     }
 
-    GVariant *mime_types_var = g_variant_lookup_value(options, "mime-types", G_VARIANT_TYPE("as"));
+    GVariant *mime_types_var = g_variant_lookup_value(options, "mime-types", NULL);
     if (!mime_types_var) {
         g_variant_unref(options);
         return;
     }
 
+    GVariant *array_var = NULL;
+    if (g_variant_is_of_type(mime_types_var, G_VARIANT_TYPE("(as)"))) {
+        array_var = g_variant_get_child_value(mime_types_var, 0);
+    } else if (g_variant_is_of_type(mime_types_var, G_VARIANT_TYPE("as"))) {
+        array_var = g_variant_ref(mime_types_var);
+    }
+
+    if (!array_var) {
+        g_variant_unref(mime_types_var);
+        g_variant_unref(options);
+        return;
+    }
+
     /* Check offered MIME types for preferred text format */
-    const gchar **mimes = g_variant_get_strv(mime_types_var, NULL);
+    const gchar **mimes = g_variant_get_strv(array_var, NULL);
+    g_variant_unref(array_var);
     const gchar *chosen_mime = NULL;
 
     if (mimes) {
@@ -578,8 +592,36 @@ int main(int argc, char *argv[]) {
     g_variant_unref(start_res);
     ctx.session_active = true;
 
+    /* Subscribe to signals before EnableClipboard */
+    ctx.owner_changed_sub_id = g_dbus_connection_signal_subscribe(
+        ctx.conn,
+        "org.gnome.Mutter.RemoteDesktop",
+        "org.gnome.Mutter.RemoteDesktop.Session",
+        "SelectionOwnerChanged",
+        ctx.session_path,
+        NULL,
+        G_DBUS_SIGNAL_FLAGS_NONE,
+        on_selection_owner_changed,
+        &ctx,
+        NULL
+    );
+
+    ctx.transfer_sub_id = g_dbus_connection_signal_subscribe(
+        ctx.conn,
+        "org.gnome.Mutter.RemoteDesktop",
+        "org.gnome.Mutter.RemoteDesktop.Session",
+        "SelectionTransfer",
+        ctx.session_path,
+        NULL,
+        G_DBUS_SIGNAL_FLAGS_NONE,
+        on_selection_transfer,
+        &ctx,
+        NULL
+    );
+
     GVariantBuilder opt_builder;
     g_variant_builder_init(&opt_builder, G_VARIANT_TYPE("a{sv}"));
+    g_variant_builder_add(&opt_builder, "{sv}", "mimetype-groups", g_variant_new_uint32(1));
     GVariant *en_res = g_dbus_connection_call_sync(
         ctx.conn,
         "org.gnome.Mutter.RemoteDesktop",
@@ -620,33 +662,6 @@ int main(int argc, char *argv[]) {
     /* Handshake: Ready signal emitted */
     fprintf(stdout, "STATUS=READY compositor=GNOME backend=mutter\n");
     fflush(stdout);
-
-    /* Subscribe to signals */
-    ctx.owner_changed_sub_id = g_dbus_connection_signal_subscribe(
-        ctx.conn,
-        "org.gnome.Mutter.RemoteDesktop",
-        "org.gnome.Mutter.RemoteDesktop.Session",
-        "SelectionOwnerChanged",
-        ctx.session_path,
-        NULL,
-        G_DBUS_SIGNAL_FLAGS_NONE,
-        on_selection_owner_changed,
-        &ctx,
-        NULL
-    );
-
-    ctx.transfer_sub_id = g_dbus_connection_signal_subscribe(
-        ctx.conn,
-        "org.gnome.Mutter.RemoteDesktop",
-        "org.gnome.Mutter.RemoteDesktop.Session",
-        "SelectionTransfer",
-        ctx.session_path,
-        NULL,
-        G_DBUS_SIGNAL_FLAGS_NONE,
-        on_selection_transfer,
-        &ctx,
-        NULL
-    );
 
     /* Set up stdin channel */
     GIOChannel *stdin_ch = g_io_channel_unix_new(STDIN_FILENO);

@@ -3,11 +3,13 @@ package clipboard
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -150,6 +152,56 @@ func TestHelperProcess(t *testing.T) {
 				return
 			}
 		}
+
+	case "probe_mutter_ready":
+		if len(os.Args) > 1 && os.Args[len(os.Args)-1] == "probe" {
+			fmt.Println("STATUS=READY compositor=GNOME backend=mutter")
+			return
+		}
+		fmt.Println("STATUS=READY compositor=GNOME backend=mutter")
+		r := bufio.NewReader(os.Stdin)
+		for {
+			msg, err := ReadIPCMessage(r)
+			if err != nil || msg.Name == CmdShutdown {
+				return
+			}
+			if msg.Name == CmdSetSelection {
+				fmt.Printf("STATUS=OK cmd=SET_SELECTION len=%d\n", len(msg.Payload))
+			}
+		}
+
+	case "probe_mutter_fail":
+		if len(os.Args) > 1 && os.Args[len(os.Args)-1] == "probe" {
+			fmt.Println("STATUS=ERR_NO_MUTTER detail=dbus_unavailable")
+			os.Exit(1)
+		}
+		fmt.Println("STATUS=ERR_NO_MUTTER detail=dbus_unavailable")
+		os.Exit(1)
+
+	case "probe_wayland_ready":
+		if len(os.Args) > 1 && os.Args[len(os.Args)-1] == "probe" {
+			fmt.Println("STATUS=READY compositor=Sway data_control=v2")
+			return
+		}
+		fmt.Println("STATUS=READY compositor=Sway data_control=v2")
+		r := bufio.NewReader(os.Stdin)
+		for {
+			msg, err := ReadIPCMessage(r)
+			if err != nil || msg.Name == CmdShutdown {
+				return
+			}
+			if msg.Name == CmdSetSelection {
+				fmt.Printf("STATUS=OK cmd=SET_SELECTION len=%d\n", len(msg.Payload))
+			}
+		}
+
+	case "probe_wayland_no_data_control":
+		if len(os.Args) > 1 && os.Args[len(os.Args)-1] == "probe" {
+			fmt.Println("STATUS=ERR_NO_DATA_CONTROL detail=zwlr_data_control_manager_v1 not advertised")
+			os.Exit(2)
+		}
+		fmt.Println("STATUS=ERR_NO_DATA_CONTROL detail=zwlr_data_control_manager_v1 not advertised")
+		os.Exit(2)
 	}
 }
 
@@ -665,4 +717,200 @@ func TestCompiledHelperIntegration(t *testing.T) {
 
 		_ = cmd.Wait()
 	})
+}
+
+func TestBackendSelection_MutterVsWlroots(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	// 1. Probe Mutter Ready
+	resMutter, err := ProbeHelper(ctx, os.Args[0], helperEnv("probe_mutter_ready", "-test.run=TestHelperProcess"))
+	if err != nil {
+		t.Fatalf("ProbeHelper mutter failed: %v", err)
+	}
+	if resMutter.Backend != BackendMutter {
+		t.Errorf("got backend %v, want %v", resMutter.Backend, BackendMutter)
+	}
+	if resMutter.Status != StatusReady {
+		t.Errorf("got status %v, want %v", resMutter.Status, StatusReady)
+	}
+	if resMutter.CompositorName != "GNOME" {
+		t.Errorf("got compositor %v, want GNOME", resMutter.CompositorName)
+	}
+
+	// 2. Probe Wlroots Ready
+	resWlroots, err := ProbeHelper(ctx, os.Args[0], helperEnv("probe_wayland_ready", "-test.run=TestHelperProcess"))
+	if err != nil {
+		t.Fatalf("ProbeHelper wlroots failed: %v", err)
+	}
+	if resWlroots.Backend != BackendWlroots {
+		t.Errorf("got backend %v, want %v", resWlroots.Backend, BackendWlroots)
+	}
+	if resWlroots.Status != StatusReady {
+		t.Errorf("got status %v, want %v", resWlroots.Status, StatusReady)
+	}
+	if resWlroots.CompositorName != "Sway" {
+		t.Errorf("got compositor %v, want Sway", resWlroots.CompositorName)
+	}
+}
+
+func TestBackendSelection_ExplicitOverride(t *testing.T) {
+	// 1. Test PHONEBRIDGE_CLIPBOARD_HELPER takes precedence
+	t.Setenv("PHONEBRIDGE_CLIPBOARD_HELPER", "/custom/path/phonebridge-mutter-helper")
+	t.Setenv("PHONEBRIDGE_WAYLAND_HELPER", "/legacy/path/phonebridge-wayland-helper")
+
+	adapter, err := NewLinuxAdapter(LinuxAdapterConfig{})
+	if err != nil {
+		t.Fatalf("NewLinuxAdapter failed: %v", err)
+	}
+	if adapter.HelperPath() != "/custom/path/phonebridge-mutter-helper" {
+		t.Errorf("got helper path %s, want /custom/path/phonebridge-mutter-helper", adapter.HelperPath())
+	}
+	if adapter.Backend() != BackendMutter {
+		t.Errorf("got backend %v, want %v", adapter.Backend(), BackendMutter)
+	}
+
+	// 2. Test PHONEBRIDGE_WAYLAND_HELPER fallback
+	os.Unsetenv("PHONEBRIDGE_CLIPBOARD_HELPER")
+	adapter2, err := NewLinuxAdapter(LinuxAdapterConfig{})
+	if err != nil {
+		t.Fatalf("NewLinuxAdapter fallback failed: %v", err)
+	}
+	if adapter2.HelperPath() != "/legacy/path/phonebridge-wayland-helper" {
+		t.Errorf("got helper path %s, want /legacy/path/phonebridge-wayland-helper", adapter2.HelperPath())
+	}
+	if adapter2.Backend() != BackendWlroots {
+		t.Errorf("got backend %v, want %v", adapter2.Backend(), BackendWlroots)
+	}
+}
+
+func TestBackendSelection_ProbeFailureAndFallback(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	// 1. Mutter failure
+	resMutter, errMutter := ProbeHelper(ctx, os.Args[0], helperEnv("probe_mutter_fail", "-test.run=TestHelperProcess"))
+	if errMutter == nil {
+		t.Fatal("expected error for mutter fail, got nil")
+	}
+	if resMutter == nil || resMutter.Status != "ERR_NO_MUTTER" {
+		t.Errorf("expected ERR_NO_MUTTER, got: %v", resMutter)
+	}
+
+	// 2. Wayland no data control
+	resWayland, errWayland := ProbeHelper(ctx, os.Args[0], helperEnv("probe_wayland_no_data_control", "-test.run=TestHelperProcess"))
+	if !errors.Is(errWayland, ErrNoDataControl) {
+		t.Errorf("expected ErrNoDataControl, got: %v", errWayland)
+	}
+	if resWayland == nil || resWayland.Status != StatusErrNoDataControl {
+		t.Errorf("expected StatusErrNoDataControl, got: %v", resWayland)
+	}
+}
+
+func TestBackendSelection_LiveHostDetection(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Ensure no env overrides during live detection
+	os.Unsetenv("PHONEBRIDGE_CLIPBOARD_HELPER")
+	os.Unsetenv("PHONEBRIDGE_WAYLAND_HELPER")
+
+	res, err := DetectBackend(ctx, nil)
+	if err != nil {
+		t.Fatalf("DetectBackend failed on live host: %v", err)
+	}
+	if res.Backend != BackendMutter {
+		t.Errorf("expected live host to select BackendMutter, got: %s", res.Backend)
+	}
+	if res.CompositorName != "GNOME" {
+		t.Errorf("expected compositor GNOME, got: %s", res.CompositorName)
+	}
+	if !strings.Contains(res.HelperPath, "phonebridge-mutter-helper") {
+		t.Errorf("expected helper path to contain phonebridge-mutter-helper, got: %s", res.HelperPath)
+	}
+}
+
+func TestBackendSelection_ZeroLoggingDiagnostics(t *testing.T) {
+	adapter, err := NewLinuxAdapter(LinuxAdapterConfig{
+		HelperPath: "/usr/bin/phonebridge-mutter-helper",
+		Backend:    BackendMutter,
+	})
+	if err != nil {
+		t.Fatalf("NewLinuxAdapter failed: %v", err)
+	}
+
+	diag := adapter.Diagnostics()
+	allowedKeys := map[string]bool{
+		"backend":     true,
+		"helper_path": true,
+		"status":      true,
+	}
+
+	for k := range diag {
+		if !allowedKeys[k] {
+			t.Errorf("unexpected diagnostics key: %s (violates Zero-Logging policy)", k)
+		}
+	}
+
+	if diag["backend"] != "mutter" {
+		t.Errorf("got backend %s, want mutter", diag["backend"])
+	}
+	if diag["status"] != "STOPPED" {
+		t.Errorf("got status %s, want STOPPED", diag["status"])
+	}
+}
+
+func TestLinuxAdapter_MutterSupervisionAndWrite(t *testing.T) {
+	cfg := LinuxAdapterConfig{
+		HelperPath: os.Args[0],
+		HelperArgs: []string{"-test.run=TestHelperProcess"},
+		Env:        helperEnv("probe_mutter_ready"),
+		Backend:    BackendMutter,
+		RestartBackoff: []time.Duration{20 * time.Millisecond},
+	}
+
+	adapter, err := NewLinuxAdapter(cfg)
+	if err != nil {
+		t.Fatalf("NewLinuxAdapter failed: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := adapter.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer func() { _ = adapter.Stop() }()
+
+	for i := 0; i < 50; i++ {
+		if adapter.Status() == AdapterStatusReady {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if adapter.Status() != AdapterStatusReady {
+		t.Fatalf("adapter failed to reach READY status, got: %s", adapter.Status())
+	}
+
+	if adapter.Backend() != BackendMutter {
+		t.Errorf("expected backend mutter, got: %s", adapter.Backend())
+	}
+
+	item, err := NewItem("text/plain;charset=utf-8", []byte("GNOME/Mutter clipboard test"), 1000)
+	if err != nil {
+		t.Fatalf("NewItem failed: %v", err)
+	}
+
+	if err := adapter.WriteClipboard(ctx, item); err != nil {
+		t.Fatalf("WriteClipboard failed: %v", err)
+	}
+
+	diag := adapter.Diagnostics()
+	if diag["backend"] != "mutter" {
+		t.Errorf("expected diagnostics backend mutter, got: %s", diag["backend"])
+	}
+	if diag["status"] != "READY" {
+		t.Errorf("expected diagnostics status READY, got: %s", diag["status"])
+	}
 }

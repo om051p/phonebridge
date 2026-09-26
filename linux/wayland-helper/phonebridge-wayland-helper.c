@@ -516,9 +516,11 @@ static bool detect_is_cosmic(void) {
     return false;
 }
 
-int main(void) {
+int main(int argc, char *argv[]) {
     /* Ignore SIGPIPE so writing to closed client pipe does not kill helper */
     signal(SIGPIPE, SIG_IGN);
+
+    bool probe_only = (argc > 1 && strcmp(argv[1], "probe") == 0);
 
     struct helper_context ctx;
     memset(&ctx, 0, sizeof(ctx));
@@ -576,6 +578,15 @@ int main(void) {
     /* Handshake: Ready signal emitted before event dispatch */
     fprintf(stdout, "STATUS=READY compositor=%s data_control=v2\n", ctx.compositor_name);
     fflush(stdout);
+
+    if (probe_only) {
+        zwlr_data_control_device_v1_destroy(ctx.device);
+        zwlr_data_control_manager_v1_destroy(ctx.manager);
+        wl_seat_destroy(ctx.seat);
+        wl_registry_destroy(ctx.registry);
+        wl_display_disconnect(ctx.display);
+        return 0;
+    }
 
     /* Dispatch initial selection events */
     wl_display_roundtrip(ctx.display);

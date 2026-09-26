@@ -8,10 +8,22 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+)
+
+// Backend represents the desktop compositor clipboard integration backend.
+type Backend string
+
+const (
+	BackendNone    Backend = "none"
+	BackendMutter  Backend = "mutter"
+	BackendWlroots Backend = "wlroots"
+	BackendCustom  Backend = "custom"
 )
 
 // AdapterStatus represents the operational state of the Linux Wayland clipboard adapter.
@@ -26,6 +38,7 @@ const (
 	AdapterStatusNoDataControl
 	AdapterStatusCompositorDisconnected
 	AdapterStatusCrashed
+	AdapterStatusNoBackend
 )
 
 func (s AdapterStatus) String() string {
@@ -46,18 +59,21 @@ func (s AdapterStatus) String() string {
 		return "COMPOSITOR_DISCONNECTED"
 	case AdapterStatusCrashed:
 		return "CRASHED"
+	case AdapterStatusNoBackend:
+		return "NO_BACKEND"
 	default:
 		return fmt.Sprintf("UNKNOWN(%d)", int(s))
 	}
 }
 
 var (
-	ErrHelperNotReady     = errors.New("clipboard: Wayland helper is not ready")
+	ErrHelperNotReady     = errors.New("clipboard: helper is not ready")
 	ErrAdapterStopped     = errors.New("clipboard: Linux adapter is stopped")
 	ErrCommandTimeout     = errors.New("clipboard: helper command timed out")
 	ErrCosmicFlagRequired = errors.New("clipboard: COSMIC_DATA_CONTROL_ENABLED=1 is required in cosmic-comp")
 	ErrNoDataControl      = errors.New("clipboard: zwlr_data_control_manager_v1 is not advertised by compositor")
 	ErrWaylandUnavailable = errors.New("clipboard: Wayland display or socket is unavailable")
+	ErrNoBackend          = errors.New("clipboard: no supported compositor clipboard backend found")
 )
 
 var defaultRestartBackoff = []time.Duration{
@@ -68,15 +84,19 @@ var defaultRestartBackoff = []time.Duration{
 	5 * time.Second,
 }
 
-// LinuxAdapterConfig configures the Linux Wayland clipboard platform adapter.
+// LinuxAdapterConfig configures the Linux clipboard platform adapter (DEC-023).
 type LinuxAdapterConfig struct {
-	// HelperPath is the absolute or relative path to the phonebridge-wayland-helper binary.
+	// HelperPath is the absolute or relative path to the helper binary.
+	// If empty, dynamic backend auto-detection probes between Mutter and Wayland/wlroots.
 	HelperPath string
+
+	// Backend optionally forces or hints the backend type (BackendMutter, BackendWlroots, etc.).
+	Backend Backend
 
 	// HelperArgs optionally specifies arguments passed to the helper process.
 	HelperArgs []string
 
-	// OnClipboardChanged is invoked when a new clipboard item is read from Wayland.
+	// OnClipboardChanged is invoked when a new clipboard item is read from the compositor.
 	// Typically forwards to Engine.OnLocalCopy or Engine.OnLocalClipboard.
 	OnClipboardChanged func(ctx context.Context, mimeType string, payload []byte) error
 
@@ -96,13 +116,16 @@ type LinuxAdapterConfig struct {
 	Clock Clock
 }
 
-// LinuxAdapter supervises the phonebridge-wayland-helper C subprocess and implements
-// PlatformAdapter for Wayland/COSMIC environments (DEC-023).
+// LinuxAdapter supervises an isolated clipboard helper C subprocess and implements
+// PlatformAdapter for Linux Wayland and GNOME/Mutter desktop environments (DEC-023).
 type LinuxAdapter struct {
 	cfg     LinuxAdapterConfig
 	clock   Clock
 	backoff []time.Duration
 	status  atomic.Int32
+
+	activeBackend  Backend
+	resolvedHelper string
 
 	mu        sync.Mutex
 	writeMu   sync.Mutex
@@ -133,20 +156,65 @@ func NewLinuxAdapter(cfg LinuxAdapterConfig) (*LinuxAdapter, error) {
 
 	helperPath := cfg.HelperPath
 	if helperPath == "" {
-		helperPath = "phonebridge-wayland-helper"
+		if envHelper := os.Getenv("PHONEBRIDGE_CLIPBOARD_HELPER"); envHelper != "" {
+			helperPath = envHelper
+		} else if envWayland := os.Getenv("PHONEBRIDGE_WAYLAND_HELPER"); envWayland != "" {
+			helperPath = envWayland
+		}
 	}
 	cfg.HelperPath = helperPath
 
+	activeBackend := cfg.Backend
+	if activeBackend == "" && helperPath != "" {
+		activeBackend = deriveBackend(helperPath)
+	}
+
 	a := &LinuxAdapter{
-		cfg:     cfg,
-		clock:   clock,
-		backoff: backoff,
-		stopCh:  make(chan struct{}),
-		respCh:  make(chan *IPCMessage, 1),
+		cfg:           cfg,
+		clock:         clock,
+		backoff:       backoff,
+		activeBackend: activeBackend,
+		stopCh:        make(chan struct{}),
+		respCh:        make(chan *IPCMessage, 1),
 	}
 	a.status.Store(int32(AdapterStatusStopped))
 
 	return a, nil
+}
+
+// Backend returns the active desktop compositor clipboard mechanism.
+func (a *LinuxAdapter) Backend() Backend {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.activeBackend == "" {
+		return BackendNone
+	}
+	return a.activeBackend
+}
+
+// HelperPath returns the configured or auto-detected helper binary path.
+func (a *LinuxAdapter) HelperPath() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.cfg.HelperPath != "" {
+		return a.cfg.HelperPath
+	}
+	return a.resolvedHelper
+}
+
+// Diagnostics returns operational metadata without any clipboard content.
+func (a *LinuxAdapter) Diagnostics() map[string]string {
+	return map[string]string{
+		"backend":     string(a.Backend()),
+		"helper_path": a.HelperPath(),
+		"status":      a.Status().String(),
+	}
+}
+
+func (a *LinuxAdapter) setActiveBackend(b Backend) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.activeBackend = b
 }
 
 // Status returns the current operational status of the adapter.
@@ -349,6 +417,48 @@ func (a *LinuxAdapter) supervisorLoop(ctx context.Context) {
 
 		a.setStatus(AdapterStatusStarting, nil)
 
+		// Dynamic auto-detection when HelperPath is not statically fixed
+		if a.cfg.HelperPath == "" && a.resolvedHelper == "" {
+			det, err := DetectBackend(ctx, a.cfg.Env)
+			if err != nil || det.HelperPath == "" {
+				exitStatus := AdapterStatusNoBackend
+				if errors.Is(err, ErrNoDataControl) {
+					exitStatus = AdapterStatusNoDataControl
+				} else if errors.Is(err, ErrCosmicFlagRequired) {
+					exitStatus = AdapterStatusCosmicFlagRequired
+				} else if errors.Is(err, ErrWaylandUnavailable) {
+					exitStatus = AdapterStatusWaylandUnavailable
+				}
+
+				a.setStatus(exitStatus, err)
+
+				if exitStatus == AdapterStatusCosmicFlagRequired {
+					return
+				}
+
+				delay := a.backoff[backoffIdx]
+				if backoffIdx < len(a.backoff)-1 {
+					backoffIdx++
+				}
+
+				select {
+				case <-ctx.Done():
+					return
+				case <-a.stopCh:
+					return
+				case <-time.After(delay):
+					continue
+				}
+			}
+
+			a.mu.Lock()
+			a.resolvedHelper = det.HelperPath
+			if a.activeBackend == "" || a.activeBackend == BackendNone {
+				a.activeBackend = det.Backend
+			}
+			a.mu.Unlock()
+		}
+
 		exitStatus, wasReady, err := a.runHelperInstance(ctx)
 
 		select {
@@ -370,6 +480,12 @@ func (a *LinuxAdapter) supervisorLoop(ctx context.Context) {
 		// Reset failure backoff if the helper had successfully reached READY
 		if wasReady {
 			backoffIdx = 0
+		} else if a.cfg.HelperPath == "" {
+			// Clear resolvedHelper to re-detect on retry
+			a.mu.Lock()
+			a.resolvedHelper = ""
+			a.activeBackend = BackendNone
+			a.mu.Unlock()
 		}
 
 		// Crashed or disconnected: apply bounded backoff restart
@@ -392,7 +508,12 @@ func (a *LinuxAdapter) supervisorLoop(ctx context.Context) {
 
 // runHelperInstance runs a single instance of the helper process and monitors its output.
 func (a *LinuxAdapter) runHelperInstance(ctx context.Context) (AdapterStatus, bool, error) {
-	cmd := exec.CommandContext(ctx, a.cfg.HelperPath, a.cfg.HelperArgs...)
+	helperPath := a.HelperPath()
+	if helperPath == "" {
+		return AdapterStatusNoBackend, false, ErrNoBackend
+	}
+
+	cmd := exec.CommandContext(ctx, helperPath, a.cfg.HelperArgs...)
 	if len(a.cfg.Env) > 0 {
 		cmd.Env = append(os.Environ(), a.cfg.Env...)
 	}
@@ -461,6 +582,11 @@ func (a *LinuxAdapter) runHelperInstance(ctx context.Context) (AdapterStatus, bo
 	if firstMsg.Type == "STATUS" {
 		switch firstMsg.Name {
 		case StatusReady:
+			if b := firstMsg.Params["backend"]; b != "" {
+				a.setActiveBackend(Backend(b))
+			} else if _, ok := firstMsg.Params["data_control"]; ok {
+				a.setActiveBackend(BackendWlroots)
+			}
 			a.setStatus(AdapterStatusReady, nil)
 			wasReady = true
 			for _, evt := range initialEvents {
@@ -479,6 +605,9 @@ func (a *LinuxAdapter) runHelperInstance(ctx context.Context) (AdapterStatus, bo
 		case StatusErrNoSeat:
 			exitStatus = AdapterStatusWaylandUnavailable
 			err = errors.New("clipboard: wl_seat not found")
+		case "ERR_NO_MUTTER":
+			exitStatus = AdapterStatusNoBackend
+			err = fmt.Errorf("clipboard: mutter remote desktop error: %s", firstMsg.Params["detail"])
 		default:
 			exitStatus = AdapterStatusCrashed
 			err = fmt.Errorf("clipboard: unexpected initial status: %s", firstMsg.Name)
@@ -545,4 +674,241 @@ func (a *LinuxAdapter) handleEvent(ctx context.Context, msg *IPCMessage) {
 	case EventUnsupportedOffer:
 		// Offered MIME is non-text
 	}
+}
+
+// deriveBackend infers backend type from the helper filename.
+func deriveBackend(helperPath string) Backend {
+	base := filepath.Base(helperPath)
+	if strings.Contains(base, "mutter") {
+		return BackendMutter
+	}
+	if strings.Contains(base, "wayland") || strings.Contains(base, "wlroots") {
+		return BackendWlroots
+	}
+	return BackendCustom
+}
+
+// isGNOMEDesktop checks whether the desktop environment hints GNOME/Ubuntu.
+func isGNOMEDesktop(env []string) bool {
+	checkVar := func(key string) string {
+		for _, e := range env {
+			parts := strings.SplitN(e, "=", 2)
+			if len(parts) == 2 && strings.EqualFold(parts[0], key) {
+				return parts[1]
+			}
+		}
+		return os.Getenv(key)
+	}
+
+	desktop := strings.ToLower(checkVar("XDG_CURRENT_DESKTOP"))
+	session := strings.ToLower(checkVar("GDMSESSION"))
+	desktopSession := strings.ToLower(checkVar("DESKTOP_SESSION"))
+
+	for _, s := range []string{desktop, session, desktopSession} {
+		if strings.Contains(s, "gnome") || strings.Contains(s, "ubuntu") {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveHelperPath locates a helper binary across common repository and build locations.
+func resolveHelperPath(name string) string {
+	if filepath.IsAbs(name) {
+		if _, err := os.Stat(name); err == nil {
+			return name
+		}
+		return ""
+	}
+
+	// 1. Check relative to current executable
+	if exe, err := os.Executable(); err == nil {
+		dir := filepath.Dir(exe)
+		p := filepath.Join(dir, name)
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+		for _, sub := range []string{"../linux/mutter-helper", "../linux/wayland-helper", "linux/mutter-helper", "linux/wayland-helper"} {
+			subPath := filepath.Join(dir, sub, name)
+			if _, err := os.Stat(subPath); err == nil {
+				return subPath
+			}
+		}
+	}
+
+	// 2. Check current working directory and walk up parent directories
+	cwd, err := os.Getwd()
+	if err == nil {
+		dir := cwd
+		for i := 0; i < 6; i++ {
+			for _, sub := range []string{"linux/mutter-helper", "linux/wayland-helper", ""} {
+				candidate := filepath.Join(dir, sub, name)
+				if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+					return candidate
+				}
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
+		}
+	}
+
+	// 3. Check system PATH
+	if p, err := exec.LookPath(name); err == nil {
+		return p
+	}
+
+	return ""
+}
+
+// ProbeResult holds the output of a helper probe check.
+type ProbeResult struct {
+	Backend        Backend
+	HelperPath     string
+	CompositorName string
+	Status         string
+	ErrorDetail    string
+}
+
+// ProbeHelper invokes `<helperPath> probe` and parses the initial status response.
+func ProbeHelper(ctx context.Context, helperPath string, env []string) (*ProbeResult, error) {
+	if helperPath == "" {
+		return nil, ErrNoBackend
+	}
+
+	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(probeCtx, helperPath, "probe")
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("probe stdout pipe failed: %w", err)
+	}
+	defer stdout.Close()
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("probe start failed: %w", err)
+	}
+
+	r := bufio.NewReader(stdout)
+	msg, readErr := ReadIPCMessage(r)
+	_ = cmd.Wait()
+
+	if readErr != nil {
+		return nil, fmt.Errorf("probe read failed: %w", readErr)
+	}
+
+	if msg.Type != "STATUS" {
+		return nil, fmt.Errorf("probe unexpected response type: %s", msg.Type)
+	}
+
+	res := &ProbeResult{
+		HelperPath:     helperPath,
+		Status:         msg.Name,
+		CompositorName: msg.Params["compositor"],
+		ErrorDetail:    msg.Params["detail"],
+	}
+
+	if b := msg.Params["backend"]; b != "" {
+		res.Backend = Backend(b)
+	} else if _, ok := msg.Params["data_control"]; ok {
+		res.Backend = BackendWlroots
+	} else {
+		res.Backend = deriveBackend(helperPath)
+	}
+
+	switch msg.Name {
+	case StatusReady:
+		return res, nil
+	case StatusErrCosmicFlagRequired:
+		return res, ErrCosmicFlagRequired
+	case StatusErrNoDataControl:
+		return res, ErrNoDataControl
+	case StatusErrWaylandConnect:
+		return res, ErrWaylandUnavailable
+	default:
+		return res, fmt.Errorf("probe failed: %s (%s)", msg.Name, msg.Params["detail"])
+	}
+}
+
+// DetectBackend discovers the appropriate helper binary by probing the live environment.
+func DetectBackend(ctx context.Context, env []string) (*ProbeResult, error) {
+	// 1. Explicit environment override
+	envOverride := os.Getenv("PHONEBRIDGE_CLIPBOARD_HELPER")
+	if envOverride == "" {
+		envOverride = os.Getenv("PHONEBRIDGE_WAYLAND_HELPER")
+	}
+	if envOverride != "" {
+		resolved := envOverride
+		if !filepath.IsAbs(resolved) {
+			if r := resolveHelperPath(resolved); r != "" {
+				resolved = r
+			}
+		}
+		res, err := ProbeHelper(ctx, resolved, env)
+		if err != nil {
+			return res, fmt.Errorf("explicit helper override %q failed probe: %w", envOverride, err)
+		}
+		return res, nil
+	}
+
+	// 2. Identify candidate helpers
+	mutterPath := resolveHelperPath("phonebridge-mutter-helper")
+	waylandPath := resolveHelperPath("phonebridge-wayland-helper")
+
+	type candidate struct {
+		path    string
+		backend Backend
+	}
+
+	var candidates []candidate
+	if isGNOMEDesktop(env) {
+		if mutterPath != "" {
+			candidates = append(candidates, candidate{path: mutterPath, backend: BackendMutter})
+		}
+		if waylandPath != "" {
+			candidates = append(candidates, candidate{path: waylandPath, backend: BackendWlroots})
+		}
+	} else {
+		if waylandPath != "" {
+			candidates = append(candidates, candidate{path: waylandPath, backend: BackendWlroots})
+		}
+		if mutterPath != "" {
+			candidates = append(candidates, candidate{path: mutterPath, backend: BackendMutter})
+		}
+	}
+
+	if len(candidates) == 0 {
+		return nil, ErrNoBackend
+	}
+
+	var lastErr error
+	var bestErr error
+	for _, c := range candidates {
+		res, err := ProbeHelper(ctx, c.path, env)
+		if err == nil && res.Status == StatusReady {
+			if res.Backend == "" || res.Backend == BackendNone {
+				res.Backend = c.backend
+			}
+			return res, nil
+		}
+		lastErr = err
+		if errors.Is(err, ErrNoDataControl) || errors.Is(err, ErrCosmicFlagRequired) {
+			bestErr = err
+		}
+	}
+
+	if bestErr != nil {
+		return nil, bestErr
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, ErrNoBackend
 }

@@ -191,6 +191,8 @@ func main() {
 				stateStr = "COSMIC_FLAG_REQUIRED"
 			case clipboard.AdapterStatusNoDataControl:
 				stateStr = "NO_DATA_CONTROL"
+			case clipboard.AdapterStatusNoBackend:
+				stateStr = "NO_BACKEND"
 			case clipboard.AdapterStatusWaylandUnavailable:
 				stateStr = "WAYLAND_UNAVAILABLE"
 			case clipboard.AdapterStatusCrashed:
