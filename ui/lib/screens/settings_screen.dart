@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../controllers/phonebridge_controller.dart';
+import '../ui/permission_onboarding_card.dart';
 import 'diagnostics_screen.dart';
 import 'about_screen.dart';
 
@@ -71,6 +72,14 @@ class SettingsScreen extends StatelessWidget {
             title: Text('Security & Transport'),
             subtitle: Text('Mutual Ed25519 authentication · WebRTC media transport'),
           ),
+          if (controller.service.isAndroid) ...[
+            const Divider(),
+            _sectionHeader(theme, 'Android Permissions & System Services'),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              child: PermissionOnboardingCard(controller: controller),
+            ),
+          ],
           const Divider(),
           _sectionHeader(theme, 'System & Diagnostics'),
           ListTile(

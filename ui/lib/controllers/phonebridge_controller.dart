@@ -103,6 +103,7 @@ class PhoneBridgeController extends ChangeNotifier {
   List<TrustedDevice> _trustedDevices = [];
   List<DiscoveredDevice> _discoveredDevices = [];
   final List<ActivityEvent> _activityEvents = [];
+  Map<String, dynamic> _permissionsStatus = const {};
 
   bool _isLoading = false;
   String? _lastErrorMessage;
@@ -121,6 +122,14 @@ class PhoneBridgeController extends ChangeNotifier {
   List<TrustedDevice> get trustedDevices => List.unmodifiable(_trustedDevices);
   List<DiscoveredDevice> get discoveredDevices => List.unmodifiable(_discoveredDevices);
   List<ActivityEvent> get activityEvents => List.unmodifiable(_activityEvents);
+  Map<String, dynamic> get permissionsStatus => _permissionsStatus;
+  bool get postNotificationsGranted => _permissionsStatus['postNotifications'] == true;
+  bool get notificationListenerEnabled => _permissionsStatus['notificationListener'] == true;
+  bool get accessibilityEnabled => _permissionsStatus['accessibility'] == true;
+  bool get hasMissingPermissions {
+    if (!_service.isAndroid) return false;
+    return !postNotificationsGranted || !notificationListenerEnabled || !accessibilityEnabled;
+  }
   bool get isLoading => _isLoading;
   String? get lastErrorMessage => _lastErrorMessage;
 
@@ -150,6 +159,9 @@ class PhoneBridgeController extends ChangeNotifier {
 
   void initialize() {
     refreshAll();
+    if (_service.isAndroid) {
+      unawaited(refreshPermissions());
+    }
     // Discovery is part of startup on the desktop: the Devices tab populates
     // from the daemon's mDNS results without requiring a manual scan first
     // (the retired session view loaded its discovered list the same way, at
@@ -270,6 +282,9 @@ class PhoneBridgeController extends ChangeNotifier {
       _captureStats = stats;
       _trustedDevices = devices;
       _clipboardStatus = clip;
+      if (_service.isAndroid) {
+        unawaited(refreshPermissions());
+      }
       // The connection status is part of "refresh": an explicit refresh must be
       // able to move the app out of a stale failed/recoverable reading.
       unawaited(_session.refresh());
@@ -288,6 +303,50 @@ class PhoneBridgeController extends ChangeNotifier {
       _lastErrorMessage = e.toString();
       notifyListeners();
     }
+  }
+
+  Future<void> refreshPermissions() async {
+    final s = _service;
+    if (s is AndroidBridgeService) {
+      try {
+        _permissionsStatus = await s.getPermissionsStatus();
+        notifyListeners();
+      } catch (_) {}
+    }
+  }
+
+  Future<bool> requestNotificationPermission() async {
+    final s = _service;
+    if (s is AndroidBridgeService) {
+      final res = await s.requestNotificationPermission();
+      await refreshPermissions();
+      return res;
+    }
+    return false;
+  }
+
+  Future<bool> openNotificationListenerSettings() async {
+    final s = _service;
+    if (s is AndroidBridgeService) {
+      return s.openNotificationListenerSettings();
+    }
+    return false;
+  }
+
+  Future<bool> openAccessibilitySettings() async {
+    final s = _service;
+    if (s is AndroidBridgeService) {
+      return s.openAccessibilitySettings();
+    }
+    return false;
+  }
+
+  Future<bool> openAppDetailsSettings() async {
+    final s = _service;
+    if (s is AndroidBridgeService) {
+      return s.openAppDetailsSettings();
+    }
+    return false;
   }
 
   Future<PairingResult?> pairDevice(String deviceId) async {

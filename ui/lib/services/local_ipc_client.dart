@@ -53,29 +53,33 @@ class LocalIpcClient {
       StreamController<LocalIpcState>.broadcast();
   Stream<LocalIpcState> get onStateChanged => _stateController.stream;
 
-  static String defaultSocketPath() {
+  static String _resolveRuntimeDir() {
     final xdg = Platform.environment['XDG_RUNTIME_DIR'];
     if (xdg != null && xdg.isNotEmpty) {
-      return '$xdg/phonebridge/engine.sock';
+      return xdg;
     }
-    // Fallback detection
-    final runUser1000 = Directory('/run/user/1000');
-    if (runUser1000.existsSync()) {
-      return '/run/user/1000/phonebridge/engine.sock';
-    }
-    return '${Directory.systemTemp.path}/phonebridge/engine.sock';
+    try {
+      final res = Process.runSync('id', ['-u']);
+      if (res.exitCode == 0) {
+        final uid = res.stdout.toString().trim();
+        final runUser = Directory('/run/user/$uid');
+        if (runUser.existsSync()) {
+          return runUser.path;
+        }
+        return '${Directory.systemTemp.path}/phonebridge-$uid';
+      }
+    } catch (_) {}
+    return Directory.systemTemp.path;
+  }
+
+  static String defaultSocketPath() {
+    final runtimeDir = _resolveRuntimeDir();
+    return '$runtimeDir/phonebridge/engine.sock';
   }
 
   static String defaultTokenPath() {
-    final xdg = Platform.environment['XDG_RUNTIME_DIR'];
-    if (xdg != null && xdg.isNotEmpty) {
-      return '$xdg/phonebridge/token';
-    }
-    final runUser1000 = Directory('/run/user/1000');
-    if (runUser1000.existsSync()) {
-      return '/run/user/1000/phonebridge/token';
-    }
-    return '${Directory.systemTemp.path}/phonebridge/token';
+    final runtimeDir = _resolveRuntimeDir();
+    return '$runtimeDir/phonebridge/token';
   }
 
   /// Acquires the bearer token from disk, with exponential backoff if the

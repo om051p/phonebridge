@@ -4,6 +4,7 @@ import '../models/link_status.dart';
 import '../ui/link_indicator.dart';
 import '../models/activity_event.dart';
 import '../ui/transfer_views.dart';
+import '../ui/permission_onboarding_card.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({
@@ -40,6 +41,10 @@ class HomeScreen extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
+          if (controller.service.isAndroid && controller.hasMissingPermissions) ...[
+            PermissionOnboardingCard(controller: controller),
+            const SizedBox(height: 16),
+          ],
           _buildConnectionCard(context, theme, peer, link),
           const SizedBox(height: 16),
           _buildScreenShareHeroCard(context, theme, isSharing, stats, link),

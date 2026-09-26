@@ -15,10 +15,19 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const (
-	sockPath  = "/run/user/1000/phonebridge/engine.sock"
-	tokenPath = "/run/user/1000/phonebridge/token"
-)
+func resolveSocketPath() string {
+	if s := os.Getenv("PHONEBRIDGE_SOCK"); s != "" {
+		return s
+	}
+	return localipc.DefaultSocketPath()
+}
+
+func resolveTokenPath() string {
+	if t := os.Getenv("PHONEBRIDGE_TOKEN"); t != "" {
+		return t
+	}
+	return localipc.DefaultTokenPath()
+}
 
 func show(m proto.Message, err error) {
 	if err != nil {
@@ -36,7 +45,9 @@ func main() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	c, err := localipc.PollAndConnect(ctx, sockPath, tokenPath, 5*time.Second)
+	sock := resolveSocketPath()
+	tok := resolveTokenPath()
+	c, err := localipc.PollAndConnect(ctx, sock, tok, 5*time.Second)
 	if err != nil {
 		fmt.Println("ERR dial:", err)
 		os.Exit(1)

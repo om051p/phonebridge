@@ -201,6 +201,68 @@ class PhoneBridgeChannel {
       return false;
     }
   }
+
+  // -------------------------------------------------------------------------
+  // Onboarding & Permissions (M-BETA-1)
+  // -------------------------------------------------------------------------
+
+  Future<Map<String, dynamic>> getPermissionsStatus() async {
+    try {
+      final res = await _control.invokeMethod<Map<dynamic, dynamic>>('getPermissionsStatus');
+      if (res != null) {
+        return res.cast<String, dynamic>();
+      }
+    } on MissingPluginException {
+      return const {};
+    } on PlatformException {
+      return const {};
+    }
+    return const {};
+  }
+
+  Future<bool> requestNotificationPermission() async {
+    try {
+      final res = await _control.invokeMethod<bool>('requestNotificationPermission');
+      return res ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  Future<bool> openNotificationListenerSettings() async {
+    try {
+      final res = await _control.invokeMethod<bool>('openNotificationListenerSettings');
+      return res ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  Future<bool> openAccessibilitySettings() async {
+    try {
+      final res = await _control.invokeMethod<bool>('openAccessibilitySettings');
+      return res ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  Future<bool> openAppDetailsSettings() async {
+    try {
+      final res = await _control.invokeMethod<bool>('openAppDetailsSettings');
+      return res ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
 }
 
 TransferItem? _toTransferItem(Object? raw) {

@@ -120,6 +120,16 @@ class AndroidBridgeService implements PlatformBridgeService {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Onboarding & Permissions (M-BETA-1)
+  // -------------------------------------------------------------------------
+
+  Future<Map<String, dynamic>> getPermissionsStatus() => _channel.getPermissionsStatus();
+  Future<bool> requestNotificationPermission() => _channel.requestNotificationPermission();
+  Future<bool> openNotificationListenerSettings() => _channel.openNotificationListenerSettings();
+  Future<bool> openAccessibilitySettings() => _channel.openAccessibilitySettings();
+  Future<bool> openAppDetailsSettings() => _channel.openAppDetailsSettings();
+
   @override
   void dispose() {}
 }

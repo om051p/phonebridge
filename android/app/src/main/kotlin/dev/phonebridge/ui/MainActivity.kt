@@ -109,6 +109,7 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
         } else {
             registerReceiver(navReceiver, filter)
         }
+        requestNotificationPermission()
     }
 
     override fun onStart() {
@@ -179,8 +180,79 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
         )
     }
 
+    private fun isNotificationPermissionGranted(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+    }
+
+    private fun isNotificationListenerEnabled(): Boolean {
+        val cn = android.content.ComponentName(this, dev.phonebridge.notification.PhoneBridgeNotificationListenerService::class.java)
+        val flat = android.provider.Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
+        return flat != null && flat.contains(cn.flattenToString())
+    }
+
+    private fun isAccessibilityEnabled(): Boolean {
+        val cn = android.content.ComponentName(this, dev.phonebridge.input.PhoneBridgeAccessibilityService::class.java)
+        val enabled = android.provider.Settings.Secure.getString(contentResolver, android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+        return enabled != null && enabled.contains(cn.flattenToString())
+    }
+
+    private fun getPermissionsStatus(): Map<String, Any> {
+        return mapOf(
+            "postNotifications" to isNotificationPermissionGranted(),
+            "notificationListener" to isNotificationListenerEnabled(),
+            "accessibility" to isAccessibilityEnabled(),
+            "sdkInt" to Build.VERSION.SDK_INT
+        )
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (!isNotificationPermissionGranted()) {
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
+            }
+        }
+    }
+
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
+            "getPermissionsStatus" -> {
+                result.success(getPermissionsStatus())
+            }
+            "requestNotificationPermission" -> {
+                requestNotificationPermission()
+                result.success(true)
+            }
+            "openNotificationListenerSettings" -> {
+                try {
+                    startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                    result.success(true)
+                } catch (e: Exception) {
+                    result.error("SETTINGS_ERROR", e.message, null)
+                }
+            }
+            "openAccessibilitySettings" -> {
+                try {
+                    startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    result.success(true)
+                } catch (e: Exception) {
+                    result.error("SETTINGS_ERROR", e.message, null)
+                }
+            }
+            "openAppDetailsSettings" -> {
+                try {
+                    val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = android.net.Uri.fromParts("package", packageName, null)
+                    }
+                    startActivity(intent)
+                    result.success(true)
+                } catch (e: Exception) {
+                    result.error("SETTINGS_ERROR", e.message, null)
+                }
+            }
             "getDeviceState" -> {
                 result.success(getDeviceState())
             }
