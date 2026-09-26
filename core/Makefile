@@ -21,7 +21,12 @@ NDK_TC := $(NDK)/toolchains/llvm/prebuilt/linux-x86_64/bin
 # in proto/buf.gen.yaml is resolved relative to the working directory, so running buf
 # from core/ or from the repo root fails or writes to the wrong place.
 
-.PHONY: gen lint breaking check-generated vet test build fmt daemon receiver host-lib android-arm64 android-x86_64 android-lib
+VERSION ?= 0.1.0
+GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(GIT_COMMIT) -X main.buildDate=$(BUILD_DATE)
+
+.PHONY: gen lint breaking check-generated vet test build fmt daemon ipcdrv receiver host-lib android-arm64 android-x86_64 android-lib
 
 gen:
 	cd $(PROTO_DIR) && $(BUF) generate
@@ -60,7 +65,11 @@ receiver:
 
 daemon:
 	mkdir -p $(BUILD_DIR)
-	$(GO) build -o $(BUILD_DIR)/phonebridge-daemon ./cmd/daemon
+	$(GO) build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/phonebridge-daemon ./cmd/daemon
+
+ipcdrv:
+	mkdir -p $(BUILD_DIR)
+	$(GO) build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/ipcdrv ./cmd/ipcdrv
 
 host-lib:
 	mkdir -p $(BUILD_DIR)

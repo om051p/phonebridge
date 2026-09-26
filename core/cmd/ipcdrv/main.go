@@ -1,5 +1,5 @@
-// Command ipcdrv is a temporary Local IPC driver for physical Phase 4 E2E
-// validation. It is NOT part of the shipped product.
+// Command ipcdrv is a Local IPC diagnostic and verification tool for PhoneBridge.
+// It is intended for testing, health probing, and developer automation.
 package main
 
 import (
@@ -13,6 +13,12 @@ import (
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgev1"
 	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"
+)
+
+var (
+	version   = "0.1.0"
+	commit    = "dev"
+	buildDate = "unknown"
 )
 
 func resolveSocketPath() string {
@@ -39,9 +45,14 @@ func show(m proto.Message, err error) {
 }
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Println("usage: ipcdrv health|session|devices|trusted|pair <device>|confirm <device> <true|false>|transfers|send <path> [device]|cancel <id>|events [seconds]")
+	if len(os.Args) < 2 || os.Args[1] == "help" || os.Args[1] == "--help" || os.Args[1] == "-h" {
+		fmt.Printf("PhoneBridge Local IPC Diagnostic Tool (ipcdrv %s %s)\n", version, commit)
+		fmt.Println("usage: ipcdrv ping|health|session|devices|trusted|pair <device>|confirm <device> <true|false>|transfers|send <path> [device]|cancel <id>|notifications|clipboard|clipboard-pull|events [seconds]|input-tap|input-longpress|input-swipe|input-action|input-text|input-raw")
 		os.Exit(2)
+	}
+	if os.Args[1] == "version" || os.Args[1] == "--version" || os.Args[1] == "-v" {
+		fmt.Printf("ipcdrv %s (%s, %s)\n", version, commit, buildDate)
+		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -57,7 +68,7 @@ func main() {
 	defer rpcCancel()
 
 	switch os.Args[1] {
-	case "health":
+	case "health", "ping":
 		r, err := c.Health(rpcCtx, &phonebridgelocalipcv1.HealthRequest{})
 		show(r, err)
 	case "session":

@@ -25,7 +25,11 @@ import (
 	"github.com/om051p/phonebridge/core/pkg/transfer"
 )
 
-var version = "0.1.0"
+var (
+	version   = "0.1.0"
+	commit    = "dev"
+	buildDate = "unknown"
+)
 
 func main() {
 	var (
@@ -40,7 +44,11 @@ func main() {
 	flag.Parse()
 
 	if *showVersion || *showV {
-		fmt.Println(version)
+		if commit != "dev" && commit != "" {
+			fmt.Printf("phonebridge-daemon %s (%s, %s)\n", version, commit, buildDate)
+		} else {
+			fmt.Println(version)
+		}
 		return
 	}
 
@@ -282,7 +290,7 @@ func main() {
 	srv.SetOrchestrator(mgr)
 
 	activeCfg := srv.Config()
-	log.Printf("Starting phonebridge-daemon %s (pid=%d, uid=%d, device_id=%s)", version, os.Getpid(), os.Geteuid(), identity.DeviceID)
+	log.Printf("Starting phonebridge-daemon %s (%s) (pid=%d, uid=%d, device_id=%s)", version, commit, os.Getpid(), os.Geteuid(), identity.DeviceID)
 	log.Printf("Local IPC UDS: %s", activeCfg.SocketPath)
 	log.Printf("Token file: %s", activeCfg.TokenPath)
 	log.Printf("Identity file: %s", crypto.DefaultIdentityPath())

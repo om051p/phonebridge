@@ -65,3 +65,4 @@ spikes/*/tools/spike*-receiver
 # Compiled ipcdrv diagnostic driver (go build -o core/ipcdrv ./core/cmd/ipcdrv).
 # Source lives in core/cmd/ipcdrv/; the ~16 MB binary is never committed.
 /core/ipcdrv
+*.tar.gz

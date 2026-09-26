@@ -1,0 +1,14 @@
+[Desktop Entry]
+Name=PhoneBridge
+GenericName=Phone Integration Client
+Comment=Seamless Linux and Android Integration (Screen, Clipboard, Files, Notifications)
+Exec=phonebridge %u
+TryExec=phonebridge
+Icon=dev.phonebridge.ui
+Terminal=false
+Type=Application
+Categories=Utility;Network;
+StartupNotify=true
+StartupWMClass=dev.phonebridge.phonebridge
+Keywords=android;phone;screen;mirror;clipboard;notifications;remote;
+MimeType=x-scheme-handler/phonebridge;

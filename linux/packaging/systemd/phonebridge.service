@@ -1,14 +1,15 @@
-# phonebridge user service — PLANNED stub (Phase 0)
-# Install: systemctl --user enable --now phonebridge.service
 [Unit]
-Description=PhoneBridge daemon (PLANNED)
-After=network.target
+Description=PhoneBridge Engine Daemon
+After=network.target graphical-session.target
+Documentation=https://github.com/om051p/phonebridge
 
 [Service]
 Type=simple
 ExecStart=%h/.local/bin/phonebridge-daemon
 Restart=on-failure
+RestartSec=3s
 Environment=XDG_RUNTIME_DIR=%t
+PassEnvironment=DISPLAY WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE
 
 [Install]
 WantedBy=default.target
