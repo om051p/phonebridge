@@ -107,6 +107,9 @@ func main() {
 		}
 		r, err := c.CancelTransfer(rpcCtx, &phonebridgelocalipcv1.CancelTransferRequest{TransferId: os.Args[2]})
 		show(r, err)
+	case "notifications":
+		r, err := c.ListNotifications(rpcCtx, &phonebridgelocalipcv1.ListNotificationsRequest{})
+		show(r, err)
 	case "events":
 		secs := 30
 		if len(os.Args) > 2 {
