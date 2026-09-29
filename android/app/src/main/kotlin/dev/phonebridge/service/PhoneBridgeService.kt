@@ -230,7 +230,7 @@ class PhoneBridgeService : Service() {
                 browserProvider = { nsdBrowser }
             }
             if (browser.start()) {
-                Log.i(TAG, "NsdBrowser browsing for $NsdBrowser.SERVICE_TYPE peers")
+                Log.i(TAG, "NsdBrowser browsing for ${NsdBrowser.SERVICE_TYPE} peers")
             } else {
                 Log.w(TAG, "NsdBrowser did not start; the Devices tab will list no peers")
             }
