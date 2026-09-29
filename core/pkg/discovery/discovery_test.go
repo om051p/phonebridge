@@ -445,3 +445,126 @@ func TestDiscovery_BrowseRestartRefreshesPeerPastStaleWindow(t *testing.T) {
 		time.Sleep(25 * time.Millisecond)
 	}
 }
+
+// packBrowseQuery builds an mDNS PTR query for a DNS-SD service type.
+func packBrowseQuery(t *testing.T, serviceType, domain string) []byte {
+	t.Helper()
+
+	name, err := dnsmessage.NewName(serviceType + "." + domain + ".")
+	if err != nil {
+		t.Fatalf("NewName: %v", err)
+	}
+
+	msg := dnsmessage.Message{
+		Questions: []dnsmessage.Question{{
+			Name:  name,
+			Type:  dnsmessage.TypePTR,
+			Class: dnsmessage.ClassINET,
+		}},
+	}
+	raw, err := msg.Pack()
+	if err != nil {
+		t.Fatalf("pack query: %v", err)
+	}
+
+	return raw
+}
+
+// TestDiscovery_AnswersBrowseQuery covers the advertising half of discovery: a
+// node that registers a service must actually ANSWER a browse query.
+//
+// Regression test: a DNS-SD answer carries an SRV record whose target is the
+// service host, and pion/mdns fills that target from the server's configured
+// local names. A registering node that never configures one leaves the target
+// empty, so every PTR/SRV answer fails to pack ("SRVResource.Target: name is
+// not in canonical format") and no reply is sent. The node then stays invisible
+// to every browsing peer — the Android Devices tab lists no PC — even though it
+// is listening, browsing, and reaching its own peers.
+func TestDiscovery_AnswersBrowseQuery(t *testing.T) {
+	serverConn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	packetConn := ipv4.NewPacketConn(serverConn)
+	_ = packetConn.SetMulticastLoopback(true)
+
+	node, err := NewDiscovery(Config{
+		DeviceID:          "advertiser-linux",
+		DeviceName:        "Linux Host",
+		Model:             "x1",
+		Port:              7804,
+		Capabilities:      []string{"screen"},
+		State:             "ready",
+		CustomPacketConn4: packetConn,
+		IncludeLoopback:   true,
+	})
+	if err != nil {
+		t.Fatalf("NewDiscovery: %v", err)
+	}
+	defer node.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := node.Start(ctx); err != nil {
+		t.Skipf("mDNS bind not supported in this environment: %v", err)
+	}
+
+	querier, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatalf("listen querier: %v", err)
+	}
+	defer querier.Close()
+
+	// A direct unicast query to the node's socket exercises the responder
+	// without depending on a multicast-capable network.
+	if _, err := querier.WriteToUDP(packBrowseQuery(t, ServiceType, ServiceDomain), serverConn.LocalAddr().(*net.UDPAddr)); err != nil {
+		t.Fatalf("write browse query: %v", err)
+	}
+	if err := querier.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatalf("set deadline: %v", err)
+	}
+
+	buf := make([]byte, 9000)
+	n, _, err := querier.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatalf("registered node never answered the browse query: %v", err)
+	}
+
+	var reply dnsmessage.Message
+	if err := reply.Unpack(buf[:n]); err != nil {
+		t.Fatalf("unpack reply: %v", err)
+	}
+	if !reply.Header.Response {
+		t.Fatalf("expected an mDNS response, got header %+v", reply.Header)
+	}
+
+	var gotPTR bool
+	for _, answer := range reply.Answers {
+		ptr, ok := answer.Body.(*dnsmessage.PTRResource)
+		if !ok {
+			continue
+		}
+		if ptr.PTR.String() == "PhoneBridge-advertiser-linux."+ServiceType+"."+ServiceDomain+"." {
+			gotPTR = true
+		}
+	}
+	if !gotPTR {
+		t.Fatalf("browse answer carried no PTR for the registered instance: %+v", reply.Answers)
+	}
+
+	var gotSRV, gotAddr bool
+	for _, additional := range reply.Additionals {
+		switch body := additional.Body.(type) {
+		case *dnsmessage.SRVResource:
+			gotSRV = body.Port == 7804
+		case *dnsmessage.AResource:
+			gotAddr = true
+		}
+	}
+	if !gotSRV {
+		t.Fatalf("browse answer carried no SRV record for port 7804: %+v", reply.Additionals)
+	}
+	if !gotAddr {
+		t.Fatalf("browse answer carried no address record: %+v", reply.Additionals)
+	}
+}

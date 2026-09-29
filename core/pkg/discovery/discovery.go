@@ -157,6 +157,19 @@ func (d *Discovery) Start(ctx context.Context) error {
 		opts = append(opts, mdns.WithIncludeLoopback(true))
 	}
 
+	// A DNS-SD answer carries an SRV record whose target is the service host,
+	// and pion/mdns fills that target from the server's configured local names
+	// (ServiceInstance.Host defaults to localNames[0]). Registering without one
+	// leaves the target empty, so every PTR/SRV answer fails to pack
+	// ("SRVResource.Target: name is not in canonical format") and no reply is
+	// ever sent: the node listens, browses and reaches its peers, but no peer
+	// can browse it back. Advertised hostname is therefore mandatory when
+	// registering.
+	registering := d.cfg.Port > 0 && d.cfg.DeviceID != ""
+	if registering {
+		opts = append(opts, mdns.WithLocalNames(d.localHostname()))
+	}
+
 	srv, err := mdns.NewServer(p4, p6, opts...)
 	if err != nil {
 		return fmt.Errorf("mdns: create server: %w", err)
@@ -164,7 +177,7 @@ func (d *Discovery) Start(ctx context.Context) error {
 	d.server = srv
 
 	// Register local service if port and device ID are configured
-	if d.cfg.Port > 0 && d.cfg.DeviceID != "" {
+	if registering {
 		instanceName := d.cfg.InstanceName
 		if instanceName == "" {
 			deviceIDShort := d.cfg.DeviceID
@@ -224,6 +237,20 @@ func (d *Discovery) Start(ctx context.Context) error {
 	go d.refreshLoop()
 
 	return nil
+}
+
+// localHostname is the canonical mDNS hostname (RFC 6762 §3, so it carries a
+// trailing dot by the time it reaches the wire) that this node's advertised
+// service instance resolves to. It is derived from the device identity rather
+// than the OS hostname so a PhoneBridge advertisement can never collide with a
+// system responder (avahi, systemd-resolved) claiming the machine's own name.
+func (d *Discovery) localHostname() string {
+	short := d.cfg.DeviceID
+	if len(short) > 16 {
+		short = short[:16]
+	}
+
+	return fmt.Sprintf("phonebridge-%s.%s", short, ServiceDomain)
 }
 
 // handleDiscoveredService parses incoming DNS-SD ServiceEvent records into a Device.

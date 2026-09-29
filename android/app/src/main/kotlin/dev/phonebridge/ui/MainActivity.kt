@@ -493,37 +493,73 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
         }
     }
 
-    /// Snapshots the Go mDNS peer list (snake_case JSON) into the camelCase map
-    /// shape DiscoveredDevice.fromMap expects. Empty when the core is not loaded
-    /// or nothing is on the LAN yet — an empty list is a real answer here, never
-    /// an error, because "no peers discovered" is the normal startup state.
+    /// Snapshots the LAN peer list into the camelCase map shape
+    /// DiscoveredDevice.fromMap expects, in camelCase already because the
+    /// platform browse reports it that way and the Go plane's snake_case JSON is
+    /// translated here. Empty when nothing is on the LAN yet — an empty list is a
+    /// real answer here, never an error, because "no peers discovered" is the
+    /// normal startup state.
+    ///
+    /// The platform browse (NsdManager) is the source of truth: Android denies an
+    /// app the netlink socket the Go core's mDNS client needs, so the core's
+    /// browse cannot start on a phone and its (always empty) list is only kept as
+    /// a fallback for builds where it does work.
     private fun discoveredDeviceMaps(): List<Map<String, Any?>> {
-        if (!GoBridge.loaded) return emptyList()
-        val bytes = GoBridge.discoveryList() ?: return emptyList()
-        val rows = JSONArray(String(bytes, Charsets.UTF_8))
-        // This device advertises itself over NSD (TXT `id`), and the Go browse
-        // joins the same multicast group, so the phone resolves its own record.
-        // Listing yourself as a connectable peer is both confusing and
+        // This device advertises itself over NSD (TXT `id`) and the platform
+        // browse hears that advertisement back, so the phone resolves its own
+        // record. Listing yourself as a connectable peer is both confusing and
         // impossible to act on, so the local id is filtered here — the same
         // self-filter the Linux daemon gets from discovery.Config.DeviceID.
         val localId = identityManager?.deviceId
-        val out = ArrayList<Map<String, Any?>>(rows.length())
-        for (i in 0 until rows.length()) {
-            val obj = rows.optJSONObject(i) ?: continue
-            val id = obj.optString("id")
-            if (id.isEmpty()) continue
-            if (localId != null && id == localId) continue
+        val out = ArrayList<Map<String, Any?>>()
+        val seen = HashSet<String>()
+
+        fun add(id: String, name: String, model: String, version: String, host: String, port: Int, isStale: Boolean) {
+            if (id.isEmpty() || host.isEmpty() || port <= 0) return
+            if (localId != null && id == localId) return
+            if (!seen.add(id)) return
             out.add(
                 mapOf(
                     "id" to id,
-                    "name" to obj.optString("name", id),
-                    "model" to obj.optString("model"),
-                    "version" to obj.optString("version"),
-                    "host" to obj.optString("host"),
-                    "port" to obj.optInt("port"),
-                    "isStale" to obj.optBoolean("is_stale", false),
+                    "name" to name.ifEmpty { id },
+                    "model" to model,
+                    "version" to version,
+                    "host" to host,
+                    "port" to port,
+                    "isStale" to isStale,
                 )
             )
+        }
+
+        for (row in PhoneBridgeService.platformPeers()) {
+            add(
+                id = row["id"] as? String ?: "",
+                name = row["name"] as? String ?: "",
+                model = row["model"] as? String ?: "",
+                version = row["version"] as? String ?: "",
+                host = row["host"] as? String ?: "",
+                port = (row["port"] as? Number)?.toInt() ?: 0,
+                isStale = row["isStale"] as? Boolean ?: false,
+            )
+        }
+
+        if (GoBridge.loaded) {
+            val bytes = GoBridge.discoveryList()
+            if (bytes != null) {
+                val rows = JSONArray(String(bytes, Charsets.UTF_8))
+                for (i in 0 until rows.length()) {
+                    val obj = rows.optJSONObject(i) ?: continue
+                    add(
+                        id = obj.optString("id"),
+                        name = obj.optString("name"),
+                        model = obj.optString("model"),
+                        version = obj.optString("version"),
+                        host = obj.optString("host"),
+                        port = obj.optInt("port"),
+                        isStale = obj.optBoolean("is_stale", false),
+                    )
+                }
+            }
         }
         return out
     }

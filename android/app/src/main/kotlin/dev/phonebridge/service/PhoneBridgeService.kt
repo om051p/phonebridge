@@ -25,6 +25,7 @@ import dev.phonebridge.capture.CaptureConfig
 import dev.phonebridge.capture.CodecSelector
 import dev.phonebridge.capture.ScreenCaptureEngine
 import dev.phonebridge.discovery.NsdAdvertiser
+import dev.phonebridge.discovery.NsdBrowser
 import dev.phonebridge.security.DeviceIdentityManager
 import dev.phonebridge.security.TrustStore
 import dev.phonebridge.signaling.DeviceMediaCapabilities
@@ -69,6 +70,19 @@ class PhoneBridgeService : Service() {
 
         @Volatile
         var stateListener: ((Boolean, String?) -> Unit)? = null
+
+        /**
+         * Supplies the running service's platform browse snapshot, or null when
+         * no browse is live. Set by the service so the UI asks one place for
+         * LAN peers: the platform NSD stack, which is the only browse that can
+         * run inside an Android app.
+         */
+        @Volatile
+        var browserProvider: (() -> NsdBrowser?)? = null
+
+        /** LAN peers discovered through the platform NSD stack. */
+        fun platformPeers(): List<Map<String, Any?>> =
+            browserProvider?.invoke()?.snapshot() ?: emptyList()
 
         fun startService(context: Context) {
             val intent = Intent(context, PhoneBridgeService::class.java).apply {
@@ -122,6 +136,13 @@ class PhoneBridgeService : Service() {
     private var captureEngine: ScreenCaptureEngine? = null
     private var signalingServer: LanSignalingServer? = null
     private var nsdAdvertiser: NsdAdvertiser? = null
+
+    /**
+     * The phone's LAN browse. Android denies the Go core the netlink sockets its
+     * mDNS client needs, so the peer list comes from the platform NSD stack
+     * (see NsdBrowser).
+     */
+    private var nsdBrowser: NsdBrowser? = null
     private var multicastLock: android.net.wifi.WifiManager.MulticastLock? = null
 
     private val lanHandler = Handler(Looper.getMainLooper())
@@ -197,6 +218,22 @@ class PhoneBridgeService : Service() {
             } else {
                 Log.w(TAG, "NsdAdvertiser registration did not start for device $deviceId")
             }
+
+            // Browsing is what fills the Devices tab: the platform NSD service
+            // resolves the PC's advertisement into a dialable host:port.
+            val browser = nsdBrowser ?: NsdBrowser(applicationContext).also {
+                it.onBrowseFailed = { errorCode ->
+                    Log.w(TAG, "Platform LAN browse failed ($errorCode); scheduling recovery")
+                    scheduleLanRecovery("browse failure $errorCode")
+                }
+                nsdBrowser = it
+                browserProvider = { nsdBrowser }
+            }
+            if (browser.start()) {
+                Log.i(TAG, "NsdBrowser browsing for $NsdBrowser.SERVICE_TYPE peers")
+            } else {
+                Log.w(TAG, "NsdBrowser did not start; the Devices tab will list no peers")
+            }
         } catch (t: Throwable) {
             Log.e(TAG, "Failed to start LAN services: ${t.message}", t)
         }
@@ -257,7 +294,14 @@ class PhoneBridgeService : Service() {
         if (ok) {
             registrationRetryCount = 0
         }
-        Log.i(TAG, "LAN discovery recovery: mDNS re-registration ${if (ok) "initiated" else "not started"}")
+        // A network transition invalidates the browse session too: the platform
+        // NSD session is bound to the network that was active when it started.
+        val browsing = nsdBrowser?.restart() ?: false
+        Log.i(
+            TAG,
+            "LAN discovery recovery: mDNS re-registration ${if (ok) "initiated" else "not started"}, " +
+                "browse restart ${if (browsing) "initiated" else "not started"}"
+        )
     }
 
     /**
@@ -321,6 +365,9 @@ class PhoneBridgeService : Service() {
             registrationRetryCount = 0
             nsdAdvertiser?.unregisterService()
             nsdAdvertiser = null
+            nsdBrowser?.stop()
+            nsdBrowser = null
+            browserProvider = null
             signalingServer?.stop()
             signalingServer = null
         } catch (t: Throwable) {
