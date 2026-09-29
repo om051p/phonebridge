@@ -122,6 +122,7 @@ class PhoneBridgeService : Service() {
     private var captureEngine: ScreenCaptureEngine? = null
     private var signalingServer: LanSignalingServer? = null
     private var nsdAdvertiser: NsdAdvertiser? = null
+    private var multicastLock: android.net.wifi.WifiManager.MulticastLock? = null
 
     private val lanHandler = Handler(Looper.getMainLooper())
     private var networkRecoveryCallback: ConnectivityManager.NetworkCallback? = null
@@ -184,7 +185,11 @@ class PhoneBridgeService : Service() {
                 port = LanSignalingServer.DEFAULT_PORT,
                 deviceId = deviceId,
                 deviceName = identityManager.displayName,
-                capabilities = "screen",
+                // What this device actually serves: the capture pipeline, the
+                // transfer plane, and clipboard sync through the companion IME.
+                // Advertising only "screen" understated the device and made the
+                // peer's capability list wrong.
+                capabilities = "screen,files,clipboard",
                 state = "ready"
             )
             if (registered) {
@@ -494,6 +499,43 @@ class PhoneBridgeService : Service() {
     }
 
     /**
+     * Holds a Wi-Fi multicast lock for the lifetime of the Go mDNS browse.
+     *
+     * Android's Wi-Fi power save and multicast filtering drop inbound multicast
+     * packets for apps without this lock, which is exactly the traffic an mDNS
+     * browse needs to hear peers' answers (the platform NSD advertiser takes one
+     * implicitly through NsdService). Reference counting is disabled so a single
+     * release always frees it.
+     */
+    private fun acquireMulticastLock() {
+        if (multicastLock?.isHeld == true) return
+        try {
+            val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            if (wifi == null) {
+                Log.w(TAG, "WifiManager unavailable; LAN discovery browse may not hear peers")
+                return
+            }
+            val lock = wifi.createMulticastLock("phonebridge:discovery").apply { setReferenceCounted(false) }
+            lock.acquire()
+            multicastLock = lock
+            Log.i(TAG, "Multicast lock acquired for LAN discovery browse")
+        } catch (t: Throwable) {
+            Log.w(TAG, "Could not acquire multicast lock: ${t.message}")
+        }
+    }
+
+    private fun releaseMulticastLock() {
+        val lock = multicastLock ?: return
+        multicastLock = null
+        try {
+            if (lock.isHeld) lock.release()
+            Log.i(TAG, "Multicast lock released")
+        } catch (t: Throwable) {
+            Log.w(TAG, "Could not release multicast lock: ${t.message}")
+        }
+    }
+
+    /**
      * Sends a typed sender-side failure to the connected peer. Best effort by
      * design: if it cannot be delivered (no peer, no negotiated transport), the
      * teardown that follows is what the peer ultimately observes.
@@ -515,6 +557,11 @@ class PhoneBridgeService : Service() {
         if (GoBridge.loaded) {
             val storageDir = filesDir.absolutePath
             GoBridge.start(storageDir)
+            // The Go core starts its mDNS browse with the engine (see
+            // core/cmd/android/main.go); Android drops multicast traffic for an
+            // app that does not hold a multicast lock, so the browse would bind
+            // its sockets and hear nothing without this.
+            acquireMulticastLock()
             AndroidClipboardAdapter.start(applicationContext)
             AndroidTransferHostRegistry.ensureStarted(applicationContext)
             AndroidInputManager.start(applicationContext)
@@ -523,6 +570,7 @@ class PhoneBridgeService : Service() {
     }
 
     private fun stopGoEngine() {
+        releaseMulticastLock()
         if (GoBridge.loaded) {
             AndroidNotificationManager.stop()
             AndroidInputManager.stop()

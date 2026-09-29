@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -26,6 +28,9 @@ type memChannel struct {
 	closed     chan struct{}
 	closeOnce  sync.Once
 	drain      chan struct{}
+	// observe, when set, is called for every frame handed to SendFrame before
+	// delivery. Tests use it to assert transport-level invariants.
+	observe func([]byte)
 }
 
 func newMemChannel(low uint64) *memChannel {
@@ -47,10 +52,14 @@ func (c *memChannel) SendFrame(ctx context.Context, frame []byte) error {
 	c.mu.Lock()
 	c.sent = append(c.sent, append([]byte(nil), frame...))
 	deliver := c.deliver
+	observe := c.observe
 	if c.paused {
 		c.pending = append(c.pending, append([]byte(nil), frame...))
 		c.buffered += uint64(len(frame))
 		c.mu.Unlock()
+		if observe != nil {
+			observe(frame)
+		}
 		return nil
 	}
 	// This frame goes through; PauseAfter stalls the frames after the nth.
@@ -62,10 +71,21 @@ func (c *memChannel) SendFrame(ctx context.Context, frame []byte) error {
 	}
 	c.mu.Unlock()
 
+	if observe != nil {
+		observe(frame)
+	}
 	if deliver != nil {
 		deliver(frame)
 	}
 	return nil
+}
+
+// Observe installs a hook called for every frame handed to SendFrame (before
+// delivery), which tests use to assert transport-level invariants.
+func (c *memChannel) Observe(fn func([]byte)) {
+	c.mu.Lock()
+	c.observe = fn
+	c.mu.Unlock()
 }
 
 func (c *memChannel) BufferedAmount() uint64 {
@@ -700,6 +720,138 @@ func TestPair_ProgressIsMonotonicAndThrottled(t *testing.T) {
 	if len(seen) > 64 {
 		t.Fatalf("progress events were not throttled: %d events", len(seen))
 	}
+}
+
+// TestPair_ConcurrentSendsSerializeOnTheWire holds one transfer on the channel
+// and then fires a concurrent burst of SendFile calls. Exactly one offer may be
+// on the wire at a time: if a second starts concurrently, the receiver refuses
+// it with BUSY. Map iteration order inside the engine must never let that happen.
+func TestPair_ConcurrentSendsSerializeOnTheWire(t *testing.T) {
+	p := newPair(t, pairOptions{})
+
+	p.senderCh.PauseAfter(1)
+	first, _ := writeSource(t, p.srcDir, "held.bin", 2<<20)
+	firstID, err := p.senderEng.SendFile(context.Background(), first, "")
+	if err != nil {
+		t.Fatalf("first send: %v", err)
+	}
+	waitForState(t, p.senderEng, firstID, StateActive, 5*time.Second)
+
+	const burst = 6
+	ids := make([]string, burst)
+	errs := make([]error, burst)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < burst; i++ {
+		path, _ := writeSource(t, p.srcDir, fmt.Sprintf("concurrent-%d.bin", i), 8192+i)
+		wg.Add(1)
+		go func(i int, path string) {
+			defer wg.Done()
+			<-start
+			ids[i], errs[i] = p.senderEng.SendFile(context.Background(), path, "")
+		}(i, path)
+	}
+	close(start)
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent send %d: %v", i, err)
+		}
+	}
+
+	p.senderCh.Release()
+	waitForState(t, p.senderEng, firstID, StateComplete, 20*time.Second)
+	for _, id := range ids {
+		info := waitForState(t, p.senderEng, id, StateComplete, 20*time.Second)
+		if info.ReasonCode != ReasonNone {
+			t.Fatalf("queued transfer %s reason = %s (%q)", id, info.ReasonCode, info.ErrorMessage)
+		}
+	}
+}
+
+// TestPair_CancelQueuedOutbound cancels a transfer that is still waiting behind
+// an active one. It must become CANCELLED without disturbing the active
+// transfer, and the queue must keep draining afterwards.
+func TestPair_CancelQueuedOutbound(t *testing.T) {
+	p := newPair(t, pairOptions{})
+
+	p.senderCh.PauseAfter(1)
+	first, _ := writeSource(t, p.srcDir, "head.bin", 2<<20)
+	firstID, err := p.senderEng.SendFile(context.Background(), first, "")
+	if err != nil {
+		t.Fatalf("first send: %v", err)
+	}
+	waitForState(t, p.senderEng, firstID, StateActive, 5*time.Second)
+
+	queued, _ := writeSource(t, p.srcDir, "queued.bin", 4096)
+	queuedID, err := p.senderEng.SendFile(context.Background(), queued, "")
+	if err != nil {
+		t.Fatalf("queued send: %v", err)
+	}
+	if info, _ := p.senderEng.Get(queuedID); info.State != StateQueued {
+		t.Fatalf("second transfer state = %s, want QUEUED", info.State)
+	}
+
+	if err := p.senderEng.Cancel(context.Background(), queuedID); err != nil {
+		t.Fatalf("cancel queued: %v", err)
+	}
+	info := waitForState(t, p.senderEng, queuedID, StateCancelled, 5*time.Second)
+	if info.ReasonCode != ReasonCancelledByUser {
+		t.Fatalf("queued cancel reason = %s, want CANCELLED_BY_USER", info.ReasonCode)
+	}
+
+	// The head transfer is untouched and the queue still drains.
+	p.senderCh.Release()
+	waitForState(t, p.senderEng, firstID, StateComplete, 20*time.Second)
+}
+
+// TestPair_DetachChannelReleasesQueuedSourceFiles proves that losing the channel
+// terminates and releases every outbound source file, including the ones that
+// were still queued and never reached runSender.
+func TestPair_DetachChannelReleasesQueuedSourceFiles(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("fd accounting relies on /proc/self/fd")
+	}
+	p := newPair(t, pairOptions{tune: func(c *Config) { c.OutboundQueueDepth = 8 }})
+
+	baseline := openFDCount(t)
+	p.senderCh.PauseAfter(1)
+	first, _ := writeSource(t, p.srcDir, "held.bin", 2<<20)
+	if _, err := p.senderEng.SendFile(context.Background(), first, ""); err != nil {
+		t.Fatalf("first send: %v", err)
+	}
+	for i := 0; i < 4; i++ {
+		path, _ := writeSource(t, p.srcDir, fmt.Sprintf("queued-%d.bin", i), 4096)
+		if _, err := p.senderEng.SendFile(context.Background(), path, ""); err != nil {
+			t.Fatalf("queued send %d: %v", i, err)
+		}
+	}
+	if got := openFDCount(t); got < baseline+4 {
+		t.Fatalf("queued sends should hold their source fds: baseline %d, now %d", baseline, got)
+	}
+
+	p.senderEng.DetachChannel(ReasonInterrupted, "transport closed")
+	waitFor(t, 2*time.Second, "all outbound transfers terminal", func() bool {
+		for _, info := range p.senderEng.List() {
+			if info.Direction == DirectionOutbound && !info.State.Terminal() {
+				return false
+			}
+		}
+		return true
+	})
+	waitFor(t, 3*time.Second, "source fds released", func() bool {
+		return openFDCount(t) <= baseline+1
+	})
+}
+
+// openFDCount counts this process's open descriptors (Linux only).
+func openFDCount(t *testing.T) int {
+	t.Helper()
+	entries, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		t.Skipf("cannot read /proc/self/fd: %v", err)
+	}
+	return len(entries)
 }
 
 func TestDefaultDownloadDirHonoursEnvironment(t *testing.T) {

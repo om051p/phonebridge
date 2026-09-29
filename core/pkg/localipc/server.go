@@ -135,6 +135,15 @@ type Server struct {
 	subscribers   map[chan *eventPayload]struct{}
 
 	closed atomic.Bool
+
+	// streamsCtx is cancelled when the server shuts down. Frame subscriptions
+	// are derived from it so a StreamFrames RPC parked on the frame hub is
+	// released by shutdown itself, rather than waiting for a client that is
+	// waiting for the daemon: GracefulStop waits for in-flight RPCs, so an RPC
+	// that only ends when its client goes away makes a clean stop impossible
+	// whenever that client is still attached.
+	streamsCtx    context.Context
+	streamsCancel context.CancelFunc
 }
 
 type eventPayload struct {
@@ -177,11 +186,15 @@ func NewServer(cfg Config) (*Server, error) {
 		cfg.Logf = func(string, ...any) {}
 	}
 
+	streamsCtx, streamsCancel := context.WithCancel(context.Background())
+
 	return &Server{
-		cfg:          cfg,
-		orchestrator: cfg.Orchestrator,
-		ready:        make(chan struct{}),
-		subscribers:  make(map[chan *eventPayload]struct{}),
+		cfg:           cfg,
+		orchestrator:  cfg.Orchestrator,
+		ready:         make(chan struct{}),
+		subscribers:   make(map[chan *eventPayload]struct{}),
+		streamsCtx:    streamsCtx,
+		streamsCancel: streamsCancel,
 	}, nil
 }
 
@@ -272,6 +285,12 @@ func (s *Server) Serve(ctx context.Context) error {
 		<-ctx.Done()
 		s.closed.Store(true)
 		s.closeAllSubscribers()
+		// Release frame-stream handlers before asking gRPC to drain: they are
+		// long-lived by design and would otherwise hold GracefulStop open until
+		// its timeout expires.
+		if s.streamsCancel != nil {
+			s.streamsCancel()
+		}
 
 		done := make(chan struct{})
 		go func() {
@@ -456,25 +475,84 @@ func (s *Server) StreamFrames(_ *phonebridgelocalipcv1.StreamFramesRequest, stre
 		return status.Error(codes.Unimplemented, "frame streaming not configured")
 	}
 
-	ctx := stream.Context()
+	// The subscription context ends when EITHER the client's stream ends or the
+	// server shuts down. Deriving it here is what makes shutdown authoritative:
+	// the daemon never has to wait for a client to notice it should disconnect.
+	ctx, cancel := context.WithCancel(stream.Context())
+	defer cancel()
+	if s.streamsCtx != nil {
+		stop := context.AfterFunc(s.streamsCtx, cancel)
+		defer stop()
+	}
+
 	for {
 		ch, err := s.cfg.Frames.Subscribe(ctx)
 		if err != nil {
-			// Client cancelled (clean unsubscribe) or the server is going away.
+			// Client cancelled (clean unsubscribe), or the server is going away.
 			return nil
 		}
-		// Per-subscription frame ids start at 1 (proto contract) while gaps
-		// remain meaningful: the hub id is rebased on first delivery, so a
-		// frame dropped by latest-wins before delivery still shows as a jump.
-		var base uint64
-		haveBase := false
-		for f := range ch {
+		sendErr := s.relayFrames(stream, ch, ctx)
+		// The handler owns unsubscribing: the hub would otherwise keep buffering
+		// frames into a channel nobody reads for the rest of the process's life.
+		releaseFrameSubscription(s.cfg.Frames, ch)
+		if sendErr != nil {
+			return sendErr // client gone; only this subscription is affected
+		}
+		if ctx.Err() != nil {
+			return nil
+		}
+		// Session ended: loop and wait for the next one (or ctx cancellation).
+	}
+}
+
+// frameUnsubscriber is the optional half of a FrameSource: a source that keeps
+// per-subscription state (the hub tracks subscriber channels and their drop
+// counters) can be told when a subscription ends. It is a separate interface
+// rather than a method on FrameSource so existing sources stay valid: a source
+// without it simply owns no per-subscription state to release.
+type frameUnsubscriber interface {
+	Unsubscribe(ch <-chan *frames.Frame)
+}
+
+func releaseFrameSubscription(src FrameSource, ch <-chan *frames.Frame) {
+	if u, ok := src.(frameUnsubscriber); ok {
+		u.Unsubscribe(ch)
+	}
+}
+
+// relayFrames forwards one session's frames for one subscription. It returns
+// nil when the session ended or the context was cancelled, and the send error
+// when the client is gone; both end the inner loop and let the caller decide
+// whether to resubscribe.
+func (s *Server) relayFrames(
+	stream grpc.ServerStreamingServer[phonebridgelocalipcv1.StreamFramesResponse],
+	ch <-chan *frames.Frame,
+	ctx context.Context,
+) error {
+	// Per-subscription frame ids start at 1 (proto contract) while gaps remain
+	// meaningful: the hub id is rebased on first delivery, so a frame dropped by
+	// latest-wins before delivery still shows as a jump.
+	var base uint64
+	haveBase := false
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case f, ok := <-ch:
+			if !ok {
+				return nil // session ended: the caller resubscribes
+			}
 			if !haveBase {
 				base, haveBase = f.ID, true
 			}
 			id := f.ID - base + 1
 			chunks := f.Chunks()
 			for i, c := range chunks {
+				select {
+				case <-ctx.Done():
+					return nil
+				default:
+				}
 				resp := &phonebridgelocalipcv1.StreamFramesResponse{
 					FrameId:        id,
 					ChunkIndex:     uint32(i),
@@ -486,11 +564,10 @@ func (s *Server) StreamFrames(_ *phonebridgelocalipcv1.StreamFramesRequest, stre
 					SentUnixMicros: f.SentUnixMicros,
 				}
 				if err := stream.Send(resp); err != nil {
-					return err // client gone; only this subscription is affected
+					return err
 				}
 			}
 		}
-		// Session ended: loop and wait for the next one (or ctx cancellation).
 	}
 }
 

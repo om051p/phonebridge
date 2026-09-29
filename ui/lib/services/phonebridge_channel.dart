@@ -125,6 +125,59 @@ class PhoneBridgeChannel {
     }
   }
 
+  /// Lists LAN peers found by the Go core's mDNS browse (DEC-007).
+  ///
+  /// The Android app is the browsing side of the pair here: it discovers the
+  /// Linux desktop, which is what makes it possible to pair and connect from the
+  /// phone at all. An empty list is a valid answer (nothing on the LAN yet), so
+  /// failures degrade to an empty list rather than propagating.
+  Future<List<Map<dynamic, dynamic>>> getDiscoveredDevices() async {
+    try {
+      final res = await _control.invokeMethod<List<dynamic>>('getDiscoveredDevices');
+      if (res != null) {
+        return res.whereType<Map<dynamic, dynamic>>().toList();
+      }
+    } on MissingPluginException {
+      return const [];
+    } on PlatformException {
+      return const [];
+    }
+    return const [];
+  }
+
+  /// Opens the platform screen where the companion IME is enabled. Ambient
+  /// clipboard observation is impossible without it (Spike 05 / DEC-023).
+  Future<bool> openInputMethodSettings() async {
+    try {
+      final res = await _control.invokeMethod<bool>('openInputMethodSettings');
+      return res ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  /// Opens the system keyboard picker so the companion IME can be selected.
+  Future<bool> showInputMethodPicker() async {
+    try {
+      final res = await _control.invokeMethod<bool>('showInputMethodPicker');
+      return res ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  /// Enables or disables clipboard synchronization in the native adapter.
+  Future<bool> setClipboardSyncEnabled(bool enabled) async {
+    try {
+      final res = await _control.invokeMethod<bool>('setClipboardSyncEnabled', {
+        'enabled': enabled,
+      });
+      return res ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
   Stream<CaptureStats> get statsStream {
     return _events.receiveBroadcastStream().map((event) {
       if (event is Map) {

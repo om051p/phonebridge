@@ -14,6 +14,15 @@ android {
 
     defaultConfig {
         applicationId = "dev.phonebridge"
+        // Opt-in verification build: -PphonebridgeVerifySuffix=true produces
+        // dev.phonebridge.verify so a build signed with a key we hold can be
+        // installed ALONGSIDE the shipped app instead of replacing it.
+        // Replacing it is refused outright (signature mismatch), and forcing it
+        // would destroy the phone's Ed25519 identity and require a re-pair.
+        // Off by default, so normal builds are unaffected.
+        if (findProperty("phonebridgeVerifySuffix") == "true") {
+            applicationIdSuffix = ".verify"
+        }
         minSdk = 26
         targetSdk = 34
         versionCode = 1

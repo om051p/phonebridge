@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -49,7 +50,17 @@ type SignalingServerConfig struct {
 	AnswerHandler func(answer pion.SessionDescription) error
 
 	// StopHandler handles incoming POST /session/stop.
-	StopHandler func(reason string, code Code) error
+	//
+	// peerDeviceID is the AUTHENTICATED device that asked for the stop (its
+	// signature was verified against the trust store), so the manager can stop
+	// exactly the session that device is part of and nothing else.
+	StopHandler func(peerDeviceID, reason string, code Code) error
+
+	// PeerOfferHandler handles incoming POST /session/peer-offer, where the peer
+	// is itself the capture device and supplies its own SDP offer. The returned
+	// answer is carried back to the peer in this same response. Nil means the
+	// host does not accept peer-started sessions.
+	PeerOfferHandler func(ctx context.Context, req PeerOfferRequest) (PeerOfferResult, error)
 }
 
 // SignalingServer serves the LAN signaling protocol over HTTP with Ed25519 authentication.
@@ -88,6 +99,7 @@ func (s *SignalingServer) Start(ctx context.Context) error {
 	mux.HandleFunc("/pairing/request", s.handlePairingRequest)
 	mux.HandleFunc("/pairing/confirm", s.handlePairingConfirm)
 	mux.HandleFunc("/session/offer", s.handleSessionOffer)
+	mux.HandleFunc("/session/peer-offer", s.handleSessionPeerOffer)
 	mux.HandleFunc("/session/answer", s.handleSessionAnswer)
 	mux.HandleFunc("/session/stop", s.handleSessionStop)
 
@@ -352,6 +364,142 @@ func (s *SignalingServer) handleSessionOffer(w http.ResponseWriter, r *http.Requ
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+// peerSignalingEndpoint derives where to reach a peer again from the
+// AUTHENTICATED connection plus the port the peer announced.
+//
+// The host half comes from r.RemoteAddr, never from the request body: otherwise
+// any paired device could make this daemon POST to an arbitrary address. The
+// port is validated as a real TCP port, and an unusable announce simply yields
+// an empty endpoint — the session then has no reconnect target, which is a
+// degradation, not a security hole (the initiator path still validates trust on
+// every attempt).
+func peerSignalingEndpoint(r *http.Request, announcedPort uint32) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil || host == "" {
+		return ""
+	}
+	if announcedPort == 0 || announcedPort > 65535 {
+		return ""
+	}
+	return net.JoinHostPort(host, strconv.Itoa(int(announcedPort)))
+}
+
+// handleSessionPeerOffer answers a session offer from a peer that is the capture
+// device (DEC-022). It is the counterpart of handleSessionOffer: same auth, same
+// vocabulary, same error shape — the SDP direction is simply reversed.
+func (s *SignalingServer) handleSessionPeerOffer(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Bounded read: an SDP offer with a full candidate list is tens of KiB, so
+	// 256 KiB is generous while keeping a hostile body from being buffered whole.
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 256<<10))
+	if err != nil {
+		http.Error(w, `{"error":"failed to read body"}`, http.StatusBadRequest)
+		return
+	}
+
+	deviceID, err := s.verifyAuth(r, body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusUnauthorized)
+		return
+	}
+	if s.cfg.TrustStore != nil && deviceID != "" {
+		if entry, ok := s.cfg.TrustStore.Get(deviceID); ok {
+			_ = s.cfg.TrustStore.AddTrusted(entry)
+		}
+	}
+
+	// sessionID is carried on refusals too: a SESSION_BUSY answer that names the
+	// live session lets the caller tell "someone else is connected" from "this
+	// device thinks I am still connected", which need opposite remedies.
+	writePeerOfferErr := func(status int, code Code, msg, sessionID string) {
+		accepted := false
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(offerResponse{
+			ProtocolVersion: signalingVersion,
+			Code:            string(code),
+			Message:         msg,
+			Accepted:        &accepted,
+			RejectReason:    msg,
+			SessionID:       sessionID,
+		})
+	}
+
+	var req peerOfferRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writePeerOfferErr(http.StatusBadRequest, CodeInvalidArgument, "invalid peer-offer body", "")
+		return
+	}
+	if req.Offer.SDP == "" {
+		writePeerOfferErr(http.StatusBadRequest, CodeInvalidArgument, "peer offer carries no sdp", "")
+		return
+	}
+	if req.ProtocolVersion != 0 && req.ProtocolVersion != signalingVersion {
+		writePeerOfferErr(http.StatusConflict, CodeIncompatibleVersion, fmt.Sprintf(
+			"peer speaks signaling version %d, this build speaks %d", req.ProtocolVersion, signalingVersion), "")
+		return
+	}
+
+	if s.cfg.PeerOfferHandler == nil {
+		writePeerOfferErr(http.StatusConflict, CodeUnsupportedMediaParams,
+			"host does not accept peer-started sessions", "")
+		return
+	}
+
+	res, err := s.cfg.PeerOfferHandler(r.Context(), PeerOfferRequest{
+		PeerDeviceID: deviceID,
+		// Derived from the authenticated connection plus the announced port: a
+		// body-supplied host is ignored on purpose (see peerSignalingEndpoint).
+		Endpoint: peerSignalingEndpoint(r, req.SignalingPort),
+		Offer: pion.SessionDescription{
+			Type: pion.SDPTypeOffer,
+			SDP:  req.Offer.SDP,
+		},
+		Requested: req.Requested.toMediaParams(),
+	})
+	if err != nil {
+		writePeerOfferErr(http.StatusInternalServerError, CodeTransportFailed, err.Error(), "")
+		return
+	}
+
+	if res.Code != CodeOK || res.Answer == "" {
+		code := res.Code
+		if code == "" {
+			code = CodeTransportFailed
+		}
+		msg := res.Message
+		if msg == "" {
+			msg = "peer offer could not be answered"
+		}
+		// SESSION_BUSY and PERMISSION_DENIED are outcomes the peer must be able
+		// to tell apart from a malformed request; both are reported as conflicts
+		// with a typed code, matching how the phone answers the same conditions.
+		status := http.StatusConflict
+		if code == CodeInvalidArgument {
+			status = http.StatusBadRequest
+		}
+		writePeerOfferErr(status, code, msg, res.SessionID)
+		return
+	}
+
+	accepted := true
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(offerResponse{
+		Type:            "answer",
+		SDP:             res.Answer,
+		ProtocolVersion: signalingVersion,
+		Code:            string(CodeOK),
+		Message:         res.Message,
+		Accepted:        &accepted,
+		SessionID:       res.SessionID,
+	})
+}
+
 func (s *SignalingServer) handleSessionAnswer(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -425,7 +573,7 @@ func (s *SignalingServer) handleSessionStop(w http.ResponseWriter, r *http.Reque
 
 	if s.cfg.StopHandler != nil {
 		code, _ := ParseCode(payload.ReasonCode)
-		_ = s.cfg.StopHandler(payload.Reason, code)
+		_ = s.cfg.StopHandler(deviceID, payload.Reason, code)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

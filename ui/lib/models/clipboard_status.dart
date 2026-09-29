@@ -84,12 +84,15 @@ class ClipboardStatus {
     final st = ClipboardSyncState.fromString(rawState);
     final ime = map['imeSelected'] as bool? ?? false;
     final maxPayload = (map['maxPayloadSize'] as num?)?.toInt() ?? 786432;
+    // The native adapter owns the enable flag; `previous` is only a fallback for
+    // a payload that does not carry it (e.g. the Linux daemon's status map).
+    final enabled = map['enabled'] as bool? ?? previous?.isEnabled ?? true;
 
     return ClipboardStatus(
       state: st,
       imeSelected: ime,
       maxPayloadSize: maxPayload,
-      isEnabled: previous?.isEnabled ?? true,
+      isEnabled: enabled,
       lastSyncTimestampMs: previous?.lastSyncTimestampMs,
       syncCount: previous?.syncCount ?? 0,
       lastSyncBytes: previous?.lastSyncBytes ?? 0,

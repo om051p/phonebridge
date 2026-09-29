@@ -124,8 +124,19 @@ func main() {
 		AnswerHandler: func(answer pion.SessionDescription) error {
 			return mgr.HandleInboundAnswer(answer)
 		},
-		StopHandler: func(reason string, code engine.Code) error {
-			return mgr.HandleInboundStop(reason, code)
+		// The stop names the AUTHENTICATED peer that asked, so the manager can
+		// release the session that peer is part of — including a peer-offer
+		// session this daemon answered — without letting one trusted device end
+		// another's.
+		StopHandler: func(peerDeviceID, reason string, code engine.Code) error {
+			return mgr.HandlePeerStop(peerDeviceID, reason, code)
+		},
+		// Peer-started sessions (DEC-022): the phone is the capture device, so it
+		// brings its own SDP offer and this daemon answers it with the same
+		// receiver a desktop-started session uses. The session is owned by the
+		// manager, not by the HTTP request that created it.
+		PeerOfferHandler: func(ctx context.Context, req engine.PeerOfferRequest) (engine.PeerOfferResult, error) {
+			return mgr.HandlePeerOffer(ctx, req)
 		},
 	})
 	if err := sigSrv.Start(ctx); err != nil {
@@ -286,6 +297,15 @@ func main() {
 			log.Printf("File transfer: receiving into %s (max %d bytes)", destination.Dir(), maxSize)
 		}
 	}
+
+	// Daemon shutdown must release an allocated inbound session: it owns a
+	// PeerConnection and its goroutines, and leaving it behind would also make
+	// the next run's first inbound offer think the device is busy.
+	defer func() {
+		if err := mgr.CloseInbound(); err != nil {
+			log.Printf("warning: closing inbound session: %v", err)
+		}
+	}()
 
 	srv.SetOrchestrator(mgr)
 

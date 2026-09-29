@@ -135,8 +135,13 @@ func createTestNode(t *testing.T, tmpDir, name string) *testLinuxNode {
 		AnswerHandler: func(answer pion.SessionDescription) error {
 			return mgr.HandleInboundAnswer(answer)
 		},
-		StopHandler: func(reason string, code Code) error {
-			return mgr.HandleInboundStop(reason, code)
+		StopHandler: func(peerDeviceID, reason string, code Code) error {
+			return mgr.HandlePeerStop(peerDeviceID, reason, code)
+		},
+		// Peer-started sessions, exactly as cmd/daemon/main.go wires them: a
+		// capture device (the phone) brings its own offer and this node answers.
+		PeerOfferHandler: func(ctx context.Context, req PeerOfferRequest) (PeerOfferResult, error) {
+			return mgr.HandlePeerOffer(ctx, req)
 		},
 	})
 

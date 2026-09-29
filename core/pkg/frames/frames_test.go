@@ -312,11 +312,18 @@ func TestTapSinkConvertsAnnexBToJPEG(t *testing.T) {
 	}
 
 	// Subscribe before feeding so no published frame can be missed (the hub
-	// only fans out to registered subscribers, latest-wins per buffer).
+	// only fans out to registered subscribers, latest-wins per buffer). This is
+	// also what starts the converter: conversion is lazy and only happens while
+	// a StreamFrames subscriber exists.
 	ch, err := hub.Subscribe(context.Background())
 	if err != nil {
 		t.Fatalf("Subscribe: %v", err)
 	}
+
+	// Wait for the ffmpeg process to be up before feeding: a converter started
+	// mid-stream can only resume at the next keyframe, and this synthetic stream
+	// has exactly one.
+	waitForCondition(t, 5*time.Second, "the converter process to start", tap.ProcessUp)
 
 	// Feed the stream as AUs split on Annex-B start codes.
 	positions := startCodePositions(annexB)
@@ -364,6 +371,20 @@ func TestTapSinkConvertsAnnexBToJPEG(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("no frame published to the hub")
 	}
+}
+
+// waitForCondition polls a predicate. Used where the alternative is a
+// timing-dependent sleep around process startup.
+func waitForCondition(t *testing.T, timeout time.Duration, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", what)
 }
 
 func startCodePositions(b []byte) []int {

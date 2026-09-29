@@ -265,6 +265,14 @@ func Java_dev_phonebridge_bridge_GoBridge_nativeStart(env *C.JNIEnv, clazz C.jcl
 		}
 	}
 
+	// Begin browsing for LAN peers as soon as the engine is up, so the Devices
+	// tab has results the first time it asks instead of waiting for its own poll
+	// to warm the browse session. A bind failure is not fatal: the browse then
+	// reports an empty peer list, which is what the UI renders as "nothing
+	// discovered yet" — the phone's own advertisement (NsdAdvertiser) makes it
+	// discoverable in the other direction regardless.
+	_ = currentDiscoveryBridge().Start()
+
 	engineState.Store(StateRunning)
 	initialized.Store(true)
 	return C.JNI_TRUE
@@ -316,6 +324,11 @@ func Java_dev_phonebridge_bridge_GoBridge_nativeInvoke(env *C.JNIEnv, clazz C.jc
 	// Method routing
 	var resp []byte
 	if out, handled := invokeTransfer(method, payload); handled {
+		if out == nil {
+			out = []byte("{}")
+		}
+		resp = out
+	} else if out, handled := invokeDiscovery(method, payload); handled {
 		if out == nil {
 			out = []byte("{}")
 		}
@@ -669,6 +682,10 @@ func Java_dev_phonebridge_bridge_GoBridge_nativeStop(env *C.JNIEnv, clazz C.jcla
 
 	// Defense in depth: tear down clipboard bridge
 	currentClipboardBridge().Stop()
+
+	// Defense in depth: tear down the LAN browse session (multicast sockets
+	// and the browse/sweep/refresh goroutines must not outlive the engine).
+	currentDiscoveryBridge().Stop()
 	clipboardHostMu.Lock()
 	if currentJniHost != nil && C.isNull(currentJniHost.callbackObj) == 0 {
 		C.deleteGlobalRef(env, currentJniHost.callbackObj)

@@ -269,6 +269,20 @@ object GoBridge {
     }
 
     // ------------------------------------------------------------------
+    // LAN discovery plane (DEC-007). The phone advertises through the
+    // platform NSD registration; this is the browse half, which the Android
+    // build previously did not have, so the Devices tab could never list the
+    // PC. Go owns the browse (same core/pkg/discovery the daemon runs) and
+    // hands back a JSON array of peers: id/name/model/version/host/port/is_stale.
+    // ------------------------------------------------------------------
+
+    /** Lists LAN peers discovered over mDNS. Null when the core is not loaded. */
+    fun discoveryList(): ByteArray? {
+        if (!isLoaded) return null
+        return invoke("discovery:list")
+    }
+
+    // ------------------------------------------------------------------
     // Remote Input plane (DEC-027, Phase 7 v0.1).
     // Dispatches normalized pointer/touch, key, text, scroll, and global
     // actions received from Linux desktop WebRTC "input" DataChannel.

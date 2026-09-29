@@ -19,10 +19,17 @@ import (
 // and no staging copy. Memory is bounded by the chunk buffer plus the transport
 // watermark, never by the file size.
 func (e *Engine) runSender(rec *record) {
-	if rec.file != nil {
-		defer func() { _ = rec.file.Close() }()
-	}
+	defer rec.releaseSourceFile()
 	defer rec.cancel()
+
+	// A queued send can be cancelled between promotion and this goroutine
+	// actually running. Without this guard the offer would still go out and then
+	// be abandoned, leaving the peer holding an accepted inbound it never hears
+	// about — which then refuses every following offer as BUSY.
+	if rec.isFinished() || rec.ctx.Err() != nil {
+		e.finishCancelled(rec, false)
+		return
+	}
 
 	chunkSize := e.cfg.ChunkSize
 	offer := &phonebridgev1.FileOffer{
@@ -58,7 +65,7 @@ func (e *Engine) runSender(rec *record) {
 			return
 		}
 	case <-rec.ctx.Done():
-		e.finishCancelled(rec)
+		e.finishCancelled(rec, true)
 		return
 	case <-e.channelDone():
 		e.finish(rec, StateFailed, ReasonInterrupted, "transfer channel closed before the peer accepted", "")
@@ -80,7 +87,7 @@ func (e *Engine) runSender(rec *record) {
 			return
 		}
 		if rec.ctx.Err() != nil {
-			e.finishCancelled(rec)
+			e.finishCancelled(rec, true)
 			return
 		}
 
@@ -92,7 +99,7 @@ func (e *Engine) runSender(rec *record) {
 		if n > 0 {
 			if err := e.awaitDrain(rec); err != nil {
 				if rec.ctx.Err() != nil {
-					e.finishCancelled(rec)
+					e.finishCancelled(rec, true)
 					return
 				}
 				e.finish(rec, StateFailed, ReasonInterrupted, err.Error(), "")
@@ -153,7 +160,7 @@ func (e *Engine) runSender(rec *record) {
 		}
 		e.finish(rec, StateFailed, reason, message, "")
 	case <-rec.ctx.Done():
-		e.finishCancelled(rec)
+		e.finishCancelled(rec, true)
 	case <-e.channelDone():
 		e.finish(rec, StateFailed, ReasonInterrupted, "transfer channel closed before the peer confirmed the file", "")
 	case <-time.After(e.cfg.resultTimeout(sent)):
@@ -163,12 +170,23 @@ func (e *Engine) runSender(rec *record) {
 }
 
 // finishCancelled ends a sender whose context was cancelled, honouring the
-// recorded cause (local cancel, peer cancel, channel loss).
-func (e *Engine) finishCancelled(rec *record) {
+// recorded cause (local cancel, peer cancel, channel loss). notifyPeer sends the
+// FileCancel the peer needs to release an accepted inbound; it is false only when
+// the offer was never sent (a queued send cancelled before it started).
+func (e *Engine) finishCancelled(rec *record, notifyPeer bool) {
 	reason, message := rec.cancelCause()
 	state := StateFailed
 	if reason == ReasonCancelledByUser || reason == ReasonCancelledByPeer {
 		state = StateCancelled
+	}
+	if notifyPeer && reason == ReasonCancelledByUser {
+		// Sent from here, not from Cancel, so it always follows the offer (see
+		// Cancel for why a cancel that overtook the offer wedges the peer).
+		_ = e.send(CancelFrame(&phonebridgev1.FileCancel{
+			TransferId: rec.info.TransferID,
+			Code:       CodeForReason(reason),
+			Reason:     message,
+		}))
 	}
 	e.finish(rec, state, reason, message, "")
 }

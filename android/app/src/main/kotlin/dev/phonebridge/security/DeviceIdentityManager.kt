@@ -38,6 +38,44 @@ class DeviceIdentityManager(
         return CryptoUtils.sign(privateKey, message)
     }
 
+    /**
+     * Signs an outgoing signaling request the way the Linux daemon verifies it.
+     *
+     * This is the counterpart of the daemon's crypto.SignRequest: same header
+     * names, same canonical material, same encodings. The signed string is
+     * `"$method\n$path\n$timestampMs\n$nonce\n$bodyHashHex"` with no trailing
+     * newline. Verification recomputes exactly that string from the request, so
+     * any divergence here fails every request as unauthenticated rather than
+     * failing loudly; the format is therefore pinned by a unit test.
+     *
+     * @param path the request path as the server sees it (Go's r.URL.Path),
+     *   without a query string.
+     */
+    fun signRequest(
+        method: String,
+        path: String,
+        body: ByteArray,
+        nowMs: Long = System.currentTimeMillis(),
+        nonce: String = newNonceHex()
+    ): Map<String, String> {
+        val bodyHashHex = CryptoUtils.toHex(CryptoUtils.sha256(body))
+        val material = "$method\n$path\n$nowMs\n$nonce\n$bodyHashHex"
+        val signature = sign(material.toByteArray(StandardCharsets.UTF_8))
+        return mapOf(
+            AuthValidator.HEADER_DEVICE_ID to deviceId,
+            AuthValidator.HEADER_TIMESTAMP to nowMs.toString(),
+            AuthValidator.HEADER_NONCE to nonce,
+            AuthValidator.HEADER_SIGNATURE to CryptoUtils.toHex(signature)
+        )
+    }
+
+    /** A 16-byte hex nonce, matching the daemon's nonce width and encoding. */
+    fun newNonceHex(): String {
+        val bytes = ByteArray(16)
+        SecureRandom().nextBytes(bytes)
+        return CryptoUtils.toHex(bytes)
+    }
+
     companion object {
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val MASTER_KEY_ALIAS = "PhoneBridgeIdentityMasterKey"

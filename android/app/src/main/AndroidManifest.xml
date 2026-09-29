@@ -12,6 +12,10 @@
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <!-- Android filters multicast traffic to an app unless it holds a multicast
+         lock; the Go mDNS browse (LAN peer discovery) needs one to receive
+         peers' answers. The platform NSD advertiser takes one implicitly. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
     <application
         android:name=".PhoneBridgeApp"

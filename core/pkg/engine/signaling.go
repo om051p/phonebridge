@@ -98,6 +98,34 @@ type offerResponse struct {
 	RejectReason    string                `json:"reject_reason,omitempty"`
 	Actual          *mediaParamsJSON      `json:"actual,omitempty"`
 	Capabilities    []mediaCapabilityJSON `json:"capabilities,omitempty"`
+	// SessionID identifies the session this exchange created. It is additive and
+	// omitted by peers that predate it, so it changes no existing shape.
+	SessionID string `json:"session_id,omitempty"`
+}
+
+// peerOfferRequest is the POST /session/peer-offer body (DEC-022).
+//
+// It is the mirror of offerRequest: there, the initiator asks a capture device
+// for an offer; here, the peer IS the capture device and brings its offer, so
+// the response carries the ANSWER instead. The two directions share the same
+// vocabulary, authentication and error shape rather than inventing a second
+// protocol.
+//
+// Nothing in this body is trusted for authorization: the peer's identity comes
+// from the signed request headers.
+type peerOfferRequest struct {
+	ProtocolVersion uint32          `json:"protocol_version"`
+	Version         versionAdvert   `json:"version"`
+	Capabilities    []string        `json:"capabilities,omitempty"`
+	Requested       mediaParamsJSON `json:"requested"`
+	// Offer is the peer's SDP offer. It must be present: this route exists
+	// precisely so the capture side can drive the offer/answer exchange.
+	Offer sdpPayload `json:"offer"`
+	// SignalingPort is where the peer's signaling server listens, used only to
+	// reach the peer again (a reconnect re-runs the standard request/answer
+	// exchange). The host half is always taken from the authenticated
+	// connection, never from this body.
+	SignalingPort uint32 `json:"signaling_port,omitempty"`
 }
 
 // errorResponse is used for non-200 answers, which may still carry a typed code
@@ -308,6 +336,125 @@ func (c *SignalingClient) SendAnswer(ctx context.Context, endpoint string, answe
 		}
 	}
 	return nil
+}
+
+// PeerOfferResponse is the typed outcome of POST /session/peer-offer.
+//
+// Code is always populated: a refusal (SESSION_BUSY, PERMISSION_DENIED, ...)
+// comes back as a code with Accepted false rather than as a transport error, so
+// the caller can tell "the peer said no" from "we could not ask".
+type PeerOfferResponse struct {
+	// Answer is the peer's SDP answer. Empty unless Accepted.
+	Answer    string
+	SessionID string
+	Code      Code
+	Message   string
+	Accepted  bool
+}
+
+// SendPeerOffer offers a session to a peer that will answer it, as the capture
+// device.
+//
+// It is the mirror of RequestOffer: there, this side asks a capture device for
+// an offer; here, this side brings its own offer (it owns the capture pipeline)
+// and the peer answers. Both directions use the same authenticated DEC-022
+// vocabulary, so a peer only ever has to implement one session handshake.
+func (c *SignalingClient) SendPeerOffer(
+	ctx context.Context,
+	endpoint string,
+	offer pion.SessionDescription,
+	req NegotiationRequest,
+	signalingPort uint32,
+) (PeerOfferResponse, error) {
+	url := fmt.Sprintf("http://%s/session/peer-offer", endpoint)
+
+	body, err := json.Marshal(peerOfferRequest{
+		ProtocolVersion: signalingVersion,
+		Version:         versionAdvert{Min: signalingVersion, Max: signalingVersion},
+		Capabilities:    signalingCapabilities,
+		Requested:       toMediaParamsJSON(req.Requested),
+		Offer: sdpPayload{
+			Type: offer.Type.String(),
+			SDP:  offer.SDP,
+		},
+		SignalingPort: signalingPort,
+	})
+	if err != nil {
+		return PeerOfferResponse{}, &SignalError{Op: "marshal peer offer", Endpoint: endpoint, Err: err}
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return PeerOfferResponse{}, &SignalError{Op: "create peer offer request", Endpoint: endpoint, Err: err}
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	c.applyAuth(httpReq, body)
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return PeerOfferResponse{}, &SignalError{Op: "send peer offer", Endpoint: endpoint, Err: err}
+	}
+	defer resp.Body.Close()
+
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return PeerOfferResponse{}, &SignalError{Op: "read peer offer response", Endpoint: endpoint, Err: err}
+	}
+
+	// A non-200 without a typed code is not a refusal, it is a failure to ask
+	// (unauthenticated, wrong method, broken peer). Keeping the two apart is
+	// what lets the caller decide between "retry later" and "do not retry".
+	var payload offerResponse
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return PeerOfferResponse{}, &SignalError{
+			Op:       "decode peer offer response",
+			Endpoint: endpoint,
+			Err:      fmt.Errorf("status %d: %w", resp.StatusCode, err),
+		}
+	}
+	if resp.StatusCode != http.StatusOK && payload.Code == "" {
+		return PeerOfferResponse{}, &SignalError{
+			Op:       "send peer offer",
+			Endpoint: endpoint,
+			Err:      fmt.Errorf("unexpected status %d: %s", resp.StatusCode, truncate(string(raw), 200)),
+		}
+	}
+
+	out := PeerOfferResponse{
+		Answer:    payload.SDP,
+		SessionID: payload.SessionID,
+		Message:   payload.Message,
+	}
+	if payload.Code == "" {
+		out.Code = CodeOK
+	} else {
+		code, ok := ParseCode(payload.Code)
+		if !ok {
+			return PeerOfferResponse{}, &SignalError{
+				Op:       "decode peer offer response",
+				Endpoint: endpoint,
+				Err:      fmt.Errorf("unrecognised negotiation code %q", payload.Code),
+			}
+		}
+		out.Code = code
+	}
+
+	if resp.StatusCode != http.StatusOK || out.Code != CodeOK {
+		if out.Message == "" {
+			out.Message = fmt.Sprintf("peer refused the session (status %d)", resp.StatusCode)
+		}
+		out.Accepted = false
+		return out, nil
+	}
+	if out.Answer == "" {
+		return PeerOfferResponse{}, &SignalError{
+			Op:       "decode peer offer response",
+			Endpoint: endpoint,
+			Err:      fmt.Errorf("peer accepted the session but returned no sdp answer"),
+		}
+	}
+	out.Accepted = true
+	return out, nil
 }
 
 // StopSession notifies the target device that the session has ended, carrying

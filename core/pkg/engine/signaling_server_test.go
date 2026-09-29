@@ -120,6 +120,7 @@ func TestSignalingServer_SessionFlowAuthenticated(t *testing.T) {
 	offerHandled := false
 	answerHandled := false
 	stopHandled := false
+	stopPeerID := ""
 
 	srv := NewSignalingServer(SignalingServerConfig{
 		Port:       0,
@@ -137,8 +138,9 @@ func TestSignalingServer_SessionFlowAuthenticated(t *testing.T) {
 			answerHandled = true
 			return nil
 		},
-		StopHandler: func(reason string, code Code) error {
+		StopHandler: func(peerDeviceID, reason string, code Code) error {
 			stopHandled = true
+			stopPeerID = peerDeviceID
 			return nil
 		},
 	})
@@ -187,6 +189,11 @@ func TestSignalingServer_SessionFlowAuthenticated(t *testing.T) {
 	}
 	if !stopHandled {
 		t.Fatal("StopHandler was not invoked")
+	}
+	// The peer id must be the one the signature proved, not something the body
+	// claimed: the manager relies on it to decide which session may end.
+	if stopPeerID != clientIdent.DeviceID {
+		t.Fatalf("StopHandler peer = %q, want %q", stopPeerID, clientIdent.DeviceID)
 	}
 
 	// 4. Test Unauthenticated Client (must be rejected with 401)

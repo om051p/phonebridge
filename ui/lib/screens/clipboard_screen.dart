@@ -37,7 +37,7 @@ class ClipboardScreen extends StatelessWidget {
         if (isLinux)
           _buildLinuxWaylandGuidanceCard(theme, clipboard)
         else
-          _buildCompanionImeGuidanceCard(theme, clipboard.imeSelected),
+          _buildCompanionImeGuidanceCard(context, theme, clipboard.imeSelected),
         const SizedBox(height: 16),
         _buildSyncStatsCard(theme, clipboard),
         const SizedBox(height: 16),
@@ -153,9 +153,19 @@ class ClipboardScreen extends StatelessWidget {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text(ok ? 'Clipboard synchronized' : 'No clip available to sync'),
+                      // A failed pull has three distinct causes and the old text
+                      // named the wrong one: nothing copied yet, a copy already
+                      // in flight, or no peer session to carry it. Saying "no
+                      // clip available" for all three left the user with no
+                      // idea that a connected device is part of the condition.
+                      content: Text(
+                        ok
+                            ? 'Clipboard synchronized'
+                            : 'Nothing forwarded — copy something on this device first, '
+                                'and make sure a paired device is connected',
+                      ),
                       behavior: SnackBarBehavior.floating,
-                      duration: const Duration(seconds: 2),
+                      duration: const Duration(seconds: 3),
                     ),
                   );
                 }
@@ -166,7 +176,11 @@ class ClipboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildCompanionImeGuidanceCard(ThemeData theme, bool imeSelected) {
+  Widget _buildCompanionImeGuidanceCard(
+    BuildContext context,
+    ThemeData theme,
+    bool imeSelected,
+  ) {
     return Card(
       elevation: 0,
       color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.25),
@@ -211,16 +225,77 @@ class ClipboardScreen extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'On modern Android, background apps are restricted from reading your clipboard. '
-              'The PhoneBridge Companion Keyboard runs passively alongside your regular keyboard '
-              'to detect copy events instantly without requiring manual pulls.',
+              imeSelected
+                  ? 'The PhoneBridge Companion Keyboard is active. Copies are detected '
+                      'instantly and forwarded to your paired desktop without any manual pull.'
+                  : 'On modern Android, background apps are restricted from reading your '
+                      'clipboard. Enable and select the PhoneBridge Companion Keyboard so it can '
+                      'detect copy events instantly, then copy on the phone and it will appear '
+                      'on your desktop.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
                 height: 1.35,
               ),
             ),
+            if (!imeSelected) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.tonalIcon(
+                      onPressed: () => _openImeSettings(context),
+                      icon: const Icon(Icons.settings_outlined, size: 18),
+                      label: const Text('ENABLE KEYBOARD'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _selectIme(context),
+                      icon: const Icon(Icons.keyboard_alt_outlined, size: 18),
+                      label: const Text('SELECT KEYBOARD'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
+      ),
+    );
+  }
+
+  /// Opens the system "Languages & input" screen so the companion IME can be
+  /// enabled (Android hides it from the keyboard picker until it is).
+  Future<void> _openImeSettings(BuildContext context) async {
+    final ok = await controller.openInputMethodSettings();
+    if (!context.mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not open keyboard settings on this device'),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  /// Shows the system keyboard picker so the companion IME can be selected as
+  /// the active keyboard. Without that selection Android suppresses
+  /// background clipboard reads (Spike 05 / DEC-023).
+  Future<void> _selectIme(BuildContext context) async {
+    final ok = await controller.showInputMethodPicker();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? 'Choose "PhoneBridge" from the keyboard list'
+              : 'Could not open the keyboard picker on this device',
+        ),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
       ),
     );
   }

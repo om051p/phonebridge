@@ -162,13 +162,11 @@ class PhoneBridgeController extends ChangeNotifier {
     if (_service.isAndroid) {
       unawaited(refreshPermissions());
     }
-    // Discovery is part of startup on the desktop: the Devices tab populates
-    // from the daemon's mDNS results without requiring a manual scan first
-    // (the retired session view loaded its discovered list the same way, at
-    // init, through this same service).
-    if (_service.isLinux) {
-      unawaited(refreshDiscoveredDevices());
-    }
+    // Discovery is part of startup on both platforms: the Devices tab
+    // populates from the mDNS results without requiring a manual scan first.
+    // On Linux the daemon browses; on Android the phone browses for the PC
+    // through the Go core, which is the only way it can ever list a desktop.
+    unawaited(refreshDiscoveredDevices());
     _subscribeEvents();
     // Subscribes to the live transfer stream and loads the recent history. The
     // transfers surface has its own retry affordance, so this never blocks the
@@ -223,10 +221,12 @@ class PhoneBridgeController extends ChangeNotifier {
 
         final rawState = event['clipboardState'] as String?;
         final ime = event['imeSelected'] as bool?;
-        if (rawState != null || ime != null) {
+        final clipEnabled = event['enabled'] as bool?;
+        if (rawState != null || ime != null || clipEnabled != null) {
           _clipboardStatus = _clipboardStatus.copyWith(
             state: rawState != null ? ClipboardSyncState.fromString(rawState) : null,
             imeSelected: ime,
+            isEnabled: clipEnabled,
           );
         }
 
@@ -398,17 +398,25 @@ class PhoneBridgeController extends ChangeNotifier {
     }
   }
 
-  Future<bool> startScreenSharing({String? targetDeviceId}) async {
+  /// Starts a screen-sharing session.
+  ///
+  /// [targetDeviceId] is the Linux contract (the daemon resolves the id to an
+  /// endpoint). [receiverUrl] is the Android contract: the phone owns the
+  /// session and dials the peer's signaling server directly, so it needs the
+  /// discovered `http://host:port` rather than a device id.
+  Future<bool> startScreenSharing({String? targetDeviceId, String? receiverUrl}) async {
     _isLoading = true;
     _lastErrorMessage = null;
     notifyListeners();
 
     try {
-      final target = (targetDeviceId != null && targetDeviceId.isNotEmpty)
-          ? targetDeviceId
-          : (_receiverUrl.trim().isNotEmpty
-              ? _receiverUrl.trim()
-              : (activePeer?.deviceId ?? ''));
+      final target = (receiverUrl != null && receiverUrl.isNotEmpty)
+          ? receiverUrl
+          : (targetDeviceId != null && targetDeviceId.isNotEmpty)
+              ? targetDeviceId
+              : (_receiverUrl.trim().isNotEmpty
+                  ? _receiverUrl.trim()
+                  : (activePeer?.deviceId ?? ''));
       final ok = await _service.startCapture(
         receiverUrl: target.isEmpty ? null : target,
         width: _selectedWidth,
@@ -522,7 +530,21 @@ class PhoneBridgeController extends ChangeNotifier {
     }
   }
 
-  void setClipboardEnabled(bool enabled) {
+  /// Applies the clipboard master switch.
+  ///
+  /// The switch used to only flip a local flag, so it looked like it worked
+  /// while sync kept running. On Android the adapter owns the flag, so the
+  /// native side is told first and the UI reflects what it accepted.
+  Future<void> setClipboardEnabled(bool enabled) async {
+    final s = _service;
+    if (s is AndroidBridgeService) {
+      final ok = await s.setClipboardSyncEnabled(enabled);
+      if (!ok) {
+        _lastErrorMessage = 'Clipboard synchronization could not be changed';
+        notifyListeners();
+        return;
+      }
+    }
     _clipboardStatus = _clipboardStatus.copyWith(isEnabled: enabled);
     addActivityEvent(
       ActivityCategory.clipboard,
@@ -531,6 +553,24 @@ class PhoneBridgeController extends ChangeNotifier {
       ActivityLevel.info,
     );
     notifyListeners();
+  }
+
+  /// Opens the Android screen where the companion IME is enabled (DEC-023).
+  Future<bool> openInputMethodSettings() async {
+    final s = _service;
+    if (s is AndroidBridgeService) {
+      return s.openInputMethodSettings();
+    }
+    return false;
+  }
+
+  /// Opens the system keyboard picker so the companion IME can be selected.
+  Future<bool> showInputMethodPicker() async {
+    final s = _service;
+    if (s is AndroidBridgeService) {
+      return s.showInputMethodPicker();
+    }
+    return false;
   }
 
   void setResolution(int width, int height) {

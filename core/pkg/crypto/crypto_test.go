@@ -3,6 +3,7 @@ package crypto
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
@@ -204,6 +205,82 @@ func TestAuth_SignAndVerifyRequest(t *testing.T) {
 	_, err = VerifyRequest(store, method, path, body, func(k string) string { return revokedHeaders[k] }, nonces4, 30*time.Second)
 	if err == nil || !strings.Contains(err.Error(), "revoked") {
 		t.Fatalf("expected revoked rejection, got %v", err)
+	}
+}
+
+// TestVerifyRequest_AcceptsAndroidPeerOfferSignature pins the outbound signing
+// format against the Android implementation.
+//
+// The signature below is produced by the Android client for exactly this
+// (method, path, timestamp, nonce, body) tuple; the Kotlin test
+// DeviceIdentitySigningTest asserts the phone emits this same hex for the same
+// inputs. Because Ed25519 signatures are deterministic, matching hex proves the
+// two languages build byte-identical canonical material - which is the only
+// thing that decides whether a phone-originated request authenticates here.
+func TestVerifyRequest_AcceptsAndroidPeerOfferSignature(t *testing.T) {
+	const (
+		androidDeviceID = "65b60673d6ed884bf01c2c222d82ada0740f29ac3355d6a925c81f17f47a27b8"
+		androidPubHex   = "79b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad049664"
+		androidSigHex   = "3bb75ade65382eb8acb806e721df9fff2560d768d757c762e0b5f8fababb5cdfe8915d1e47e6380eb8bfbed1ac9b79e09ce072c4b1d03c24f87db3ee766e430d"
+		androidTS       = "1790000000000"
+		androidNonce    = "0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+	)
+	pub, err := hex.DecodeString(androidPubHex)
+	if err != nil {
+		t.Fatalf("decode android public key: %v", err)
+	}
+
+	store, _ := NewTrustStore("")
+	if err := store.AddTrusted(TrustEntry{
+		DeviceID:    androidDeviceID,
+		DisplayName: "Android Phone",
+		Platform:    "android",
+		PublicKey:   pub,
+	}); err != nil {
+		t.Fatalf("AddTrusted: %v", err)
+	}
+
+	const method = "POST"
+	const path = "/session/peer-offer"
+	body := []byte(`{"hello":"world"}`)
+
+	headers := map[string]string{
+		HeaderDeviceID:  androidDeviceID,
+		HeaderTimestamp: androidTS,
+		HeaderNonce:     androidNonce,
+		HeaderSignature: androidSigHex,
+	}
+
+	// The vector's timestamp is fixed, so the freshness window is widened
+	// deliberately: this test is about signing material, not replay timing.
+	const window = 100000 * time.Hour
+	nonces := NewNonceCache()
+	deviceID, err := VerifyRequest(store, method, path, body, func(k string) string { return headers[k] }, nonces, window)
+	if err != nil {
+		t.Fatalf("the Android-signed request did not verify: %v", err)
+	}
+	if deviceID != androidDeviceID {
+		t.Fatalf("verified device ID mismatch: %s != %s", deviceID, androidDeviceID)
+	}
+
+	// The same signature over a different path must NOT verify: that is what
+	// makes the path part of the signature rather than decoration.
+	nonces2 := NewNonceCache()
+	if _, err := VerifyRequest(store, method, "/offer", body, func(k string) string { return headers[k] }, nonces2, window); err == nil {
+		t.Fatalf("expected signature failure for a rewritten path")
+	}
+
+	// The production signing helper must reproduce the same bytes for the same
+	// inputs, so the Android vector cannot drift away from this build silently.
+	seed := make([]byte, 32)
+	for i := range seed {
+		seed[i] = byte(i + 1)
+	}
+	priv := ed25519.NewKeyFromSeed(seed)
+	bodyHash := sha256.Sum256(body)
+	material := method + "\n" + path + "\n" + androidTS + "\n" + androidNonce + "\n" + hex.EncodeToString(bodyHash[:])
+	if got := hex.EncodeToString(Sign(priv, []byte(material))); got != androidSigHex {
+		t.Fatalf("signing material drifted: got %s want %s", got, androidSigHex)
 	}
 }
 

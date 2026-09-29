@@ -51,11 +51,22 @@ type TapSink struct {
 	auCh     chan []byte
 	stop     chan struct{}
 	done     chan struct{}
+	wake     chan struct{}
 	stopOnce sync.Once
 	closed   atomic.Bool
 
 	ffmpegPath string
-	converting atomic.Bool // true while a converter loop owns the pipeline
+	converting atomic.Bool // true while an ffmpeg process is meant to be running
+	// watched mirrors StreamFrames subscriber presence. Conversion only happens
+	// while it is true: with no viewer, an ffmpeg run is pure cost (a second
+	// decoder per session) whose output is published to nobody.
+	watched atomic.Bool
+	// processUp is true exactly while an ffmpeg child process is alive. It is
+	// separate from converting because "the pipeline wants a converter" and "a
+	// decoder is actually resident" are different questions: the first drives the
+	// AU copy policy, the second is what costs CPU and memory.
+	processUp     atomic.Bool
+	clearObserver func() // detaches from the hub on Close
 
 	reasonMu sync.Mutex
 	reason   string
@@ -80,6 +91,7 @@ func NewTapSink(inner receiver.FrameSink, hub *Hub) *TapSink {
 		auCh:  make(chan []byte, 1), // exactly one pending AU: latest-wins
 		stop:  make(chan struct{}),
 		done:  make(chan struct{}),
+		wake:  make(chan struct{}, 1),
 	}
 
 	path, err := exec.LookPath("ffmpeg")
@@ -89,10 +101,38 @@ func NewTapSink(inner receiver.FrameSink, hub *Hub) *TapSink {
 		return t
 	}
 	t.ffmpegPath = path
-	t.converting.Store(true)
+
+	// Lazy conversion: the converter exists only while at least one StreamFrames
+	// client is watching. Previously it was started here, at construction, so
+	// every session ran a full H.264 → MJPEG transcode whose output had no
+	// subscriber to reach. A nil hub can never report a watcher, so it stays a
+	// pure pass-through tee.
+	if hub != nil {
+		t.clearObserver = hub.SetSubscriberObserver(t.onSubscriberPresence)
+	}
 	go t.convertLoop()
 	return t
 }
+
+// onSubscriberPresence is the hub's watcher-presence callback. It only records
+// the level and wakes the converter loop; the loop re-reads the level, so a
+// notification can never be lost to a race. It never blocks and never calls back
+// into the hub.
+func (t *TapSink) onSubscriberPresence(active bool) {
+	t.watched.Store(active)
+	select {
+	case t.wake <- struct{}{}:
+	default:
+	}
+}
+
+// Running reports whether the converter is active and an ffmpeg child process
+// is resident. False is the expected state when nobody is watching (and after
+// Close): that is the whole point of lazy conversion.
+func (t *TapSink) Running() bool { return t.converting.Load() && t.processUp.Load() }
+
+// ProcessUp reports whether an ffmpeg child process is alive right now.
+func (t *TapSink) ProcessUp() bool { return t.processUp.Load() }
 
 // WriteAU forwards to the inner sink first, then enqueues a copy for
 // conversion. Never blocks; enqueuing is skipped when the tap is closed or
@@ -128,6 +168,11 @@ func (t *TapSink) WriteAU(au rtpmedia.AccessUnit) error {
 func (t *TapSink) Close() error {
 	t.stopOnce.Do(func() {
 		t.closed.Store(true)
+		// Detach before stopping: a signalled observer would otherwise poke a tap
+		// that is going away, and the hub must not keep a dead tap registered.
+		if t.clearObserver != nil {
+			t.clearObserver()
+		}
 		close(t.stop)
 	})
 	<-t.done
@@ -152,8 +197,9 @@ func (t *TapSink) Metrics() (ausIn, framesOut, auDrops, restarts int64) {
 	return t.auIn.Load(), t.framesOut.Load(), t.auDropped.Load(), t.restarts.Load()
 }
 
-// convertLoop owns the ffmpeg process lifecycle: run, restart with backoff,
-// give up after maxConverterRestarts consecutive failures.
+// convertLoop owns the ffmpeg process lifecycle: park while nobody is watching,
+// run while watched, restart with backoff on crashes, and give up after
+// maxConverterRestarts consecutive failures.
 func (t *TapSink) convertLoop() {
 	defer close(t.done)
 	defer t.converting.Store(false)
@@ -161,19 +207,27 @@ func (t *TapSink) convertLoop() {
 	consecutiveFailures := 0
 	backoff := 200 * time.Millisecond
 	for {
-		select {
-		case <-t.stop:
-			return
-		default:
+		if !t.awaitWatcher() {
+			return // closing
 		}
 
+		t.converting.Store(true)
 		produced, err := t.runOnce()
+		t.converting.Store(false)
+
+		if err == nil || errors.Is(err, errStopped) {
+			return // stopped
+		}
+		if errors.Is(err, errIdle) {
+			// The last watcher left: park and wait for the next one. Not a
+			// failure, so the restart budget is not spent on it.
+			consecutiveFailures = 0
+			backoff = 200 * time.Millisecond
+			continue
+		}
 		if produced > 0 {
 			consecutiveFailures = 0
 			backoff = 200 * time.Millisecond
-		}
-		if err == nil || errors.Is(err, errStopped) {
-			return // stopped
 		}
 		consecutiveFailures++
 		if consecutiveFailures >= maxConverterRestarts {
@@ -201,7 +255,27 @@ func (t *TapSink) convertLoop() {
 	}
 }
 
-var errStopped = errors.New("frames: converter stopped")
+// awaitWatcher parks the converter until someone is watching. It re-reads the
+// presence level rather than counting wake-ups, so a notification that arrives
+// while the loop is not parked is never lost. Returns false when the tap closes.
+func (t *TapSink) awaitWatcher() bool {
+	for !t.watched.Load() {
+		select {
+		case <-t.stop:
+			return false
+		case <-t.wake:
+		}
+	}
+	return true
+}
+
+var (
+	errStopped = errors.New("frames: converter stopped")
+	// errIdle ends one ffmpeg session because no watcher is left. It is not a
+	// failure: the converter parks and starts a fresh process for the next
+	// watcher, which is also what makes a stale process impossible to leave behind.
+	errIdle = errors.New("frames: converter idle (no stream subscriber)")
+)
 
 // ffmpegArgs mirrors the P1-validated tap flags: aggressive probe (fast
 // start on a mid-GOP pipe), -threads 1 (auto threads add ~0.5 s residency),
@@ -235,19 +309,34 @@ func (t *TapSink) runOnce() (int, error) {
 	if err := cmd.Start(); err != nil {
 		return 0, fmt.Errorf("frames: start ffmpeg: %w", err)
 	}
+	t.processUp.Store(true)
+	defer t.processUp.Store(false)
+
+	// runStop ends THIS ffmpeg session without stopping the tap: the writer
+	// goroutine is parked in its select, not blocked on a write, so closing the
+	// child's stdin alone would leave it waiting forever and deadlock the
+	// teardown that is waiting for writerDone.
+	runStop := make(chan struct{})
 	kill := func() {
+		select {
+		case <-runStop:
+		default:
+			close(runStop)
+		}
 		_ = cmd.Process.Kill()
 		_ = stdin.Close()
 		_ = cmd.Wait()
 	}
 
-	// Writer: auCh → stdin, interruptible by stop/kill.
+	// Writer: auCh → stdin, interruptible by stop or this run's end.
 	writerDone := make(chan struct{})
 	go func() {
 		defer close(writerDone)
 		for {
 			select {
 			case <-t.stop:
+				return
+			case <-runStop:
 				return
 			case au, ok := <-t.auCh:
 				if !ok {
@@ -272,17 +361,32 @@ func (t *TapSink) runOnce() (int, error) {
 	}()
 
 	var res readResult
-	select {
-	case <-t.stop:
-		kill()
-		<-writerDone
-		<-readDone
-		return 0, errStopped
-	case res = <-readDone:
+	for {
+		select {
+		case <-t.stop:
+			kill()
+			<-writerDone
+			<-readDone
+			return 0, errStopped
+		case res = <-readDone:
+			kill()
+			<-writerDone
+			if !t.closed.Load() && !t.watched.Load() {
+				return res.frames, errIdle
+			}
+			return res.frames, res.err
+		case <-t.wake:
+			if t.watched.Load() {
+				continue // another watcher arrived; keep this process running
+			}
+			// Last watcher left: end this ffmpeg session rather than leave an
+			// idle decoder running for a stream nobody is watching.
+			kill()
+			<-writerDone
+			<-readDone
+			return 0, errIdle
+		}
 	}
-	kill()
-	<-writerDone
-	return res.frames, res.err
 }
 
 // readJPEGs splits the MJPEG byte stream into frames and publishes them.

@@ -50,6 +50,16 @@ type Hub struct {
 	subs      map[chan *Frame]struct{}
 	published uint64 // frames published this process (monotonic)
 	dropped   uint64 // frames dropped by subscriber backpressure
+
+	// Subscriber presence (nobody watching vs at least one watcher) is reported
+	// to an interested observer so that work which only exists to feed
+	// StreamFrames (the H.264 → MJPEG converter) can be started and stopped with
+	// it. lastActive makes the notification edge-triggered regardless of how
+	// many subscribers come and go between two observations.
+	observer    func(bool)
+	observerGen uint64
+	nextObsGen  uint64
+	lastActive  bool
 }
 
 // NewHub creates an idle Hub (no session active).
@@ -74,7 +84,6 @@ func NewHub() *Hub {
 // cross-session stall this token exists to prevent.
 func (h *Hub) BeginSession() uint64 {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	if h.current {
 		for ch := range h.subs {
 			close(ch)
@@ -87,6 +96,11 @@ func (h *Hub) BeginSession() uint64 {
 	h.nextID = 0
 	close(h.beginWait)                // release subscribers waiting for a session
 	h.beginWait = make(chan struct{}) // arm the next waiters
+	notify, active := h.presenceChangeLocked()
+	h.mu.Unlock()
+	if notify != nil {
+		notify(active)
+	}
 	return h.token
 }
 
@@ -105,8 +119,12 @@ func (h *Hub) BeginSession() uint64 {
 // exactly the cross-session stall this correlation prevents.
 func (h *Hub) EndSession(tok uint64) error {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.endSessionLocked(tok)
+	err, after := h.endSessionLocked(tok)
+	h.mu.Unlock()
+	if after != nil {
+		after()
+	}
+	return err
 }
 
 // EndSessionIfCurrent ends the open session only if it is still the one the
@@ -117,19 +135,28 @@ func (h *Hub) EndSession(tok uint64) error {
 // EndSession, letting the caller close a window it no longer owns.
 func (h *Hub) EndSessionIfCurrent(tok uint64) error {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	if !h.current || tok == 0 || tok != h.token {
+		h.mu.Unlock()
 		return ErrSessionNotCurrent
 	}
-	return h.endSessionLocked(tok)
+	err, after := h.endSessionLocked(tok)
+	h.mu.Unlock()
+	if after != nil {
+		after()
+	}
+	return err
 }
 
-func (h *Hub) endSessionLocked(tok uint64) error {
+// endSessionLocked closes the window and returns a function the caller must run
+// AFTER releasing h.mu: closing subscriber channels can change subscriber
+// presence, and the observer is external code that must never run under the hub
+// lock.
+func (h *Hub) endSessionLocked(tok uint64) (error, func()) {
 	if !h.current {
-		return nil // already ended: idempotent
+		return nil, nil // already ended: idempotent
 	}
 	if tok > 0 && tok != h.token {
-		return ErrSessionNotCurrent
+		return ErrSessionNotCurrent, nil
 	}
 	h.current = false
 	for ch := range h.subs {
@@ -137,7 +164,58 @@ func (h *Hub) endSessionLocked(tok uint64) error {
 		delete(h.subs, ch)
 	}
 	h.beginWait = make(chan struct{}) // arm the next session's waiters
-	return nil
+	notify, active := h.presenceChangeLocked()
+	if notify == nil {
+		return nil, nil
+	}
+	return nil, func() { notify(active) }
+}
+
+// SetSubscriberObserver registers fn to be told when StreamFrames subscriber
+// presence changes between "nobody is watching" and "at least one watcher".
+//
+// It exists because converting H.264 to MJPEG is work nobody asked for when no
+// client is watching: the tap uses this signal to run its converter only while
+// frames have somewhere to go. fn must not call back into the Hub.
+//
+// One observer is supported (there is one active session at a time); a newer
+// registration replaces the older one and is primed with the current presence.
+// The returned function detaches this registration if it is still the active
+// one, so a closing session can never be signalled after it is gone.
+func (h *Hub) SetSubscriberObserver(fn func(bool)) func() {
+	h.mu.Lock()
+	h.nextObsGen++
+	gen := h.nextObsGen
+	h.observer = fn
+	h.observerGen = gen
+	active := len(h.subs) > 0
+	h.lastActive = active
+	h.mu.Unlock()
+
+	if fn != nil && active {
+		fn(true)
+	}
+
+	return func() {
+		h.mu.Lock()
+		if h.observerGen == gen {
+			h.observer = nil
+			h.observerGen = 0
+		}
+		h.mu.Unlock()
+	}
+}
+
+// presenceChangeLocked reports the observer to notify and the new presence when
+// presence changed since the last notification. h.mu must be held; the returned
+// function must be invoked only after it is released.
+func (h *Hub) presenceChangeLocked() (func(bool), bool) {
+	active := len(h.subs) > 0
+	if active == h.lastActive {
+		return nil, active
+	}
+	h.lastActive = active
+	return h.observer, active
 }
 
 // Active reports whether a frame session is open.
@@ -157,7 +235,11 @@ func (h *Hub) Subscribe(ctx context.Context) (<-chan *Frame, error) {
 		if h.current {
 			ch := make(chan *Frame, perSubscriberBuffer)
 			h.subs[ch] = struct{}{}
+			notify, active := h.presenceChangeLocked()
 			h.mu.Unlock()
+			if notify != nil {
+				notify(active)
+			}
 			return ch, nil
 		}
 		wait := h.beginWait
@@ -176,13 +258,18 @@ func (h *Hub) Subscribe(ctx context.Context) (<-chan *Frame, error) {
 // semantics only via EndSession; cancellation paths call this).
 func (h *Hub) Unsubscribe(ch <-chan *Frame) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	for sub := range h.subs {
 		if sub == ch {
 			delete(h.subs, sub)
+			notify, active := h.presenceChangeLocked()
+			h.mu.Unlock()
+			if notify != nil {
+				notify(active)
+			}
 			return
 		}
 	}
+	h.mu.Unlock()
 }
 
 // Publish fans a completed frame out with latest-wins backpressure: if a
@@ -216,6 +303,17 @@ func (h *Hub) Publish(f *Frame) {
 			h.dropped++
 		}
 	}
+}
+
+// SubscriberCount reports how many StreamFrames subscriptions are registered.
+//
+// It is here for lifecycle decisions and their tests: a subscription that is
+// never released keeps the hub buffering frames into a channel nobody reads, so
+// "nobody is watching" has to be observable.
+func (h *Hub) SubscriberCount() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.subs)
 }
 
 // Stats returns cumulative publish/drop counters (diagnostics/tests).

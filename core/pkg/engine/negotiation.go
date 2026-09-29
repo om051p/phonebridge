@@ -150,6 +150,36 @@ func (c Code) Reason() SessionReason {
 	}
 }
 
+// codeForReason maps a typed session reason back onto its wire code. It is the
+// inverse of Code.Reason and exists so an outcome the local session classified
+// internally (for example a trust refusal while answering a peer-supplied
+// offer) is reported to the peer with the same code the initiator path would
+// have used for the same condition.
+func codeForReason(r SessionReason) Code {
+	switch r {
+	case ReasonProtocolVersionMismatch:
+		return CodeIncompatibleVersion
+	case ReasonUnsupportedMediaParams:
+		return CodeUnsupportedMediaParams
+	case ReasonDeviceNotTrusted:
+		return CodePermissionDenied
+	case ReasonSessionBusy:
+		return CodeSessionBusy
+	case ReasonConsentRevoked:
+		return CodeConsentRevoked
+	case ReasonCaptureFailed:
+		return CodeCaptureFailed
+	case ReasonTransportFailed:
+		return CodeTransportFailed
+	case ReasonReconnectTimeout:
+		return CodeReconnectTimeout
+	case ReasonSignalingFailed:
+		return CodeSignalingFailed
+	default:
+		return CodeInvalidArgument
+	}
+}
+
 // ParseCode accepts an enum name from the wire. An unknown or empty value is
 // reported as CodeOK only when it is empty; unknown non-empty values are
 // surfaced as a signaling failure so a newer peer's code is never silently

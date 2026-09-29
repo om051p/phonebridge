@@ -314,6 +314,21 @@ func TestTransferBridge_EngineLifecycle(t *testing.T) {
 // TestTransferBridge_EndToEndOverFakeChannel proves the Android wiring carries a
 // real file through the real engine and the platform destination, with the
 // in-memory channel standing in for the Pion DataChannel.
+// TestTransferStateJSONNormalizesQueued pins the bridge boundary: QUEUED is an
+// engine-local scheduling state the UI enum cannot represent, so it must be
+// reported as PENDING (matching localipc and the transfer:send reply).
+func TestTransferStateJSONNormalizesQueued(t *testing.T) {
+	if got := transferStateJSON(transfer.StateQueued); got != "PENDING" {
+		t.Fatalf("queued state JSON = %q, want PENDING", got)
+	}
+	if got := transferStateJSON(transfer.StateActive); got != "ACTIVE" {
+		t.Fatalf("active state JSON = %q, want ACTIVE", got)
+	}
+	if got := transferStateJSON(transfer.StateComplete); got != "COMPLETE" {
+		t.Fatalf("complete state JSON = %q, want COMPLETE", got)
+	}
+}
+
 func TestTransferBridge_EndToEndOverFakeChannel(t *testing.T) {
 	senderHost := newFakeTransferHost(t)
 	receiverHost := newFakeTransferHost(t)

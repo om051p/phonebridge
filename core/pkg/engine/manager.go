@@ -394,26 +394,16 @@ func (m *SessionManager) StartSession(ctx context.Context, deviceID string, requ
 	// terminal. Ending with this session's own token makes that late call a
 	// no-op instead of a cross-session stall (see frames.Hub's doc comment).
 	hub := m.frameHub
-	// hubToken is written by the connect goroutine (below) and read by the state
+	// hubTok is published by the connect goroutine (below) and read by the state
 	// callback, so it carries its own mutex rather than reusing m.mu: the
 	// callback must never take a lock the session path can hold across a
 	// transition.
-	var hubTok struct {
-		mu    sync.Mutex
-		token uint64
-	}
-	setHubToken := func(t uint64) {
-		hubTok.mu.Lock()
-		hubTok.token = t
-		hubTok.mu.Unlock()
-	}
-	getHubToken := func() uint64 {
-		hubTok.mu.Lock()
-		defer hubTok.mu.Unlock()
-		return hubTok.token
-	}
+	hubTok := &sessionHubToken{}
 
-	reg := m.discovery.Registry()
+	var reg *discovery.DeviceRegistry
+	if m.discovery != nil {
+		reg = m.discovery.Registry()
+	}
 	// Declared first because the state callback reads the session's negotiated
 	// parameters; the callback only ever runs after StartSession returns.
 	var sess *Session
@@ -424,7 +414,7 @@ func (m *SessionManager) StartSession(ctx context.Context, deviceID string, requ
 		// this session's token so it can never close a newer session's window.
 		switch newState {
 		case StateFailed, StateStopped, StateDisconnected:
-			if tok := getHubToken(); hub != nil && tok != 0 {
+			if tok := hubTok.get(); hub != nil && tok != 0 {
 				// ErrSessionNotCurrent here means this session was already
 				// superseded: the newer session's window must stay open.
 				_ = hub.EndSession(tok)
@@ -455,67 +445,13 @@ func (m *SessionManager) StartSession(ctx context.Context, deviceID string, requ
 
 	// Asynchronously locate and connect to target device
 	go func() {
-		var sink receiver.FrameSink
-		var kind SinkKind
 		m.mu.RLock()
-		factory := m.sinkFactory
-		staticSink := m.sink
 		hub := m.frameHub
 		m.mu.RUnlock()
 
-		if factory != nil {
-			if s, err := factory(); err == nil {
-				sink = s
-				kind = classifySinkKind(s)
-			}
-		}
-		if sink == nil && staticSink != nil {
-			sink = staticSink
-			kind = classifySinkKind(staticSink)
-		}
-		if sink == nil && (os.Getenv("DISPLAY") != "" || os.Getenv("WAYLAND_DISPLAY") != "") {
-			if ds, err := receiver.NewDisplaySink("PhoneBridge Screen Mirror", true); err == nil {
-				sink = ds
-				// NewDisplaySink is a *PipeSink by construction: only this
-				// branch launched ffplay, so only this branch can say so.
-				kind = SinkKindDisplay
-			}
-		}
-		if sink == nil {
-			sink = receiver.NewNullSink()
-			kind = SinkKindNull
-		}
-		// Record the classification before connecting, so a snapshot taken
-		// during DISCOVERING/CONNECTING already reports the real sink.
-		sess.SetSinkKind(kind)
-		// Frame pipeline (Slice 3A): tee the AU stream into the local-IPC
-		// StreamFrames hub behind a session-scoped PSI guard, so ffmpeg and the
-		// display sink both receive decodable AUs even when the wire carries no
-		// SPS/PPS. Existing sinks stay functional underneath (tap forwards first,
-		// non-blocking), and no frame stage can block session control.
-		if hub != nil {
-			// Publish the token before the tap can produce a frame, so a Stop
-			// that races this goroutine still ends the right session (and a
-			// Stop after a later BeginSession cannot end that one). The
-			// activeSess guard drops a token minted for a session that has
-			// already been replaced: that session must not end the new one.
-			tok := hub.BeginSession()
-			m.mu.Lock()
-			current := m.activeSess == sess
-			m.mu.Unlock()
-			if current {
-				setHubToken(tok)
-			} else {
-				// A token minted for an already-replaced session: roll the
-				// Begin back atomically, so this goroutine can never end the
-				// window that replaced it (a later BeginSession may have landed
-				// between the check above and this call).
-				_ = hub.EndSessionIfCurrent(tok)
-			}
-			tap := frames.NewTapSink(sink, hub)
-			guard := receiver.NewPSIGuardSink(tap)
-			sess.SetFrameDiag(guard, tap)
-			sink = guard
+		sink, tok := m.resolveSink(sess, hub)
+		if tok != 0 {
+			hubTok.set(tok)
 		}
 		// Run on the session's OWN lifecycle context: a request-scoped ctx
 		// (the gRPC handler's) is cancelled the moment StartSession returns,
@@ -527,6 +463,230 @@ func (m *SessionManager) StartSession(ctx context.Context, deviceID string, requ
 	}()
 
 	return sess, nil
+}
+
+// sessionHubToken is the frame-hub session token published for one session. It
+// owns its own mutex (see the comment at its use site in StartSession) so the
+// session state callback never has to take m.mu.
+type sessionHubToken struct {
+	mu    sync.Mutex
+	token uint64
+}
+
+func (t *sessionHubToken) set(v uint64) {
+	t.mu.Lock()
+	t.token = v
+	t.mu.Unlock()
+}
+
+func (t *sessionHubToken) get() uint64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.token
+}
+
+// resolveSink selects and wires the frame sink for a session.
+//
+// Selection order is the production preference: a configured factory, then the
+// static sink, then a display sink when a desktop session is available, then a
+// null sink. The chosen sink is then wrapped as PSIGuard(TapSink(inner)) so the
+// access-unit stream is teed into the StreamFrames hub behind a session-scoped
+// PSI guard, and the hub session token is returned for the caller to publish —
+// that is what lets a Stop end exactly this session's frame window, and a late
+// callback from a superseded session become a no-op.
+//
+// Callers must NOT hold m.mu (this takes it briefly, both to read the sink
+// configuration and to confirm the session is still the manager's active one).
+// A zero token means the hub session was rolled back because this session had
+// already been replaced.
+func (m *SessionManager) resolveSink(sess *Session, hub *frames.Hub) (receiver.FrameSink, uint64) {
+	var sink receiver.FrameSink
+	var kind SinkKind
+	m.mu.RLock()
+	factory := m.sinkFactory
+	staticSink := m.sink
+	m.mu.RUnlock()
+
+	if factory != nil {
+		if s, err := factory(); err == nil {
+			sink = s
+			kind = classifySinkKind(s)
+		}
+	}
+	if sink == nil && staticSink != nil {
+		sink = staticSink
+		kind = classifySinkKind(staticSink)
+	}
+	if sink == nil && (os.Getenv("DISPLAY") != "" || os.Getenv("WAYLAND_DISPLAY") != "") {
+		if ds, err := receiver.NewDisplaySink("PhoneBridge Screen Mirror", true); err == nil {
+			sink = ds
+			// NewDisplaySink is a *PipeSink by construction: only this branch
+			// launched ffplay, so only this branch can say so.
+			kind = SinkKindDisplay
+		}
+	}
+	if sink == nil {
+		sink = receiver.NewNullSink()
+		kind = SinkKindNull
+	}
+	// Record the classification before connecting, so a snapshot taken during
+	// DISCOVERING/CONNECTING already reports the real sink.
+	sess.SetSinkKind(kind)
+
+	if hub == nil {
+		return sink, 0
+	}
+
+	tok := hub.BeginSession()
+	m.mu.Lock()
+	current := m.activeSess == sess
+	m.mu.Unlock()
+	if !current {
+		// A token minted for an already-replaced session: roll the Begin back
+		// atomically, so this goroutine can never end the window that replaced
+		// it (a later BeginSession may have landed between the check above and
+		// this call).
+		_ = hub.EndSessionIfCurrent(tok)
+		return sink, 0
+	}
+
+	tap := frames.NewTapSink(sink, hub)
+	guard := receiver.NewPSIGuardSink(tap)
+	sess.SetFrameDiag(guard, tap)
+	return guard, tok
+}
+
+// PeerOfferRequest is a session offer from a peer that is itself the capture
+// device (the phone starting the session), plus where that peer's signaling
+// server can be reached afterwards.
+type PeerOfferRequest struct {
+	// PeerDeviceID is the authenticated device id from the request signature.
+	PeerDeviceID string
+	// Endpoint is the peer's signaling endpoint. The signaling server derives it
+	// from the authenticated request's source address, never from an
+	// unauthenticated body field.
+	Endpoint string
+	// Offer is the peer's SDP offer.
+	Offer pion.SessionDescription
+	// Requested is the media tuple the peer asked for (advisory: the peer is
+	// authoritative for what it captures, DEC-020).
+	Requested MediaParams
+}
+
+// PeerOfferResult is the typed outcome of handling a peer offer.
+type PeerOfferResult struct {
+	// Answer is the SDP answer the peer must apply. Empty unless Code is CodeOK.
+	Answer    string
+	Code      Code
+	Message   string
+	SessionID string
+}
+
+// HandlePeerOffer answers a session offer from a peer that is the capture side
+// (DEC-022), returning the SDP answer the peer must apply.
+//
+// Unlike StartSession this is synchronous: the caller is an HTTP handler that
+// has to carry the answer back in its own response, and the peer cannot start
+// sending until it has it. It reuses the same session construction, sink/hub
+// wiring and transport factory as a desktop-initiated session, so a
+// peer-started session reports the same telemetry and supports the same planes.
+func (m *SessionManager) HandlePeerOffer(ctx context.Context, req PeerOfferRequest) (PeerOfferResult, error) {
+	if req.PeerDeviceID == "" {
+		return PeerOfferResult{Code: CodePermissionDenied, Message: "peer is not authenticated"}, nil
+	}
+
+	m.mu.Lock()
+	if cur := m.activeSess; cur != nil {
+		st := cur.State()
+		if st != StateStopped && st != StateFailed && st != StateDisconnected {
+			sessionID := cur.sessionID
+			m.mu.Unlock()
+			return PeerOfferResult{
+				Code:      CodeSessionBusy,
+				Message:   fmt.Sprintf("device is already in an active session (%s)", st),
+				SessionID: sessionID,
+			}, nil
+		}
+	}
+
+	sessionID := generateSessionID()
+	cfg := m.cfg
+	cfg.TargetDeviceID = req.PeerDeviceID
+	cfg.Identity = m.identity
+	cfg.TrustStore = m.trustStore
+	cfg.Requested = req.Requested
+	cfg.NotificationStore = m.notificationStore
+	cfg.OnNotification = func(frame *phonebridgev1.NotificationFrame) {
+		m.mu.RLock()
+		handler := m.onNotification
+		m.mu.RUnlock()
+		if handler != nil {
+			handler(frame)
+		}
+	}
+
+	hub := m.frameHub
+	hubTok := &sessionHubToken{}
+
+	var reg *discovery.DeviceRegistry
+	if m.discovery != nil {
+		reg = m.discovery.Registry()
+	}
+
+	var sess *Session
+	sess = NewSession(sessionID, cfg, reg, func(oldState, newState SessionState, reason string, code SessionReason) {
+		switch newState {
+		case StateFailed, StateStopped, StateDisconnected:
+			if tok := hubTok.get(); hub != nil && tok != 0 {
+				_ = hub.EndSession(tok)
+			}
+			m.notificationStore.Clear()
+		}
+		if m.onEvent != nil {
+			errMsg := ""
+			if newState == StateFailed {
+				errMsg = reason
+			}
+			requested := sess.RequestedParams()
+			actual, actualKnown := sess.NegotiatedParams()
+			m.onEvent(SessionEvent{
+				SessionID:    sessionID,
+				State:        newState,
+				Reason:       reason,
+				ReasonCode:   code,
+				ErrorMessage: errMsg,
+				Requested:    requested,
+				Actual:       actual,
+				ActualKnown:  actualKnown,
+			})
+		}
+	})
+
+	// The peer dialled us, so it may not be in the discovery registry at all; the
+	// endpoint it was authenticated from is what a reconnect will use.
+	sess.SetTargetEndpoint(req.Endpoint)
+	m.activeSess = sess
+	m.mu.Unlock()
+
+	sink, tok := m.resolveSink(sess, hub)
+	if tok != 0 {
+		hubTok.set(tok)
+	}
+
+	answer, err := sess.AnswerPeerOffer(ctx, req.Offer, sink)
+	if err != nil {
+		return PeerOfferResult{
+			Code:      codeForReason(sess.ReasonCode()),
+			Message:   err.Error(),
+			SessionID: sessionID,
+		}, nil
+	}
+
+	return PeerOfferResult{
+		Answer:    answer.SDP,
+		Code:      CodeOK,
+		SessionID: sessionID,
+	}, nil
 }
 
 // StopSession halts the specified session or the current active session.
@@ -804,27 +964,19 @@ func (m *SessionManager) RevokeDevice(deviceID string) error {
 }
 
 // HandleInboundOffer processes an incoming POST /session/offer from an authenticated peer.
+//
+// The session mutex is held only to read the busy state and to publish the new
+// session, never across construction: NewInboundSession allocates a
+// PeerConnection and CreateOffer waits for ICE gathering (up to ~2 s), and
+// holding m.mu for that long stalls every other manager operation, including
+// the Stop that would clear a stuck session.
+//
+// Two concurrent offers are therefore possible. Only one may win: the loser is
+// closed and told the device is busy, so no second PeerConnection is left
+// allocated and no caller is told it owns a session it does not.
 func (m *SessionManager) HandleInboundOffer(req NegotiationRequest) (NegotiationResponse, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Check if already busy with an active session
-	if m.activeSess != nil {
-		st := m.activeSess.State()
-		if st != StateStopped && st != StateFailed && st != StateDisconnected {
-			return NegotiationResponse{
-				Code:         CodeSessionBusy,
-				Message:      "session already active",
-				RejectReason: "device is currently in an active session",
-			}, nil
-		}
-	}
-	if m.inboundSess != nil && !m.inboundSess.IsClosed() {
-		return NegotiationResponse{
-			Code:         CodeSessionBusy,
-			Message:      "inbound session already active",
-			RejectReason: "device is currently in an active session",
-		}, nil
+	if busy, resp := m.inboundBusyResponse(); busy {
+		return resp, nil
 	}
 
 	remoteRole := clipboard.RoleDesktop
@@ -834,15 +986,23 @@ func (m *SessionManager) HandleInboundOffer(req NegotiationRequest) (Negotiation
 		}
 	}
 
-	if m.clipboardEngine != nil && req.PeerDeviceID != "" {
-		m.clipboardEngine.SetPeer(remoteRole, req.PeerDeviceID)
+	m.mu.RLock()
+	clipboardEngine := m.clipboardEngine
+	transferEngine := m.transferEngine
+	m.mu.RUnlock()
+
+	if clipboardEngine != nil && req.PeerDeviceID != "" {
+		clipboardEngine.SetPeer(remoteRole, req.PeerDeviceID)
 	}
 
 	inbound, err := NewInboundSession(InboundSessionConfig{
 		IncludeLoopback: true,
 		PeerDeviceID:    req.PeerDeviceID,
-		ClipboardEngine: m.clipboardEngine,
-		TransferEngine:  m.transferEngine,
+		ClipboardEngine: clipboardEngine,
+		TransferEngine:  transferEngine,
+		// A session that dies without a /session/stop must release the slot, or
+		// the next offer from any peer is answered SESSION_BUSY forever.
+		OnDead: m.clearInboundIf,
 	})
 	if err != nil {
 		return NegotiationResponse{}, fmt.Errorf("create inbound session: %w", err)
@@ -854,7 +1014,18 @@ func (m *SessionManager) HandleInboundOffer(req NegotiationRequest) (Negotiation
 		return NegotiationResponse{}, fmt.Errorf("generate inbound offer: %w", err)
 	}
 
+	m.mu.Lock()
+	if m.inboundSess != nil && !m.inboundSess.IsClosed() {
+		m.mu.Unlock()
+		_ = inbound.Close()
+		return NegotiationResponse{
+			Code:         CodeSessionBusy,
+			Message:      "inbound session already active",
+			RejectReason: "device is currently in an active session",
+		}, nil
+	}
 	m.inboundSess = inbound
+	m.mu.Unlock()
 
 	return NegotiationResponse{
 		Offer:           offer.SDP,
@@ -862,6 +1033,74 @@ func (m *SessionManager) HandleInboundOffer(req NegotiationRequest) (Negotiation
 		Accepted:        true,
 		Code:            CodeOK,
 	}, nil
+}
+
+// inboundBusyResponse reports whether an inbound session may not be started,
+// and the refusal to return if so.
+func (m *SessionManager) inboundBusyResponse() (bool, NegotiationResponse) {
+	m.mu.RLock()
+	activeSess := m.activeSess
+	inbound := m.inboundSess
+	m.mu.RUnlock()
+
+	if activeSess != nil {
+		switch activeSess.State() {
+		case StateStopped, StateFailed, StateDisconnected:
+		default:
+			return true, NegotiationResponse{
+				Code:         CodeSessionBusy,
+				Message:      "session already active",
+				RejectReason: "device is currently in an active session",
+			}
+		}
+	}
+	if inbound != nil && !inbound.IsClosed() {
+		return true, NegotiationResponse{
+			Code:         CodeSessionBusy,
+			Message:      "inbound session already active",
+			RejectReason: "device is currently in an active session",
+		}
+	}
+	return false, NegotiationResponse{}
+}
+
+// clearInboundIf drops the manager's reference to a session that closed itself.
+// It is the InboundSessionConfig.OnDead hook: comparing the pointer keeps a
+// dying session from clearing a newer one that already replaced it.
+func (m *SessionManager) clearInboundIf(sess *InboundSession, reason string) {
+	m.mu.Lock()
+	if m.inboundSess == sess {
+		m.inboundSess = nil
+	}
+	m.mu.Unlock()
+
+	// A dead inbound session is a session the local UI should stop showing as
+	// live; reporting it through the existing event channel keeps the daemon and
+	// the desktop UI consistent without a second notification path.
+	if m.onEvent != nil {
+		m.onEvent(SessionEvent{
+			SessionID:    "inbound",
+			State:        StateFailed,
+			Reason:       reason,
+			ReasonCode:   ReasonTransportFailed,
+			ErrorMessage: reason,
+		})
+	}
+}
+
+// CloseInbound closes any allocated inbound session and releases the slot. It
+// exists so daemon shutdown does not leave a PeerConnection (and its goroutines)
+// behind, which is also why it is safe to call when none is allocated.
+func (m *SessionManager) CloseInbound() error {
+	m.mu.Lock()
+	inbound := m.inboundSess
+	m.inboundSess = nil
+	m.mu.Unlock()
+
+	if inbound != nil {
+		return inbound.Close()
+	}
+	return nil
 }
 
 // HandleInboundAnswer processes the SDP answer received via POST /session/answer.
@@ -878,14 +1117,51 @@ func (m *SessionManager) HandleInboundAnswer(answer pion.SessionDescription) err
 }
 
 // HandleInboundStop processes session termination received via POST /session/stop.
+//
+// Deprecated in favour of HandlePeerStop, which knows WHICH authenticated peer
+// asked: kept only for callers that have no peer identity (tests, and the
+// trust-store-less configuration).
 func (m *SessionManager) HandleInboundStop(reason string, code Code) error {
-	m.mu.Lock()
-	inbound := m.inboundSess
-	m.inboundSess = nil
-	m.mu.Unlock()
+	return m.HandlePeerStop("", reason, code)
+}
 
-	if inbound != nil {
-		return inbound.Close()
+// HandlePeerStop releases the session the named peer says it has ended.
+//
+// Three flavours of session can be live: a desktop-initiated one (activeSess,
+// where that peer is the target), a peer-offer one (activeSess, where this node
+// answered that peer's offer), and the legacy inbound responder (inboundSess).
+// All three are released here — but only when the requesting device is actually
+// part of the session: an authenticated peer must not be able to end a session
+// it is not in, which is why the id comes from the verified signature rather
+// than from the request body.
+//
+// Without this, a phone that stopped sharing left its peer-offer session alive
+// until the transport timed out, and any offer made in that window came back
+// SESSION_BUSY.
+func (m *SessionManager) HandlePeerStop(peerDeviceID, reason string, code Code) error {
+	m.mu.RLock()
+	sess := m.activeSess
+	inbound := m.inboundSess
+	m.mu.RUnlock()
+
+	var err error
+	if sess != nil && peerDeviceID != "" && sess.TargetDeviceID() == peerDeviceID {
+		// Stop is idempotent (stopOnce), so a session that is already winding
+		// down reports nil rather than a double-teardown error.
+		if e := sess.Stop(reason); e != nil {
+			err = e
+		}
 	}
-	return nil
+
+	if inbound != nil && (peerDeviceID == "" || inbound.cfg.PeerDeviceID == peerDeviceID) {
+		if e := inbound.Close(); e != nil && err == nil {
+			err = e
+		}
+		m.mu.Lock()
+		if m.inboundSess == inbound {
+			m.inboundSess = nil
+		}
+		m.mu.Unlock()
+	}
+	return err
 }

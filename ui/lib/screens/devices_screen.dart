@@ -165,7 +165,14 @@ class DevicesScreen extends StatelessWidget {
   }
 
   Future<void> _connectDevice(BuildContext context, DiscoveredDevice dev) async {
-    final ok = await controller.startScreenSharing(targetDeviceId: dev.id);
+    // Linux hands the daemon a device id and the daemon resolves the endpoint
+    // from its own discovery registry. The phone owns its session, so it must
+    // dial the peer's signaling server itself from the discovered endpoint.
+    final isLinux = controller.service.isLinux;
+    final ok = await controller.startScreenSharing(
+      targetDeviceId: isLinux ? dev.id : null,
+      receiverUrl: isLinux ? null : dev.signalingUrl,
+    );
     if (!context.mounted) return;
     if (ok) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -389,16 +396,19 @@ class DevicesScreen extends StatelessWidget {
     return RefreshIndicator(
       onRefresh: () async {
         await controller.refreshAll();
-        if (isLinux) {
-          await controller.refreshDiscoveredDevices();
-        }
+        await controller.refreshDiscoveredDevices();
       },
       child: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
           _buildThisDeviceCard(theme, deviceState, isLinux),
           const SizedBox(height: 20),
-          if (isLinux) ...[
+          // Discovery results are rendered on every platform. On Linux the
+          // daemon browses the LAN for phones; on Android the phone browses
+          // through the Go core, which is the only way the desktop can appear
+          // here at all. Suppressing the section behind `if (isLinux)` made the
+          // phone's own browse invisible even once it existed.
+          ...[
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -435,10 +445,12 @@ class DevicesScreen extends StatelessWidget {
                           color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
                         ),
                         const SizedBox(height: 10),
-                        const Text(
-                          'No new PhoneBridge devices discovered yet.\nEnsure Android PhoneBridge is running on the same LAN.',
+                        Text(
+                          isLinux
+                              ? 'No new PhoneBridge devices discovered yet.\nEnsure Android PhoneBridge is running on the same LAN.'
+                              : 'No PhoneBridge computer discovered yet.\nEnsure PhoneBridge is running on the PC and both devices are on the same Wi-Fi.',
                           textAlign: TextAlign.center,
-                          style: TextStyle(fontSize: 12),
+                          style: const TextStyle(fontSize: 12),
                         ),
                       ],
                     ),

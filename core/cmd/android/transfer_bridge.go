@@ -249,7 +249,7 @@ func (b *TransferBridge) Stats() *TransferStats {
 		stats.ChannelReady = eng.ChannelReady()
 		for _, info := range eng.List() {
 			switch info.State {
-			case transfer.StatePending, transfer.StateActive, transfer.StateVerifying:
+			case transfer.StateQueued, transfer.StatePending, transfer.StateActive, transfer.StateVerifying:
 				stats.ActiveCount++
 			default:
 				stats.HistoryCount++
@@ -263,6 +263,18 @@ func (b *TransferBridge) Stats() *TransferStats {
 func (b *TransferBridge) StatsJSON() []byte {
 	out, _ := json.Marshal(b.Stats())
 	return out
+}
+
+// transferStateJSON spells an engine state for the Kotlin/Flutter bridge. The
+// UI's state enum has no QUEUED (it is an engine-local scheduling state), so a
+// queued transfer is reported as PENDING — the same normalization the local IPC
+// boundary applies (localipc.ToProtoTransferState) and that transfer:send
+// already hardcodes for its reply.
+func transferStateJSON(st transfer.State) string {
+	if st == transfer.StateQueued {
+		return transfer.StatePending.String()
+	}
+	return st.String()
 }
 
 // ListJSON returns the transfer list marshaled to JSON for the Kotlin UI.
@@ -287,7 +299,7 @@ func (b *TransferBridge) ListJSON() []byte {
 		rows = append(rows, row{
 			TransferID:       info.TransferID,
 			Direction:        info.Direction.String(),
-			State:            info.State.String(),
+			State:            transferStateJSON(info.State),
 			PeerDeviceID:     info.PeerDeviceID,
 			Filename:         info.Filename,
 			MimeType:         info.MimeType,

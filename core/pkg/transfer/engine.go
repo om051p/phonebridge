@@ -35,6 +35,7 @@ type record struct {
 	// Sender side.
 	path     string
 	file     *os.File
+	fileOnce sync.Once
 	acceptCh chan *phonebridgev1.FileAccept
 	resultCh chan *phonebridgev1.FileResult
 
@@ -100,6 +101,17 @@ func (r *record) isFinished() bool {
 	return r.finished
 }
 
+// releaseSourceFile closes the outbound source file exactly once. runSender,
+// cancel-while-queued and channel teardown can each end a transfer, so exactly
+// one of them must close the descriptor a queued send has held since SendFile.
+func (r *record) releaseSourceFile() {
+	r.fileOnce.Do(func() {
+		if r.file != nil {
+			_ = r.file.Close()
+		}
+	})
+}
+
 // emitBudget reports whether a progress event is due, and consumes the budget.
 func (r *record) emitBudget(nowMs uint64, interval time.Duration) bool {
 	r.mu.Lock()
@@ -151,9 +163,11 @@ type Engine struct {
 	active map[string]*record
 	// history is newest-first and capped by Config.HistoryLimit.
 	history []Info
-	// pendingOutbound serializes concurrent SendFile calls: at most one
-	// outbound is active on the wire, the rest wait in a bounded FIFO.
-	// Bounded so a burst of small files cannot grow unbounded memory/FDs.
+	// pendingOutbound holds queued sends waiting for the wire, oldest first.
+	// Exactly one outbound may be on the wire (see outboundOnWireLocked); the
+	// queue is bounded by Config.OutboundQueueDepth so a burst of small files
+	// cannot grow memory/FDs without limit. Terminal transitions remove their
+	// entry (see finish/removePendingLocked), so it never holds dead transfers.
 	pendingOutbound []*queuedSend
 }
 
@@ -276,17 +290,17 @@ func (e *Engine) SendFile(ctx context.Context, path, name string) (string, error
 
 	e.mu.Lock()
 	ch := e.ch
-	outbound := e.activeLocked(DirectionOutbound)
-	queueDepth := e.cfg.OutboundQueueDepth
-	pendingLen := len(e.pendingOutbound)
+	// "Busy" means anything is ahead of this send, on the wire or in the FIFO.
+	// Queued transfers also live in e.active, so this must scan for the one that
+	// is actually on the wire; map iteration order must not decide the outcome.
+	busy := e.outboundOnWireLocked() != nil || len(e.pendingOutbound) > 0
+	queued := len(e.pendingOutbound)
 	e.mu.Unlock()
 	if ch == nil {
 		return "", newFailure(phonebridgev1.Code_CODE_UNAVAILABLE, ReasonNoSession, "no active session with file-transfer support")
 	}
-	if outbound != nil {
-		if pendingLen >= queueDepth {
-			return "", newFailure(phonebridgev1.Code_CODE_TRANSFER_BUSY, ReasonBusy, "outbound queue full (%d queued, id=%s)", pendingLen, outbound.snapshot().TransferID)
-		}
+	if busy && queued >= e.cfg.OutboundQueueDepth {
+		return "", newFailure(phonebridgev1.Code_CODE_TRANSFER_BUSY, ReasonBusy, "outbound queue full (%d queued)", queued)
 	}
 
 	file, info, err := openRegularReadonly(path)
@@ -340,12 +354,29 @@ func (e *Engine) SendFile(ctx context.Context, path, name string) (string, error
 	file = nil // ownership passes to the sender goroutine
 
 	e.mu.Lock()
-	active := e.activeLocked(DirectionOutbound)
-	hasPending := active != nil && active.snapshot().State != StateQueued
-	if hasPending {
-		// An outbound is already on the wire: queue this one as QUEUED and
-		// start it when the active one finishes (see pumpQueue).
+	// Re-check the channel under the lock: it can be torn down while the file
+	// was being opened, and a transfer queued onto a dead channel would never
+	// start (pumpQueue refuses without a channel) nor fail — a stuck ghost that
+	// also pins its descriptor.
+	if e.ch == nil {
+		e.mu.Unlock()
+		rec.releaseSourceFile()
+		rec.cancel()
+		return "", newFailure(phonebridgev1.Code_CODE_UNAVAILABLE, ReasonNoSession, "no active session with file-transfer support")
+	}
+	// Anything ahead of this send — on the wire or already queued — means it
+	// waits behind the FIFO so ordering is preserved.
+	if e.outboundOnWireLocked() != nil || len(e.pendingOutbound) > 0 {
+		if len(e.pendingOutbound) >= e.cfg.OutboundQueueDepth {
+			queued := len(e.pendingOutbound)
+			e.mu.Unlock()
+			rec.releaseSourceFile()
+			rec.cancel()
+			return "", newFailure(phonebridgev1.Code_CODE_TRANSFER_BUSY, ReasonBusy, "outbound queue full (%d queued)", queued)
+		}
+		rec.mu.Lock()
 		rec.info.State = StateQueued
+		rec.mu.Unlock()
 		e.pendingOutbound = append(e.pendingOutbound, &queuedSend{
 			path:     path,
 			filename: filename,
@@ -378,7 +409,7 @@ func (e *Engine) pumpQueue() {
 		e.mu.Unlock()
 		return
 	}
-	if active := e.activeLocked(DirectionOutbound); active != nil && active.snapshot().State != StateQueued {
+	if e.outboundOnWireLocked() != nil {
 		e.mu.Unlock()
 		return
 	}
@@ -454,49 +485,32 @@ func (e *Engine) Cancel(ctx context.Context, transferID string) error {
 	reason := ReasonCancelledByUser
 	message := "cancelled locally"
 
-	// Tell the peer first (best effort): if the channel is already gone there is
-	// nothing to tell, and the local cleanup still has to happen.
-	_ = e.send(CancelFrame(&phonebridgev1.FileCancel{TransferId: transferID,
-		Code:   CodeForReason(reason),
-		Reason: message,
-	}))
-
 	if rec.direction() == DirectionInbound {
+		// Tell the sender to stop (best effort), then discard the staged partial.
+		_ = e.send(CancelFrame(&phonebridgev1.FileCancel{TransferId: transferID,
+			Code:   CodeForReason(reason),
+			Reason: message,
+		}))
 		e.abortInbound(rec, reason, message, false)
 		return nil
 	}
-	// Queued outbound has not yet sent its offer: cancel synchronously and pump.
-	e.mu.Lock()
-	isQueued := rec.snapshot().State == StateQueued
-	if isQueued {
-		// Remove from pending queue.
-		for i, q := range e.pendingOutbound {
-			if q.id == transferID {
-				e.pendingOutbound = append(e.pendingOutbound[:i], e.pendingOutbound[i+1:]...)
-				break
-			}
-		}
-		if fin, ok := rec.finish(StateCancelled, reason, message, "", e.nowMs()); ok {
-			// Close file that was never handed to runSender.
-			if rec.file != nil {
-				_ = rec.file.Close()
-				rec.file = nil
-			}
-			delete(e.active, transferID)
-			e.history = append([]Info{fin}, e.history...)
-			if len(e.history) > e.cfg.HistoryLimit {
-				e.history = e.history[:e.cfg.HistoryLimit]
-			}
-			e.mu.Unlock()
-			e.publish(fin)
-			return nil
-		}
-		e.mu.Unlock()
-		return nil
-	}
-	e.mu.Unlock()
+
+	// Outbound. Cancel the transfer locally first, then let the sender goroutine
+	// tell the peer. A queued transfer was never offered, so there is nothing to
+	// tell; an offered one is cancelled by runSender, which sends FileCancel
+	// AFTER the offer. Sending it from here could overtake an offer that a
+	// concurrent queue promotion was about to put on the wire: the peer would
+	// ignore the unknown-id cancel and then accept the offer, holding an accepted
+	// inbound for a transfer we had already abandoned — wedging its inbound slot
+	// so every following transfer is refused with BUSY (DEC-024).
 	rec.markCancel(reason, message)
 	rec.cancel()
+	e.mu.Lock()
+	isQueued := rec.snapshot().State == StateQueued
+	e.mu.Unlock()
+	if isQueued {
+		e.finish(rec, StateCancelled, reason, message, "")
+	}
 	return nil
 }
 
@@ -566,12 +580,20 @@ func (e *Engine) finish(rec *record, state State, reason Reason, message, savedN
 	}
 	e.mu.Lock()
 	delete(e.active, info.TransferID)
+	wasQueued := e.removePendingLocked(info.TransferID)
 	e.history = append([]Info{info}, e.history...)
 	if len(e.history) > e.cfg.HistoryLimit {
 		e.history = e.history[:e.cfg.HistoryLimit]
 	}
 	needsPump := info.Direction == DirectionOutbound
 	e.mu.Unlock()
+
+	// A queued outbound never reached runSender, so the source file opened at
+	// SendFile time is still ours to close. One on the wire is closed by
+	// runSender's own defer.
+	if wasQueued {
+		rec.releaseSourceFile()
+	}
 
 	e.publish(info)
 	if needsPump {
@@ -623,6 +645,35 @@ func (e *Engine) activeLocked(d Direction) *record {
 		}
 	}
 	return nil
+}
+
+// outboundOnWireLocked returns the outbound transfer that is actually on the
+// wire (state past QUEUED), or nil. e.mu must be held. It is deliberately
+// distinct from activeLocked: queued transfers also live in e.active, and Go's
+// randomised map iteration must never decide whether a new send starts
+// immediately or waits its turn.
+func (e *Engine) outboundOnWireLocked() *record {
+	for _, rec := range e.active {
+		if rec.info.Direction != DirectionOutbound {
+			continue
+		}
+		if rec.snapshot().State != StateQueued {
+			return rec
+		}
+	}
+	return nil
+}
+
+// removePendingLocked drops a transfer from the outbound FIFO and reports
+// whether it was still queued. e.mu must be held.
+func (e *Engine) removePendingLocked(id string) bool {
+	for i, q := range e.pendingOutbound {
+		if q.id == id {
+			e.pendingOutbound = append(e.pendingOutbound[:i], e.pendingOutbound[i+1:]...)
+			return true
+		}
+	}
+	return false
 }
 
 func (e *Engine) activeInbound() *record {

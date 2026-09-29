@@ -62,14 +62,37 @@ class AndroidBridgeService implements PlatformBridgeService {
   @override
   Future<bool> stopCapture() => _channel.stopCapture();
 
+  /// LAN peers found by the Go core's mDNS browse.
+  ///
+  /// The phone is the browsing side of the pair: it discovers the Linux
+  /// desktop, so the Devices tab can offer the PC for pairing and connection.
+  /// A malformed or unaddressable entry is dropped here rather than rendered,
+  /// because a row without a dialable host could only offer an action that
+  /// fails (see [DiscoveredDevice.signalingUrl]).
   @override
-  Future<List<DiscoveredDevice>> listDiscoveredDevices() async => [];
+  Future<List<DiscoveredDevice>> listDiscoveredDevices() async {
+    final rows = await _channel.getDiscoveredDevices();
+    return rows
+        .map(DiscoveredDevice.fromMap)
+        .where((d) => d.id.isNotEmpty && d.host.isNotEmpty && d.port > 0)
+        .toList();
+  }
 
   @override
   Future<PairingResult?> pairDevice(String deviceId) async => null;
 
   @override
   Future<bool> confirmPairing({required String deviceId, required bool confirmed}) async => false;
+
+  /// Opens the screen where the companion IME is enabled (Android only).
+  Future<bool> openInputMethodSettings() => _channel.openInputMethodSettings();
+
+  /// Opens the system keyboard picker so the companion IME can be selected.
+  Future<bool> showInputMethodPicker() => _channel.showInputMethodPicker();
+
+  /// Enables or disables clipboard synchronization in the native adapter.
+  Future<bool> setClipboardSyncEnabled(bool enabled) =>
+      _channel.setClipboardSyncEnabled(enabled);
 
   @override
   Stream<CaptureStats> get statsStream => _channel.statsStream;

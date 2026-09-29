@@ -262,6 +262,19 @@ type Session struct {
 	frameGuard *receiver.PSIGuardSink
 	frameTap   *frames.TapSink
 
+	// peerOffer is an offer supplied by the peer (the phone is the capture
+	// device and offers directly, DEC-022 /session/peer-offer). It is consumed
+	// by the FIRST connect attempt and then cleared: an SDP offer carries one
+	// ICE/DTLS generation, so a reconnect with a dry offer would negotiate
+	// nothing. Later attempts fall back to the standard request/answer exchange
+	// against the same peer endpoint, which its signaling server already serves.
+	peerOffer  *pion.SessionDescription
+	peerAnswer *pion.SessionDescription
+	// answerSink receives the SDP answer produced while answering a peer offer,
+	// because on that path the answer is returned to the caller (who must send it
+	// to the peer) instead of being POSTed by the session itself.
+	answerSink func(pion.SessionDescription) error
+
 	stopped  atomic.Bool
 	terminal atomic.Bool
 	stopOnce sync.Once
@@ -628,6 +641,18 @@ func (s *Session) TargetDeviceID() string {
 	return s.cfg.TargetDeviceID
 }
 
+// SetTargetEndpoint records where the peer's signaling server is reachable.
+//
+// A peer-started session sets this from the authenticated HTTP request (it
+// never runs discovery), so a reconnect can fall back to the standard
+// request/answer exchange with the same peer once the peer's single-use offer
+// has been consumed.
+func (s *Session) SetTargetEndpoint(endpoint string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.targetEndpoint = endpoint
+}
+
 // SetTargetDevice associates the resolved device with the session.
 func (s *Session) SetTargetDevice(dev discovery.Device) {
 	s.mu.Lock()
@@ -862,6 +887,12 @@ func (s *Session) attemptTransport(ctx context.Context) (Code, string) {
 	if s.targetDevice.ID != "" {
 		targetID = s.targetDevice.ID
 	}
+	// The peer-supplied offer is consumed by this attempt only (see the field
+	// comment): reading-and-clearing under one lock means the reconnect loop can
+	// never pick up a spent offer.
+	supplied := s.peerOffer
+	s.peerOffer = nil
+	deliver := s.answerSink
 	s.mu.RUnlock()
 
 	// Re-check trust on every attempt: a device revoked mid-session must not be
@@ -880,65 +911,84 @@ func (s *Session) attemptTransport(ctx context.Context) (Code, string) {
 		return code, msg
 	}
 
-	resp, err := sig.RequestOffer(ctx, ep, NegotiationRequest{Requested: requested})
-	if err != nil {
-		var sigErr *SignalError
-		if errors.As(err, &sigErr) {
+	var remoteOffer pion.SessionDescription
+	if supplied != nil {
+		// Answerer path (peer started the session): the offer is already in hand,
+		// so there is no negotiation response to validate — the peer settled the
+		// tuple on its own side before offering.
+		remoteOffer = *supplied
+	} else {
+		resp, err := sig.RequestOffer(ctx, ep, NegotiationRequest{Requested: requested})
+		if err != nil {
+			var sigErr *SignalError
+			if errors.As(err, &sigErr) {
+				return fail(CodeSignalingFailed, err.Error())
+			}
 			return fail(CodeSignalingFailed, err.Error())
 		}
-		return fail(CodeSignalingFailed, err.Error())
-	}
 
-	s.mu.Lock()
-	s.actual = resp.Actual
-	s.actualKnown = resp.ActualKnown
-	s.mu.Unlock()
+		s.mu.Lock()
+		s.actual = resp.Actual
+		s.actualKnown = resp.ActualKnown
+		s.mu.Unlock()
 
-	// Version and capability validation happen before the SDP is consumed: a
-	// peer we cannot talk to should not get as far as building ICE candidates.
-	// A mismatch is a hard failure (DEC-022): there is no negotiation fallback
-	// this milestone, because a half-negotiated session would have to guess at
-	// semantics neither side promised.
-	if resp.ProtocolVersion != 0 && resp.ProtocolVersion != signalingVersion {
-		return fail(CodeIncompatibleVersion, fmt.Sprintf(
-			"device speaks signaling version %d, this build speaks %d", resp.ProtocolVersion, signalingVersion))
-	}
-	// Only a peer that actually advertised capabilities can fail this check:
-	// an absent capability list means "not reported", not "no screen support".
-	if len(resp.Capabilities) > 0 {
-		supportsScreen := false
-		for _, c := range resp.Capabilities {
-			if c.SupportsScreen {
-				supportsScreen = true
-				break
+		// Version and capability validation happen before the SDP is consumed: a
+		// peer we cannot talk to should not get as far as building ICE candidates.
+		// A mismatch is a hard failure (DEC-022): there is no negotiation fallback
+		// this milestone, because a half-negotiated session would have to guess at
+		// semantics neither side promised.
+		if resp.ProtocolVersion != 0 && resp.ProtocolVersion != signalingVersion {
+			return fail(CodeIncompatibleVersion, fmt.Sprintf(
+				"device speaks signaling version %d, this build speaks %d", resp.ProtocolVersion, signalingVersion))
+		}
+		// Only a peer that actually advertised capabilities can fail this check:
+		// an absent capability list means "not reported", not "no screen support".
+		if len(resp.Capabilities) > 0 {
+			supportsScreen := false
+			for _, c := range resp.Capabilities {
+				if c.SupportsScreen {
+					supportsScreen = true
+					break
+				}
+			}
+			if !supportsScreen {
+				return fail(CodeUnsupportedMediaParams, "device advertised no screen-capture capability")
 			}
 		}
-		if !supportsScreen {
-			return fail(CodeUnsupportedMediaParams, "device advertised no screen-capture capability")
+
+		if !resp.Accepted {
+			code := resp.Code
+			if code == CodeOK {
+				code = CodeUnsupportedMediaParams
+			}
+			msg := resp.RejectReason
+			if msg == "" {
+				msg = fmt.Sprintf("device rejected %s", requested)
+			}
+			return fail(code, msg)
+		}
+		remoteOffer = pion.SessionDescription{
+			Type: pion.SDPTypeOffer,
+			SDP:  resp.Offer,
 		}
 	}
 
-	if !resp.Accepted {
-		code := resp.Code
-		if code == CodeOK {
-			code = CodeUnsupportedMediaParams
-		}
-		msg := resp.RejectReason
-		if msg == "" {
-			msg = fmt.Sprintf("device rejected %s", requested)
-		}
-		return fail(code, msg)
-	}
-
-	answer, err := tr.SetRemoteOffer(pion.SessionDescription{
-		Type: pion.SDPTypeOffer,
-		SDP:  resp.Offer,
-	})
+	answer, err := tr.SetRemoteOffer(remoteOffer)
 	if err != nil {
 		return fail(CodeTransportFailed, fmt.Sprintf("set remote offer: %v", err))
 	}
 
-	if err := sig.SendAnswer(ctx, ep, answer); err != nil {
+	if supplied != nil {
+		// Hand the answer to the caller that is going to return it to the peer in
+		// the same HTTP exchange. A nil sink means nobody is waiting for it, which
+		// only happens if the session raced its own teardown.
+		if deliver == nil {
+			return fail(CodeSignalingFailed, "no answer delivery channel for a peer-supplied offer")
+		}
+		if err := deliver(answer); err != nil {
+			return fail(CodeSignalingFailed, err.Error())
+		}
+	} else if err := sig.SendAnswer(ctx, ep, answer); err != nil {
 		return fail(CodeSignalingFailed, err.Error())
 	}
 
@@ -947,6 +997,101 @@ func (s *Session) attemptTransport(ctx context.Context) (Code, string) {
 	go s.awaitTrack(gen, tr)
 
 	return CodeOK, ""
+}
+
+// AnswerPeerOffer connects this session as the ANSWERER to an offer supplied by
+// the peer and returns the SDP answer that must be sent back to it.
+//
+// Why this exists: the phone owns the capture pipeline, so it must be the SDP
+// offerer — it is the side that adds the video m-line, and an answerer cannot
+// invent one. When the phone is the side starting the session, the desktop
+// therefore cannot ask it for an offer; it answers the offer the phone sends.
+// Everything after that is the same production machinery a desktop-initiated
+// session uses (pkg/receiver, the frame hub/tap, and the clipboard, transfer,
+// input and notification channels), so a peer-started session has full plane
+// parity with a desktop-started one.
+//
+// The transport is deliberately not waited on before returning: the answer IS
+// what makes the peer start sending, so the connect window is watched
+// asynchronously and fails the session if the transport never comes up.
+func (s *Session) AnswerPeerOffer(ctx context.Context, offer pion.SessionDescription, sink receiver.FrameSink) (pion.SessionDescription, error) {
+	s.mu.RLock()
+	ts := s.trustStore
+	targetID := s.cfg.TargetDeviceID
+	if s.targetDevice.ID != "" {
+		targetID = s.targetDevice.ID
+	}
+	s.mu.RUnlock()
+
+	// Same trust gate as the initiator path: authorization is not weaker because
+	// the peer dialled us.
+	if ts != nil && targetID != "" && !ts.IsTrusted(targetID) {
+		err := fmt.Errorf("device %s is not trusted: pairing required", targetID)
+		s.Fail(ReasonDeviceNotTrusted, err)
+		return pion.SessionDescription{}, err
+	}
+	if offer.SDP == "" {
+		err := errors.New("engine: peer offer carries no SDP")
+		s.Fail(ReasonUnsupportedMediaParams, err)
+		return pion.SessionDescription{}, err
+	}
+
+	if err := s.Transition(StateConnecting, "answering peer session offer"); err != nil {
+		return pion.SessionDescription{}, err
+	}
+
+	s.mu.Lock()
+	s.peerOffer = &offer
+	s.peerAnswer = nil
+	s.answerSink = func(a pion.SessionDescription) error {
+		s.mu.Lock()
+		s.peerAnswer = &a
+		s.mu.Unlock()
+		return nil
+	}
+	if sink == nil {
+		sink = receiver.NewNullSink()
+	}
+	s.sink = sink
+	s.sinkOwned = true
+	s.mu.Unlock()
+
+	code, msg := s.attemptTransport(ctx)
+	if code != CodeOK {
+		// attemptTransport has already closed its own transport on failure.
+		err := fmt.Errorf("answer peer offer failed: %s: %s", code, msg)
+		s.Fail(code.Reason(), err)
+		return pion.SessionDescription{}, err
+	}
+
+	s.mu.RLock()
+	answer := s.peerAnswer
+	s.mu.RUnlock()
+	if answer == nil {
+		err := errors.New("engine: answering a peer offer produced no SDP answer")
+		s.closeCurrentTransport()
+		s.Fail(ReasonTransportFailed, err)
+		return pion.SessionDescription{}, err
+	}
+
+	// Watch the connect window without blocking the caller: the peer has not even
+	// seen the answer yet, so waiting here would deadlock the HTTP response that
+	// carries it.
+	go func() {
+		if s.waitForTransportUp(s.cfg.ConnectTimeout) {
+			return
+		}
+		s.mu.RLock()
+		st := s.state
+		s.mu.RUnlock()
+		if st == StateConnecting || st == StateDiscovering {
+			s.closeCurrentTransport()
+			s.Fail(ReasonTransportFailed, fmt.Errorf(
+				"peer-offer transport did not come up within %v", s.cfg.ConnectTimeout))
+		}
+	}()
+
+	return *answer, nil
 }
 
 // newTransport builds the transport for generation gen, wiring callbacks so

@@ -62,12 +62,50 @@ object AndroidClipboardAdapter : ClipboardHostCallback {
     private var clipboardManager: ClipboardManager? = null
 
     // Window and IME binding state
+    /**
+     * TTL for the "is the companion IME the default one" answer.
+     *
+     * Reading it is a binder round-trip to Settings.Secure, and the stats tick
+     * asks once a second — a syscall per second for a value that only changes
+     * when the user changes keyboards. The TTL bounds staleness to 2 s so the
+     * cache can never be the reason the UI shows an outdated answer, and
+     * [invalidateImeCheck] drops it early when the app comes back from the
+     * input-method settings (the fastest a human can change it).
+     */
+    private const val IME_CHECK_TTL_MS = 2_000L
+
     @Volatile private var imeBound = false
     @Volatile private var imeSelected = false
+    // Written AFTER imeSelected, read after the timestamp, so a reader that sees
+    // a fresh timestamp also sees the value that came with it.
+    @Volatile private var imeCheckedAtMs = 0L
 
     // Echo suppression write-in-flight window
     @Volatile private var writeInFlight = false
     @Volatile private var lastWriteUptimeMs = 0L
+
+    // User intent for clipboard synchronization (the app's master switch).
+    // Defaults to on because the adapter only starts when the service is active;
+    // both directions are gated so flipping the switch actually stops sync
+    // instead of only changing a label.
+    @Volatile private var syncEnabled = true
+
+    /** Whether clipboard synchronization is currently enabled by the user. */
+    val enabled: Boolean
+        get() = syncEnabled
+
+    /**
+     * Enables or disables clipboard synchronization in both directions.
+     *
+     * Disabling stops local clip observation ([readAndForwardCurrentClip] becomes
+     * a no-op) and refuses inbound platform writes, so no clip crosses the wire
+     * while it is off. A remote clip that arrives is refused rather than silently
+     * applied, which keeps the peer's view of this device honest.
+     */
+    fun setSyncEnabled(value: Boolean) {
+        syncEnabled = value
+        Log.i(TAG, "Clipboard synchronization ${if (value) "enabled" else "disabled"} by user")
+    }
 
     // Optional transport sender hook for WebRTC DataChannel forwarding
     @Volatile var transportSender: ((ByteArray) -> Boolean)? = null
@@ -173,22 +211,55 @@ object AndroidClipboardAdapter : ClipboardHostCallback {
     }
 
     /**
-     * Checks if PhoneBridge companion IME is the default input method.
+     * Checks if PhoneBridge companion IME is the default input method, from a
+     * short-lived cache (see [IME_CHECK_TTL_MS]).
      */
     fun checkImeSelected(context: Context): Boolean {
         return try {
-            val defaultIme = Settings.Secure.getString(
-                context.contentResolver,
-                Settings.Secure.DEFAULT_INPUT_METHOD
-            )
-            val selected = defaultIme != null && defaultIme.contains(context.packageName)
-            imeSelected = selected
+            val selected = cachedImeAnswer(SystemClock.elapsedRealtime()) {
+                val defaultIme = Settings.Secure.getString(
+                    context.contentResolver,
+                    Settings.Secure.DEFAULT_INPUT_METHOD
+                )
+                defaultIme != null && defaultIme.contains(context.packageName)
+            }
             recomputeState()
             selected
         } catch (t: Throwable) {
             Log.w(TAG, "Failed to inspect default input method: ${t.message}")
             false
         }
+    }
+
+    /**
+     * Returns the cached answer, calling [read] only when the cache is stale.
+     *
+     * Kept separate from the Settings lookup so the caching policy itself is
+     * testable without a Context: [read] is only ever invoked when the answer
+     * has aged out, and a failed read leaves the cache empty rather than
+     * remembering an answer we never got.
+     */
+    internal fun cachedImeAnswer(nowMs: Long, read: () -> Boolean): Boolean {
+        val checkedAt = imeCheckedAtMs
+        if (checkedAt != 0L && nowMs - checkedAt < IME_CHECK_TTL_MS) {
+            return imeSelected
+        }
+        val selected = read()
+        // Value first, timestamp second: a reader that sees a fresh timestamp
+        // must see the value it was recorded with.
+        imeSelected = selected
+        imeCheckedAtMs = nowMs
+        return selected
+    }
+
+    /**
+     * Drops the cached IME answer so the next check reads Settings again.
+     *
+     * Called when the app returns to the foreground, which is when a user can
+     * plausibly have changed the default keyboard.
+     */
+    fun invalidateImeCheck() {
+        imeCheckedAtMs = 0L
     }
 
     private fun recomputeState() {
@@ -228,6 +299,11 @@ object AndroidClipboardAdapter : ClipboardHostCallback {
     // ------------------------------------------------------------------
 
     override fun onWritePlatformClipboard(mimeType: String, payload: ByteArray): Boolean {
+        if (!syncEnabled) {
+            Log.i(TAG, "Refusing inbound clip write: clipboard synchronization is disabled")
+            return false
+        }
+
         if (payload.size > MAX_PAYLOAD_SIZE) {
             onOversizedPayload(payload.size)
             return false
@@ -277,12 +353,20 @@ object AndroidClipboardAdapter : ClipboardHostCallback {
     // ------------------------------------------------------------------
 
     override fun onSendClipboardUpdate(payload: ByteArray): Boolean {
+        if (!syncEnabled) {
+            return false
+        }
         val sender = transportSender
         if (sender != null) {
             return sender(payload)
         }
-        // If transport sender not registered, accept write safely
-        return true
+        // Nothing registered to carry the update. Reporting success here (the
+        // previous behaviour) made a dropped clip indistinguishable from a
+        // delivered one: the Go engine treated the update as sent and the caller
+        // logged it as forwarded. Fail instead, so the drop is visible and the
+        // item stays eligible for the reconnect sync on the next channel open.
+        Log.w(TAG, "No clipboard transport registered; outbound update dropped (bytes=${payload.size})")
+        return false
     }
 
     // ------------------------------------------------------------------
@@ -311,6 +395,10 @@ object AndroidClipboardAdapter : ClipboardHostCallback {
      * Returns true if a valid item was read and forwarded, false otherwise.
      */
     fun readAndForwardCurrentClip(): Boolean {
+        if (!syncEnabled) {
+            return false
+        }
+
         val cm = clipboardManager ?: return false
         val context = appContext ?: return false
 
@@ -348,6 +436,11 @@ object AndroidClipboardAdapter : ClipboardHostCallback {
             val ok = GoBridge.clipboardOnLocalCopy("text/plain;charset=utf-8", bytes, nowMs)
             if (ok) {
                 Log.i(TAG, "Forwarded local clipboard item to Go engine: bytes=${bytes.size}")
+            } else {
+                // Not silent: with no peer session (or sync disabled) the update
+                // is held in the Go engine's current item and only re-sent when a
+                // clipboard channel opens, so this is diagnosable rather than lost.
+                Log.w(TAG, "Local clipboard item was not forwarded to a peer: bytes=${bytes.size}")
             }
             ok
         } catch (se: SecurityException) {
