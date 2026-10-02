@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"log"
 	"errors"
 	"fmt"
 	"sync"
@@ -1155,7 +1156,12 @@ func (s *Session) handleClipboardMessage(gen uint64, data []byte) {
 		return
 	}
 
-	_ = eng.OnRemoteBytes(s.ctx, data)
+	if err := eng.OnRemoteBytes(s.ctx, data); err != nil {
+		// Session-liveness diagnostics only: byte counts and error codes, never
+		// clipboard content. A dropped inbound update (e.g. a failed platform
+		// write after a Mutter session loss) must be visible somewhere.
+		log.Printf("clipboard: inbound update not applied (%d bytes): %v", len(data), err)
+	}
 }
 
 // handleClipboardOpen configures the outbound transport and triggers reconnect sync.

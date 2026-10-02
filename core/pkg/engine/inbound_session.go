@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"log"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -432,7 +433,12 @@ func (s *InboundSession) handleClipboardMessage(data []byte) {
 		return
 	}
 
-	_ = eng.OnRemoteBytes(ctx, data)
+	if err := eng.OnRemoteBytes(ctx, data); err != nil {
+		// Session-liveness diagnostics only: byte counts and error codes, never
+		// clipboard content. A dropped inbound update (e.g. a failed platform
+		// write after a Mutter session loss) must be visible somewhere.
+		log.Printf("clipboard: inbound update not applied (%d bytes): %v", len(data), err)
+	}
 }
 
 // handleTransferOpen binds the freshly opened transfer DataChannel to the local

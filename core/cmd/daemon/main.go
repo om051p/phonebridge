@@ -205,6 +205,9 @@ func main() {
 		OnClipboardChanged: func(c context.Context, mimeType string, payload []byte) error {
 			if clipboardEngine != nil {
 				nowMs := uint64(time.Now().UnixMilli())
+				// Observation diagnostics: byte count and observation timestamp
+				// only, never clipboard content.
+				log.Printf("clipboard: observed local change (%d bytes) at %d", len(payload), nowMs)
 				_, err := clipboardEngine.OnLocalCopy(c, mimeType, payload, nowMs)
 				return err
 			}

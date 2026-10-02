@@ -40,6 +40,7 @@ struct helper_context {
     char *session_path;
     guint transfer_sub_id;
     guint owner_changed_sub_id;
+    guint closed_sub_id;
 
     /* Current selection held by this helper */
     char *selection_payload;
@@ -50,7 +51,187 @@ struct helper_context {
     bool running;
     bool session_active;
     bool probe_only;
+    bool test_hooks;
 };
+
+static void on_selection_owner_changed(GDBusConnection *conn, const gchar *sender_name, const gchar *object_path, const gchar *interface_name, const gchar *signal_name, GVariant *parameters, gpointer user_data);
+static void on_selection_transfer(GDBusConnection *conn, const gchar *sender_name, const gchar *object_path, const gchar *interface_name, const gchar *signal_name, GVariant *parameters, gpointer user_data);
+
+/* --- Session lifecycle ---
+
+ * A RemoteDesktop session is owned by this helper's D-Bus connection and dies
+ * with it, but Mutter may also close it behind our back (compositor restart,
+ * session state changes, idle cleanup). A dead session answers every clipboard
+ * call with a D-Bus error ("Clipboard not enabled", UnknownObject, ...) while
+ * this process keeps running — so process liveness says nothing about session
+ * liveness. The Closed signal is the native notification; on top of it,
+ * clipboard commands attempt one bounded session recreation so a lost session
+ * costs a single retried command instead of silent failure until daemon
+ * restart. */
+
+static void on_session_closed(GDBusConnection *conn,
+                              const gchar *sender_name,
+                              const gchar *object_path,
+                              const gchar *interface_name,
+                              const gchar *signal_name,
+                              GVariant *parameters,
+                              gpointer user_data) {
+    (void)conn; (void)sender_name; (void)object_path; (void)interface_name; (void)signal_name;
+    (void)parameters;
+    struct helper_context *ctx = (struct helper_context *)user_data;
+    if (ctx->session_active) {
+        ctx->session_active = false;
+        fprintf(stdout, "EVENT=SESSION_CLOSED\n");
+        fflush(stdout);
+    }
+}
+
+/* Unsubscribe signal watchers for the current (dead) session. */
+static void teardown_session_watchers(struct helper_context *ctx) {
+    if (ctx->owner_changed_sub_id > 0) {
+        g_dbus_connection_signal_unsubscribe(ctx->conn, ctx->owner_changed_sub_id);
+        ctx->owner_changed_sub_id = 0;
+    }
+    if (ctx->transfer_sub_id > 0) {
+        g_dbus_connection_signal_unsubscribe(ctx->conn, ctx->transfer_sub_id);
+        ctx->transfer_sub_id = 0;
+    }
+    if (ctx->closed_sub_id > 0) {
+        g_dbus_connection_signal_unsubscribe(ctx->conn, ctx->closed_sub_id);
+        ctx->closed_sub_id = 0;
+    }
+}
+
+/* Create, start, and enable a fresh RemoteDesktop session.
+ * Returns true when the session is ready for clipboard traffic. */
+static bool create_session(struct helper_context *ctx) {
+    GError *error = NULL;
+
+    GVariant *create_res = g_dbus_connection_call_sync(
+        ctx->conn,
+        "org.gnome.Mutter.RemoteDesktop",
+        "/org/gnome/Mutter/RemoteDesktop",
+        "org.gnome.Mutter.RemoteDesktop",
+        "CreateSession",
+        NULL,
+        G_VARIANT_TYPE("(o)"),
+        G_DBUS_CALL_FLAGS_NONE,
+        2000,
+        NULL,
+        &error
+    );
+    if (!create_res) {
+        if (error) g_error_free(error);
+        return false;
+    }
+
+    const gchar *path = NULL;
+    g_variant_get(create_res, "(&o)", &path);
+    g_free(ctx->session_path);
+    ctx->session_path = g_strdup(path);
+    g_variant_unref(create_res);
+
+    GVariant *start_res = g_dbus_connection_call_sync(
+        ctx->conn,
+        "org.gnome.Mutter.RemoteDesktop",
+        ctx->session_path,
+        "org.gnome.Mutter.RemoteDesktop.Session",
+        "Start",
+        NULL,
+        G_VARIANT_TYPE("()"),
+        G_DBUS_CALL_FLAGS_NONE,
+        2000,
+        NULL,
+        &error
+    );
+    if (!start_res) {
+        if (error) g_error_free(error);
+        return false;
+    }
+    g_variant_unref(start_res);
+
+    ctx->owner_changed_sub_id = g_dbus_connection_signal_subscribe(
+        ctx->conn,
+        "org.gnome.Mutter.RemoteDesktop",
+        "org.gnome.Mutter.RemoteDesktop.Session",
+        "SelectionOwnerChanged",
+        ctx->session_path,
+        NULL,
+        G_DBUS_SIGNAL_FLAGS_NONE,
+        on_selection_owner_changed,
+        ctx,
+        NULL
+    );
+
+    ctx->transfer_sub_id = g_dbus_connection_signal_subscribe(
+        ctx->conn,
+        "org.gnome.Mutter.RemoteDesktop",
+        "org.gnome.Mutter.RemoteDesktop.Session",
+        "SelectionTransfer",
+        ctx->session_path,
+        NULL,
+        G_DBUS_SIGNAL_FLAGS_NONE,
+        on_selection_transfer,
+        ctx,
+        NULL
+    );
+
+    ctx->closed_sub_id = g_dbus_connection_signal_subscribe(
+        ctx->conn,
+        "org.gnome.Mutter.RemoteDesktop",
+        "org.gnome.Mutter.RemoteDesktop.Session",
+        "Closed",
+        ctx->session_path,
+        NULL,
+        G_DBUS_SIGNAL_FLAGS_NONE,
+        on_session_closed,
+        ctx,
+        NULL
+    );
+
+    GVariantBuilder opt_builder;
+    g_variant_builder_init(&opt_builder, G_VARIANT_TYPE("a{sv}"));
+    g_variant_builder_add(&opt_builder, "{sv}", "mimetype-groups", g_variant_new_uint32(1));
+    GVariant *en_res = g_dbus_connection_call_sync(
+        ctx->conn,
+        "org.gnome.Mutter.RemoteDesktop",
+        ctx->session_path,
+        "org.gnome.Mutter.RemoteDesktop.Session",
+        "EnableClipboard",
+        g_variant_new("(a{sv})", &opt_builder),
+        G_VARIANT_TYPE("()"),
+        G_DBUS_CALL_FLAGS_NONE,
+        2000,
+        NULL,
+        &error
+    );
+    if (!en_res) {
+        if (error) g_error_free(error);
+        teardown_session_watchers(ctx);
+        (void)g_dbus_connection_call_sync(ctx->conn, "org.gnome.Mutter.RemoteDesktop", ctx->session_path, "org.gnome.Mutter.RemoteDesktop.Session", "Stop", NULL, G_VARIANT_TYPE("()"), G_DBUS_CALL_FLAGS_NONE, 1000, NULL, NULL);
+        return false;
+    }
+    g_variant_unref(en_res);
+
+    ctx->session_active = true;
+    return true;
+}
+
+/* Ensure a live session before clipboard work: one recreation attempt, no
+ * retry loop. Returns true when the session is ready. */
+static bool ensure_session(struct helper_context *ctx) {
+    if (ctx->session_active) return true;
+
+    teardown_session_watchers(ctx);
+    if (create_session(ctx)) {
+        fprintf(stdout, "EVENT=SESSION_RECREATED\n");
+        fflush(stdout);
+        return true;
+    }
+    fprintf(stdout, "EVENT=SESSION_RECREATE_FAILED\n");
+    fflush(stdout);
+    return false;
+}
 
 /* --- Signal Listeners --- */
 
@@ -394,6 +575,17 @@ static void handle_set_selection(struct helper_context *ctx, const char *args) {
     strncpy(ctx->selection_mime, mime, MAX_MIME_LEN - 1);
     ctx->selection_mime[MAX_MIME_LEN - 1] = '\0';
 
+    /* A dead session (compositor restart, Mutter-side cleanup) answers every
+     * clipboard call with a D-Bus error while this process stays alive. Make
+     * sure the session is live before writing, and on a failed write attempt
+     * one bounded session recreation plus one retry: the reported status is
+     * always the retry's real outcome, never an assumed success. */
+    if (!ensure_session(ctx)) {
+        fprintf(stdout, "STATUS=ERROR cmd=SET_SELECTION detail=session_unavailable\n");
+        fflush(stdout);
+        return;
+    }
+
     /* Build MIME types array */
     GVariantBuilder mimes_builder;
     g_variant_builder_init(&mimes_builder, G_VARIANT_TYPE("as"));
@@ -429,10 +621,39 @@ static void handle_set_selection(struct helper_context *ctx, const char *args) {
     );
 
     if (!set_res) {
-        fprintf(stdout, "STATUS=ERROR cmd=SET_SELECTION detail=%s\n", error ? error->message : "unknown");
-        fflush(stdout);
+        /* The session may have died after the Closed signal was missed (e.g.
+         * during startup races). One recreation, one retry, then the real
+         * error — never a fake OK. */
         if (error) g_error_free(error);
-        return;
+        error = NULL;
+
+        teardown_session_watchers(ctx);
+        ctx->session_active = false;
+        if (!ensure_session(ctx)) {
+            fprintf(stdout, "STATUS=ERROR cmd=SET_SELECTION detail=session_unavailable\n");
+            fflush(stdout);
+            return;
+        }
+
+        set_res = g_dbus_connection_call_sync(
+            ctx->conn,
+            "org.gnome.Mutter.RemoteDesktop",
+            ctx->session_path,
+            "org.gnome.Mutter.RemoteDesktop.Session",
+            "SetSelection",
+            g_variant_new("(a{sv})", &opt_builder),
+            G_VARIANT_TYPE("()"),
+            G_DBUS_CALL_FLAGS_NONE,
+            1500,
+            NULL,
+            &error
+        );
+        if (!set_res) {
+            fprintf(stdout, "STATUS=ERROR cmd=SET_SELECTION detail=%s\n", error ? error->message : "unknown");
+            fflush(stdout);
+            if (error) g_error_free(error);
+            return;
+        }
     }
 
     g_variant_unref(set_res);
@@ -445,6 +666,12 @@ static void handle_clear_selection(struct helper_context *ctx) {
         free(ctx->selection_payload);
         ctx->selection_payload = NULL;
         ctx->selection_len = 0;
+    }
+
+    if (!ensure_session(ctx)) {
+        fprintf(stdout, "STATUS=ERROR cmd=CLEAR_SELECTION detail=session_unavailable\n");
+        fflush(stdout);
+        return;
     }
 
     GVariantBuilder mimes_builder;
@@ -513,6 +740,18 @@ static gboolean on_stdin_readable(GIOChannel *source, GIOCondition cond, gpointe
         ctx->running = false;
         if (ctx->loop) g_main_loop_quit(ctx->loop);
         return FALSE;
+    } else if (ctx->test_hooks && strcmp(line, "CMD=SIMULATE_SESSION_DEATH") == 0) {
+        /* Test hook (PHONEBRIDGE_HELPER_TEST_HOOKS=1 only): really disables and
+         * stops the live session so the recreation path can be exercised on a
+         * real compositor without waiting for a Mutter-side session close. */
+        if (ctx->session_active) {
+            (void)g_dbus_connection_call_sync(ctx->conn, "org.gnome.Mutter.RemoteDesktop", ctx->session_path, "org.gnome.Mutter.RemoteDesktop.Session", "DisableClipboard", NULL, G_VARIANT_TYPE("()"), G_DBUS_CALL_FLAGS_NONE, 1000, NULL, NULL);
+            (void)g_dbus_connection_call_sync(ctx->conn, "org.gnome.Mutter.RemoteDesktop", ctx->session_path, "org.gnome.Mutter.RemoteDesktop.Session", "Stop", NULL, G_VARIANT_TYPE("()"), G_DBUS_CALL_FLAGS_NONE, 1000, NULL, NULL);
+        }
+        teardown_session_watchers(ctx);
+        ctx->session_active = false;
+        fprintf(stdout, "STATUS=OK cmd=SIMULATE_SESSION_DEATH\n");
+        fflush(stdout);
     } else if (idx > 0) {
         fprintf(stdout, "STATUS=ERROR cmd=UNKNOWN detail=unrecognized_command\n");
         fflush(stdout);
@@ -530,6 +769,7 @@ int main(int argc, char *argv[]) {
     memset(&ctx, 0, sizeof(ctx));
     ctx.running = true;
     ctx.probe_only = probe_only;
+    ctx.test_hooks = getenv("PHONEBRIDGE_HELPER_TEST_HOOKS") != NULL;
 
     GError *error = NULL;
     ctx.conn = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
@@ -619,6 +859,19 @@ int main(int argc, char *argv[]) {
         NULL
     );
 
+    ctx.closed_sub_id = g_dbus_connection_signal_subscribe(
+        ctx.conn,
+        "org.gnome.Mutter.RemoteDesktop",
+        "org.gnome.Mutter.RemoteDesktop.Session",
+        "Closed",
+        ctx.session_path,
+        NULL,
+        G_DBUS_SIGNAL_FLAGS_NONE,
+        on_session_closed,
+        &ctx,
+        NULL
+    );
+
     GVariantBuilder opt_builder;
     g_variant_builder_init(&opt_builder, G_VARIANT_TYPE("a{sv}"));
     g_variant_builder_add(&opt_builder, "{sv}", "mimetype-groups", g_variant_new_uint32(1));
@@ -676,10 +929,7 @@ int main(int argc, char *argv[]) {
     g_source_remove(stdin_watch);
     g_io_channel_unref(stdin_ch);
 
-    if (ctx.owner_changed_sub_id > 0)
-        g_dbus_connection_signal_unsubscribe(ctx.conn, ctx.owner_changed_sub_id);
-    if (ctx.transfer_sub_id > 0)
-        g_dbus_connection_signal_unsubscribe(ctx.conn, ctx.transfer_sub_id);
+    teardown_session_watchers(&ctx);
 
     (void)g_dbus_connection_call_sync(ctx.conn, "org.gnome.Mutter.RemoteDesktop", ctx.session_path, "org.gnome.Mutter.RemoteDesktop.Session", "DisableClipboard", NULL, G_VARIANT_TYPE("()"), G_DBUS_CALL_FLAGS_NONE, 1000, NULL, NULL);
     (void)g_dbus_connection_call_sync(ctx.conn, "org.gnome.Mutter.RemoteDesktop", ctx.session_path, "org.gnome.Mutter.RemoteDesktop.Session", "Stop", NULL, G_VARIANT_TYPE("()"), G_DBUS_CALL_FLAGS_NONE, 1000, NULL, NULL);

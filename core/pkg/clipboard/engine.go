@@ -2,6 +2,7 @@ package clipboard
 
 import (
 	"context"
+	"log"
 	"errors"
 	"sync"
 	"time"
@@ -360,6 +361,21 @@ func (e *Engine) OnReconnectSync(ctx context.Context, remoteUpdate *phonebridgev
 		remoteRole = *e.remoteRole
 	}
 	winner := ArbitratePeer(e.currentItem, remoteItem, e.role, remoteRole, e.localPeerID, e.remotePeerID)
+
+	// Arbitration diagnostics: outcome and timestamps only, never payload
+	// content. This is where a phone-to-desktop update can legitimately lose
+	// to a newer local item (DEC-023 newer-wins, desktop tie-break), and the
+	// only place that loss is visible.
+	localBytes, localTs := 0, uint64(0)
+	if e.currentItem != nil {
+		localBytes, localTs = len(e.currentItem.Payload), e.currentItem.CopiedAtMs
+	}
+	remoteBytes, remoteTs := 0, uint64(0)
+	if remoteItem != nil {
+		remoteBytes, remoteTs = len(remoteItem.Payload), remoteItem.CopiedAtMs
+	}
+	log.Printf("clipboard: reconnect arbitration winner=%v localBytes=%d remoteBytes=%d localCopiedAtMs=%d remoteCopiedAtMs=%d",
+		winner, localBytes, remoteBytes, localTs, remoteTs)
 
 	var transport Transport
 	var platform PlatformAdapter
