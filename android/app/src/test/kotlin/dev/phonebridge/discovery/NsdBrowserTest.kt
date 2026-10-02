@@ -273,6 +273,41 @@ class NsdBrowserTest {
     }
 
     @Test
+    fun `each dialable peer fires the resolve event with its row`() {
+        val client = FakeBrowseClient()
+        val browser = NsdBrowser(client)
+        val seen = mutableListOf<Map<String, Any?>>()
+        browser.onPeerResolved = { seen += it }
+        browser.start()
+
+        client.found("PhoneBridge-aa67e88a")
+        client.complete(peer())
+
+        // The cold-start tile wait wakes on this event, so it must fire once,
+        // carry the dialable row, and fire only after the row is published —
+        // the waiter re-picks the snapshot after every wake.
+        assertEquals(1, seen.size)
+        assertEquals(browser.snapshot().single(), seen[0])
+        assertEquals("aa67e88a", seen[0]["id"])
+        assertEquals("192.168.0.236", seen[0]["host"])
+        assertEquals(7804, seen[0]["port"])
+    }
+
+    @Test
+    fun `an instance that cannot be dialled fires no resolve event`() {
+        val client = FakeBrowseClient()
+        val browser = NsdBrowser(client)
+        val seen = mutableListOf<Map<String, Any?>>()
+        browser.onPeerResolved = { seen += it }
+        browser.start()
+
+        client.found("PhoneBridge-noid")
+        client.complete(peer(id = ""))
+
+        assertTrue(seen.isEmpty())
+    }
+
+    @Test
     fun `no nsd support degrades to an empty snapshot`() {
         val browser = NsdBrowser(null as NsdBrowseClient?)
 

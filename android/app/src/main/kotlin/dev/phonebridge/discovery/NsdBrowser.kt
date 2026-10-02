@@ -215,6 +215,15 @@ class NsdBrowser internal constructor(
     var onBrowseFailed: ((Int) -> Unit)? = null
 
     /**
+     * Invoked with the peer row each time an instance resolves to a dialable
+     * host:port. The Quick Settings cold-start restore waits on this event (with
+     * a bounded budget) instead of polling the snapshot, so a tile tap on a
+     * freshly started browse connects as soon as the desktop's record lands.
+     */
+    @Volatile
+    var onPeerResolved: ((Map<String, Any?>) -> Unit)? = null
+
+    /**
      * Starts browsing. Idempotent: a call while discovery is live is a no-op so
      * lifecycle signals can safely re-assert it.
      */
@@ -306,7 +315,7 @@ class NsdBrowser internal constructor(
                     val id = peer.deviceId?.takeIf { it.isNotBlank() }
                     val host = peer.host?.takeIf { it.isNotBlank() }
                     if (id != null && host != null && peer.port > 0) {
-                        peers[id] = mapOf(
+                        val row = mapOf(
                             "id" to id,
                             "name" to (peer.deviceName ?: id),
                             "model" to (peer.model ?: ""),
@@ -315,8 +324,10 @@ class NsdBrowser internal constructor(
                             "port" to peer.port,
                             "isStale" to false,
                         )
+                        peers[id] = row
                         peerKeyByServiceName[serviceName] = id
                         Log.i(TAG, "Peer resolved: ${peer.deviceName ?: id} at $host:${peer.port}")
+                        onPeerResolved?.invoke(row)
                     } else {
                         // An instance without an id, address, or port cannot be
                         // connected to, so it is not offered as a row.

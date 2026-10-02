@@ -154,6 +154,19 @@ func main() {
 		IncludeLoopback: true,
 		Version:         "1",
 		Capabilities:    []string{"SCREEN", "CLIPBOARD"},
+		// This daemon starts at boot (systemd user unit), before WLAN has an
+		// address. pion/mdns joins its multicast groups when the server is
+		// created, so creating it in that window would bind loopback only and
+		// the machine would never advertise or browse on the LAN again. Hold
+		// the mDNS server until a usable LAN interface exists.
+		LANReady: discovery.LANInterfaceAvailable,
+		Logf:     log.Printf,
+		// A phone running Android's platform mDNS resolver defers its own browse
+		// query while any host asks the same question, and pion's browse asks
+		// once a second, so a PC that only answers is never resolved by the
+		// phone. Announce the advertisement unprompted (RFC 6762 §8.3) and keep
+		// doing so, which is what makes the PC appear in the phone's Devices tab.
+		Announcements: true,
 	}
 	disc, err := discovery.NewDiscovery(discCfg)
 	if err != nil {

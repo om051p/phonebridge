@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/netip"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -567,4 +568,404 @@ func TestDiscovery_AnswersBrowseQuery(t *testing.T) {
 	if !gotAddr {
 		t.Fatalf("browse answer carried no address record: %+v", reply.Additionals)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// LAN readiness gate
+//
+// The daemon runs as a systemd user unit, so it starts at boot, before Wi-Fi
+// has an address. pion/mdns joins its multicast groups when the server is
+// created, so a server created inside that window can only join the loopback
+// interface and never sees the LAN afterwards: the daemon advertises into the
+// void, answers no queries, and lists no peers, with no error anywhere because
+// the bind itself succeeded. These tests pin the gate that keeps the mDNS
+// server unbound until a usable LAN interface exists.
+// ---------------------------------------------------------------------------
+
+func TestUsableLANInterfaceSelection(t *testing.T) {
+	cases := []struct {
+		name  string
+		snaps []interfaceSnapshot
+		want  bool
+	}{
+		{"no interfaces at all", nil, false},
+		{"loopback only", []interfaceSnapshot{{Name: "lo", Up: true, Multicast: true, Addresses: 2}}, false},
+		{"link down", []interfaceSnapshot{{Name: "wlan0", Up: false, Multicast: true, Addresses: 1}}, false},
+		{"no address yet", []interfaceSnapshot{{Name: "wlan0", Up: true, Multicast: true, Addresses: 0}}, false},
+		{"no multicast flag", []interfaceSnapshot{{Name: "wwan0", Up: true, Multicast: false, Addresses: 1}}, false},
+		{"loopback plus an up LAN interface", []interfaceSnapshot{
+			{Name: "lo", Up: true, Multicast: true, Addresses: 2},
+			{Name: "wlan0", Up: true, Multicast: true, Addresses: 1},
+		}, true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := hasUsableLANInterface(tc.snaps); got != tc.want {
+				t.Fatalf("hasUsableLANInterface(%+v) = %v, want %v", tc.snaps, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDiscovery_StartDefersBindingUntilLANInterfaceExists(t *testing.T) {
+	var lanUp atomic.Bool
+
+	d, err := NewDiscovery(Config{
+		DeviceID:            "daemon-boot-race",
+		DeviceName:          "x1",
+		Port:                7804,
+		CustomPacketConn4:   loopbackPacketConn(t),
+		IncludeLoopback:     true,
+		LANReady:            lanUp.Load,
+		NetworkWaitInterval: 10 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := d.Start(ctx); err != nil {
+		t.Fatalf("Start with no LAN interface must succeed and wait, not fail: %v", err)
+	}
+	if serverBound(d) {
+		t.Fatal("discovery bound the mDNS server with no LAN interface: pion joins its groups at creation, so that bind can only reach loopback and the LAN stays invisible forever")
+	}
+
+	lanUp.Store(true)
+	waitForCondition(t, 2*time.Second, func() bool { return serverBound(d) },
+		"the deferred mDNS bind once a LAN interface appears")
+}
+
+func TestDiscovery_CloseWhileWaitingForLANDoesNotBind(t *testing.T) {
+	d, err := NewDiscovery(Config{
+		DeviceID:            "daemon-boot-close",
+		DeviceName:          "x1",
+		Port:                7804,
+		CustomPacketConn4:   loopbackPacketConn(t),
+		IncludeLoopback:     true,
+		LANReady:            func() bool { return false },
+		NetworkWaitInterval: 5 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := d.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// The wait runs in the background; a closed manager must not bind behind the
+	// caller's back (a leaked waiter would advertise for a manager nobody owns).
+	time.Sleep(100 * time.Millisecond)
+	if serverBound(d) {
+		t.Fatal("the deferred bind ran after Close")
+	}
+}
+
+// serverBound reports whether the mDNS server exists — the moment pion joins
+// its multicast groups.
+func serverBound(d *Discovery) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.server != nil
+}
+
+func loopbackPacketConn(t *testing.T) *ipv4.PacketConn {
+	t.Helper()
+	addr, err := net.ResolveUDPAddr("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := net.ListenUDP("udp4", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ipv4.NewPacketConn(conn)
+}
+
+func waitForCondition(t *testing.T, timeout time.Duration, cond func() bool, what string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out after %s waiting for %s", timeout, what)
+}
+
+// ---------------------------------------------------------------------------
+// Unsolicited announcements
+//
+// Android's platform mDNS resolver (mdnsd) defers its own browse query while
+// another host is asking the same question, and pion's browse asks once a
+// second forever, so a PC that only ever ANSWERS queries stays invisible to a
+// phone whose query keeps being deferred: the phone lists no computer even
+// though the PC hears and answers every query it is sent. (Measured on the
+// lab LAN: the phone sent no query for minutes while the PC's browse asked
+// once a second.) A responder therefore has to announce itself, which RFC 6762
+// §8.3 requires anyway.
+// ---------------------------------------------------------------------------
+
+func TestDiscovery_AnnouncementPacketCarriesServiceRecords(t *testing.T) {
+	const deviceID = "aa67e88a629d12dd914f64da225b74946cd66ce7fd6970ebc0423a00679f2b8a"
+
+	d, err := NewDiscovery(Config{
+		DeviceID:     deviceID,
+		DeviceName:   "Linux Host",
+		Model:        "x1",
+		Port:         7804,
+		Version:      "1",
+		Capabilities: []string{"SCREEN", "CLIPBOARD"},
+		State:        "ready",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	addr := netip.MustParseAddr("192.168.0.236")
+	raw, err := d.buildAnnouncementPacket(addr)
+	if err != nil {
+		t.Fatalf("build announcement: %v", err)
+	}
+
+	var msg dnsmessage.Message
+	if err := msg.Unpack(raw); err != nil {
+		t.Fatalf("announcement does not parse as DNS: %v", err)
+	}
+	if !msg.Header.Response {
+		t.Fatal("announcement is not a DNS response message")
+	}
+
+	// The advertised instance name is the device id truncated to its leading
+	// 16 characters, exactly as the responder registers it.
+	instance := "PhoneBridge-aa67e88a629d12dd._phonebridge._tcp.local"
+	service := "_phonebridge._tcp.local"
+
+	var ptrTarget string
+	for _, ans := range msg.Answers {
+		if ans.Header.Type != dnsmessage.TypePTR {
+			continue
+		}
+		if got := trimDot(ans.Header.Name.String()); got != service {
+			t.Fatalf("PTR answer name = %q, want %q", got, service)
+		}
+		ptrTarget = trimDot(ans.Body.(*dnsmessage.PTRResource).PTR.String())
+	}
+	if ptrTarget != instance {
+		t.Fatalf("PTR answer points at %q, want %q (without it a browsing peer never learns the instance exists)", ptrTarget, instance)
+	}
+
+	var srvPort uint16
+	var srvTarget string
+	foundSRV := false
+	for _, add := range msg.Additionals {
+		if add.Header.Type != dnsmessage.TypeSRV {
+			continue
+		}
+		foundSRV = true
+		srv := add.Body.(*dnsmessage.SRVResource)
+		srvPort = srv.Port
+		srvTarget = trimDot(srv.Target.String())
+	}
+	if !foundSRV {
+		t.Fatal("announcement carries no SRV record, so the instance cannot be connected to")
+	}
+	if srvPort != 7804 {
+		t.Fatalf("SRV port = %d, want 7804", srvPort)
+	}
+	if want := trimDot(d.localHostname()); srvTarget != want {
+		t.Fatalf("SRV target = %q, want %q", srvTarget, want)
+	}
+
+	txt := map[string]string{}
+	var announcedAddr string
+	for _, add := range msg.Additionals {
+		switch add.Header.Type {
+		case dnsmessage.TypeTXT:
+			for _, entry := range add.Body.(*dnsmessage.TXTResource).TXT {
+				if key, value, ok := strings.Cut(entry, "="); ok {
+					txt[key] = value
+				}
+			}
+		case dnsmessage.TypeA:
+			announcedAddr = net.IP(add.Body.(*dnsmessage.AResource).A[:]).String()
+		}
+	}
+	if txt["id"] != deviceID {
+		t.Fatalf("announcement TXT id = %q, want %q", txt["id"], deviceID)
+	}
+	if txt["name"] != "Linux Host" {
+		t.Fatalf("announcement TXT name = %q, want %q", txt["name"], "Linux Host")
+	}
+	if txt["caps"] != "SCREEN,CLIPBOARD" {
+		t.Fatalf("announcement TXT caps = %q, want %q", txt["caps"], "SCREEN,CLIPBOARD")
+	}
+	if announcedAddr != addr.String() {
+		t.Fatalf("announcement A record = %q, want %q (the instance must resolve to the address it was sent from)", announcedAddr, addr.String())
+	}
+}
+
+func TestDiscovery_AnnouncesWithoutBeingAsked(t *testing.T) {
+	dst, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer dst.Close()
+
+	d, err := NewDiscovery(Config{
+		DeviceID:          "announce-linux",
+		DeviceName:        "Linux Host",
+		Port:              7804,
+		Capabilities:      []string{"SCREEN"},
+		State:             "ready",
+		CustomPacketConn4: loopbackPacketConn(t),
+		IncludeLoopback:   true,
+		Announcements:     true,
+		AnnounceInterval:  250 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	// Keep the test off the real LAN: the same write path, addressed at the
+	// test's own socket.
+	d.announceTargets = func() []announceTarget {
+		return []announceTarget{{
+			addr:   dst.LocalAddr().(*net.UDPAddr),
+			source: netip.MustParseAddr("127.0.0.1"),
+		}}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := d.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	readAnnouncement := func(what string) dnsmessage.Message {
+		t.Helper()
+		if err := dst.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		buf := make([]byte, 9000)
+		n, _, err := dst.ReadFromUDP(buf)
+		if err != nil {
+			t.Fatalf("no %s arrived: %v (an answering-only responder is invisible to a phone that is not asking)", what, err)
+		}
+		var msg dnsmessage.Message
+		if err := msg.Unpack(buf[:n]); err != nil {
+			t.Fatalf("unpack %s: %v", what, err)
+		}
+		return msg
+	}
+
+	browseQueryOnly := func(msg dnsmessage.Message) {
+		t.Helper()
+		if len(msg.Questions) != 0 {
+			t.Fatalf("announcement carried %d questions, want 0 (it is unsolicited)", len(msg.Questions))
+		}
+		found := false
+		for _, ans := range msg.Answers {
+			if ans.Header.Type == dnsmessage.TypePTR && strings.HasPrefix(trimDot(ans.Header.Name.String()), ServiceType) {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("announcement carried no %s PTR answer", ServiceType)
+		}
+	}
+
+	// RFC 6762 §8.3: the announcement goes out unprompted, and is repeated.
+	browseQueryOnly(readAnnouncement("initial announcement"))
+	browseQueryOnly(readAnnouncement("repeated announcement"))
+
+	// Then maintained periodically, so records never age out on a peer that
+	// never asks.
+	browseQueryOnly(readAnnouncement("periodic announcement"))
+}
+
+// TestDiscovery_AnnouncementTargetsTheMDNSGroup pins where announcements go.
+//
+// Regression: pion's DefaultAddressIPv4/IPv6 constants are 224.0.0.0 and
+// ff02:: — the all-hosts/all-nodes addresses, NOT the mDNS groups. An
+// announcement sent there is transmitted successfully and heard by nobody who
+// joined 224.0.0.251 (which is every mDNS responder, Android's included), so
+// the peer never learns the service exists while every log line reports the
+// send as a success. RFC 6762 §3 mandates 224.0.0.251 / ff02::fb.
+func TestDiscovery_AnnouncementTargetsTheMDNSGroup(t *testing.T) {
+	cases := []struct {
+		name string
+		addr string
+		want string
+	}{
+		{"IPv4 LAN address", "192.168.0.236", "224.0.0.251:5353"},
+		{"IPv6 LAN address", "2001:db8::1", "[ff02::fb]:5353"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := announceGroup(netip.MustParseAddr(tc.addr))
+			if got.String() != tc.want {
+				t.Fatalf("announceGroup(%s) = %s, want %s (a packet anywhere else is sent to an empty room)", tc.addr, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDiscovery_AnnouncementsAreOffByDefault(t *testing.T) {
+	dst, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer dst.Close()
+
+	d, err := NewDiscovery(Config{
+		DeviceID:          "quiet-linux",
+		DeviceName:        "Linux Host",
+		Port:              7804,
+		CustomPacketConn4: loopbackPacketConn(t),
+		IncludeLoopback:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	d.announceTargets = func() []announceTarget {
+		return []announceTarget{{
+			addr:   dst.LocalAddr().(*net.UDPAddr),
+			source: netip.MustParseAddr("127.0.0.1"),
+		}}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := d.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	if err := dst.SetReadDeadline(time.Now().Add(400 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 9000)
+	if n, _, err := dst.ReadFromUDP(buf); err == nil {
+		t.Fatalf("discovery sent an unsolicited %d-byte packet with Announcements unset", n)
+	}
+}
+
+func trimDot(name string) string {
+	return strings.TrimSuffix(name, ".")
 }
