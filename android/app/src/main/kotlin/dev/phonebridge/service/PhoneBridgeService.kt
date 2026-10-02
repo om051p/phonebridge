@@ -84,6 +84,13 @@ class PhoneBridgeService : Service() {
         fun platformPeers(): List<Map<String, Any?>> =
             browserProvider?.invoke()?.snapshot() ?: emptyList()
 
+        /**
+         * The live browse, so a caller can wait on [NsdBrowser.onPeerResolved]
+         * instead of polling [platformPeers]. Null before the service has
+         * brought LAN services up.
+         */
+        fun platformBrowser(): NsdBrowser? = browserProvider?.invoke()
+
         fun startService(context: Context) {
             val intent = Intent(context, PhoneBridgeService::class.java).apply {
                 action = ACTION_START

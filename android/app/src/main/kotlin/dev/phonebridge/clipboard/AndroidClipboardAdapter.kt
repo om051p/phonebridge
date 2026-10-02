@@ -10,6 +10,7 @@ import android.provider.Settings
 import android.util.Log
 import dev.phonebridge.bridge.ClipboardHostCallback
 import dev.phonebridge.bridge.GoBridge
+import dev.phonebridge.signaling.mediaStatsIndicateConnected
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -73,6 +74,14 @@ object AndroidClipboardAdapter : ClipboardHostCallback {
      * input-method settings (the fastest a human can change it).
      */
     private const val IME_CHECK_TTL_MS = 2_000L
+
+    /**
+     * Automatic focus-triggered read gate.
+     *
+     * One process-wide instance on purpose: the read window is a property of
+     * the app, not of the surface that happened to gain focus.
+     */
+    private val focusReadGate = FocusReadGate()
 
     @Volatile private var imeBound = false
     @Volatile private var imeSelected = false
@@ -190,6 +199,8 @@ object AndroidClipboardAdapter : ClipboardHostCallback {
             Log.w(TAG, "Exception stopping Go clipboard engine: ${t.message}")
         }
 
+        // The engine is gone; the slot never outlives it (and is never persisted).
+        pendingLocalClipSlot.clear()
         transitionTo(AdapterState.STOPPED)
         Log.i(TAG, "AndroidClipboardAdapter stopped")
     }
@@ -260,6 +271,28 @@ object AndroidClipboardAdapter : ClipboardHostCallback {
      */
     fun invalidateImeCheck() {
         imeCheckedAtMs = 0L
+    }
+
+    /**
+     * Reads and forwards the current platform clip from a foreground moment.
+     *
+     * Being on screen is the one moment Android 10+ permits this read without
+     * the companion keyboard being selected, which makes it the no-keyboard
+     * phone→PC trigger; the app calls it when it gains window focus. The gate
+     * collapses focus flaps to at most one read per window, and explicit pulls
+     * ([triggerManualPull]) bypass it.
+     *
+     * Returns true when an item was read and handed to the Go engine.
+     */
+    fun readCurrentClipOnFocus(nowMs: Long = SystemClock.uptimeMillis()): Boolean {
+        // Nothing to gate before the engine exists. The service starts
+        // asynchronously while a window is gaining focus, so a cold launch can
+        // reach here first; consuming the window then would swallow the very
+        // copy the trigger exists to forward. The caller retries instead.
+        if (state == AdapterState.STOPPED) {
+            return false
+        }
+        return focusReadGate.run(nowMs) { readAndForwardCurrentClip() }
     }
 
     private fun recomputeState() {
@@ -392,6 +425,12 @@ object AndroidClipboardAdapter : ClipboardHostCallback {
      * Reads the current platform clipboard item and forwards to Go engine.
      * Called by companion IME on clip changed or by TileService on manual pull.
      *
+     * With a live transport the item goes straight to the engine (this is the
+     * warm path). With no transport — a cold tile tap or a cold app launch —
+     * the exact bytes are held in [pendingLocalClipSlot] instead of being
+     * submitted into engine state the peer's reconnect-sync can overwrite;
+     * [flushPendingLocalClip] sends them once a transport exists.
+     *
      * Returns true if a valid item was read and forwarded, false otherwise.
      */
     fun readAndForwardCurrentClip(): Boolean {
@@ -433,14 +472,30 @@ object AndroidClipboardAdapter : ClipboardHostCallback {
             }
 
             val nowMs = System.currentTimeMillis()
-            val ok = GoBridge.clipboardOnLocalCopy("text/plain;charset=utf-8", bytes, nowMs)
+            val mimeType = "text/plain;charset=utf-8"
+
+            if (!transportConnected()) {
+                // Cold transport. Holding here — instead of submitting into the
+                // engine's live state — is what keeps the exact bytes safe while
+                // the session is negotiated: the peer's reconnect-sync item can
+                // replace engine.currentItem during that window, and it can
+                // never touch this slot.
+                pendingLocalClipSlot.hold(mimeType, bytes, nowMs)
+                Log.i(TAG, "Held local clipboard item until a clipboard transport exists: bytes=${bytes.size}")
+                return false
+            }
+
+            // A fresh local copy supersedes anything still held from an earlier
+            // transport-less moment (latest-wins policy of the slot).
+            pendingLocalClipSlot.clear()
+            val ok = GoBridge.clipboardOnLocalCopy(mimeType, bytes, nowMs)
             if (ok) {
                 Log.i(TAG, "Forwarded local clipboard item to Go engine: bytes=${bytes.size}")
             } else {
-                // Not silent: with no peer session (or sync disabled) the update
-                // is held in the Go engine's current item and only re-sent when a
-                // clipboard channel opens, so this is diagnosable rather than lost.
-                Log.w(TAG, "Local clipboard item was not forwarded to a peer: bytes=${bytes.size}")
+                // The engine did not take the item across the transport; hold the
+                // exact bytes so the next transport-ready moment retries them.
+                pendingLocalClipSlot.hold(mimeType, bytes, nowMs)
+                Log.w(TAG, "Local clipboard item held for retry: bytes=${bytes.size}")
             }
             ok
         } catch (se: SecurityException) {
@@ -461,4 +516,65 @@ object AndroidClipboardAdapter : ClipboardHostCallback {
         Log.i(TAG, "Tier-2 explicit clipboard pull triggered")
         return readAndForwardCurrentClip()
     }
+
+    // ------------------------------------------------------------------
+    // Pending local clipboard (cold-start delivery slot)
+    // ------------------------------------------------------------------
+
+    /**
+     * The single in-memory pending item, shared by every entry point (tile,
+     * focus read, IME) so a cold start delivers what the user actually copied.
+     *
+     * The Go engine's current item is not usable as this buffer: on a fresh
+     * session the peer's reconnect-sync item legitimately replaces it before the
+     * local channel-open flush runs, which is how cold reads were lost (verified
+     * on device: 3 of 3 cold taps never reached the desktop). This slot lives
+     * outside that exchange, so the peer's item can update engine state freely
+     * and can never clear or overwrite what is held here.
+     */
+    private val pendingLocalClipSlot = PendingLocalClipSlot()
+
+    /** Whether an already-read local item is waiting for a live transport. */
+    val hasPendingLocalClip: Boolean
+        get() = !pendingLocalClipSlot.isEmpty
+
+    /**
+     * Hands the held item to the Go engine once the clipboard transport is
+     * connected, clearing the slot only after the engine took it.
+     *
+     * Returns true when there is nothing to do (no item held, or the held item
+     * was accepted); false while the item must stay held, which is what the
+     * bounded transport-ready wait in ClipboardSyncActivity retries on. The
+     * accept path always sends exactly once: an accepted item clears the slot,
+     * so no later call can re-send it.
+     */
+    fun flushPendingLocalClip(): Boolean {
+        if (!syncEnabled) {
+            return false
+        }
+        val pending = pendingLocalClipSlot.peek() ?: return true
+        if (!GoBridge.loaded || !transportConnected()) {
+            return false
+        }
+
+        val ok = GoBridge.clipboardOnLocalCopy(pending.mimeType, pending.payload, pending.copiedAtMs)
+        if (ok) {
+            pendingLocalClipSlot.clearIfSame(pending)
+            Log.i(TAG, "Pending local clipboard item sent to the peer: bytes=${pending.payload.size}")
+        } else {
+            Log.w(TAG, "Pending local clipboard item not sent yet: bytes=${pending.payload.size}")
+        }
+        return ok
+    }
+
+    /**
+     * Whether the phone's media transport reports a live connected session.
+     *
+     * This is the same real-state observation the session restorer gates on
+     * (pion PeerConnection `connected` over a negotiated transport), so the
+     * pending slot is only ever handed over when a send can actually leave the
+     * device — never on a timer.
+     */
+    private fun transportConnected(): Boolean =
+        mediaStatsIndicateConnected(GoBridge.mediaStats()?.let { String(it, Charsets.UTF_8) })
 }

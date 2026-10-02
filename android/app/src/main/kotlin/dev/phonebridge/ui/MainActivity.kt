@@ -7,8 +7,13 @@ import android.os.Looper
 import android.util.Log
 import dev.phonebridge.bridge.GoBridge
 import dev.phonebridge.capture.CaptureConfig
+import dev.phonebridge.clipboard.AndroidClipboardAdapter
+import dev.phonebridge.clipboard.CLIPBOARD_STARTUP_MAX_STEPS
+import dev.phonebridge.clipboard.CLIPBOARD_STARTUP_STEP_MS
+import dev.phonebridge.clipboard.shouldWaitForAdapterStartup
 import dev.phonebridge.service.PhoneBridgeService
-import dev.phonebridge.signaling.LanSignalingServer
+import dev.phonebridge.signaling.DesktopSession
+import dev.phonebridge.signaling.DesktopSessionException
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -16,8 +21,6 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 
 class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventChannel.StreamHandler {
 
@@ -26,17 +29,15 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
         private const val CONTROL_CHANNEL = "dev.phonebridge/control"
         private const val EVENTS_CHANNEL = "dev.phonebridge/events"
         private const val STATS_INTERVAL_MS = 1000L
-
-        // The production DEC-022 signaling contract. The path is part of the
-        // signature, so it is defined once here and never assembled piecemeal.
-        private const val PEER_OFFER_PATH = "/session/peer-offer"
-        private const val STOP_PATH = "/session/stop"
-        private const val SIGNALING_VERSION = 1
     }
 
     private var eventSink: EventChannel.EventSink? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var pendingReceiverUrl: String? = null
+
+    /// Steps already spent waiting for a cold-started service to bring the
+    /// clipboard adapter up during the current foreground transition.
+    private var clipboardFocusSyncSteps = 0
 
     /// Fingerprint of the last stats map that was actually pushed, minus the
     /// timestamp. The tick stays at 1 Hz, but an idle phone only sends when
@@ -47,6 +48,10 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
 
     private val statsRunnable = object : Runnable {
         override fun run() {
+            // A session can come up while this UI is on screen (the user just
+            // pressed CONNECT), which is the moment a held local item can go
+            // out. Single null check while nothing is held.
+            AndroidClipboardAdapter.flushPendingLocalClip()
             eventSink?.let { sink ->
                 try {
                     val stats = collectStats()
@@ -141,6 +146,52 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
             Log.i(TAG, "PhoneBridgeService started from MainActivity.onStart")
         } catch (t: Throwable) {
             Log.e(TAG, "Failed to start PhoneBridgeService from MainActivity.onStart: ${t.message}", t)
+        }
+    }
+
+    /**
+     * Keyboard-free phone→PC clipboard sync.
+     *
+     * Android 10+ lets an app read the clipboard only while it owns the focused
+     * window, so becoming visible is the one moment this app can pick up what
+     * the user just copied with their own keyboard selected. The adapter's gate
+     * debounces the focus flaps, and no clipboard content is ever logged or
+     * stored beyond the engine's single in-memory item.
+     */
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus) return
+        clipboardFocusSyncSteps = 0
+        syncClipboardFromFocus()
+    }
+
+    ///
+    /// One focus-triggered read, retried while the service is still coming up.
+    ///
+    /// The service starts asynchronously from [onStart], so a launch can gain
+    /// focus before the clipboard adapter exists; the same bounded wait the
+    /// Quick Settings tile uses covers that cold start instead of dropping the
+    /// user's copy. Exhausting the budget still attempts the read, so the
+    /// transition is never silently ignored.
+    ///
+    private fun syncClipboardFromFocus() {
+        if (shouldWaitForAdapterStartup(
+                AndroidClipboardAdapter.state,
+                clipboardFocusSyncSteps,
+                CLIPBOARD_STARTUP_MAX_STEPS
+            )
+        ) {
+            clipboardFocusSyncSteps++
+            mainHandler.postDelayed({ syncClipboardFromFocus() }, CLIPBOARD_STARTUP_STEP_MS)
+            return
+        }
+        // A cold read leaves the item held until a transport exists; this
+        // foreground moment with a live session is when it can go out. Runs
+        // before the read so a newer copy supersedes it if the user copied
+        // something else meanwhile.
+        AndroidClipboardAdapter.flushPendingLocalClip()
+        if (AndroidClipboardAdapter.readCurrentClipOnFocus()) {
+            emitClipboardState()
         }
     }
 
@@ -687,7 +738,11 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
      * main thread: offer creation blocks up to ~2 s for ICE gathering.
      */
     private fun initiateDesktopSession(receiverUrl: String) {
-        val base = normaliseEndpoint(receiverUrl) ?: return
+        val base = DesktopSession.normaliseEndpoint(receiverUrl)
+        if (base == null) {
+            reportSessionFailure("The desktop address is not usable: $receiverUrl")
+            return
+        }
         Thread {
             try {
                 if (!GoBridge.loaded) {
@@ -700,63 +755,17 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
                     return@Thread
                 }
 
-                val offerBlob = GoBridge.mediaCreateOffer()
-                val offerSdp = runCatching {
-                    String(offerBlob, Charsets.UTF_8).let { JSONObject(it).optString("sdp") }
-                }.getOrDefault("")
-                if (offerSdp.isEmpty()) {
+                val offerSdp = try {
+                    DesktopSession.sdpFromOfferBlob(GoBridge.mediaCreateOffer())
+                } catch (t: Throwable) {
                     reportSessionFailure("Screen capture produced no SDP offer")
                     return@Thread
                 }
 
-                val body = JSONObject().apply {
-                    put("protocol_version", SIGNALING_VERSION)
-                    put("version", JSONObject().apply {
-                        put("min", SIGNALING_VERSION)
-                        put("max", SIGNALING_VERSION)
-                    })
-                    // The phone can only contribute a screen stream, so it
-                    // advertises exactly that rather than claiming the desktop's
-                    // clipboard/input planes.
-                    put("capabilities", JSONArray().put("SCREEN"))
-                    put("signaling_port", LanSignalingServer.DEFAULT_PORT)
-                    put("offer", JSONObject().apply {
-                        put("type", "offer")
-                        put("sdp", offerSdp)
-                    })
-                }.toString().toByteArray(Charsets.UTF_8)
-
-                val headers = identity.signRequest("POST", PEER_OFFER_PATH, body)
-
-                val conn = (URL(base + PEER_OFFER_PATH).openConnection() as HttpURLConnection).apply {
-                    requestMethod = "POST"
-                    doOutput = true
-                    connectTimeout = 5000
-                    readTimeout = 8000
-                    setRequestProperty("Content-Type", "application/json")
-                    headers.forEach { (name, value) -> setRequestProperty(name, value) }
-                }
-                val code: Int
-                val response: String
-                try {
-                    conn.outputStream.use { it.write(body) }
-                    code = conn.responseCode
-                    response = (if (code in 200..299) conn.inputStream else conn.errorStream)
-                        ?.use { String(it.readBytes(), Charsets.UTF_8) } ?: ""
-                } finally {
-                    conn.disconnect()
-                }
-
-                if (code !in 200..299) {
-                    reportSessionFailure(describePeerOfferFailure(code, response))
-                    return@Thread
-                }
-
-                val answerSdp = runCatching { JSONObject(response).optString("sdp") }.getOrDefault("")
-                if (answerSdp.isEmpty()) {
-                    reportSessionFailure("The desktop accepted the session but returned no SDP answer")
-                    return@Thread
-                }
+                // The shared DEC-022 client posts the exact same signed offer
+                // the Quick Settings cold-start restore uses, so the two entry
+                // points can never drift apart on the wire.
+                val answerSdp = DesktopSession.postPeerOffer(identity, base, offerSdp)
                 // mediaSetAnswer expects the transport's SDP blob, not a bare SDP
                 // string, so rebuild the same shape the offer side used.
                 val answerBlob = JSONObject().apply {
@@ -766,25 +775,14 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
                 GoBridge.mediaSetAnswer(answerBlob)
                 GoBridge.mediaStart()
                 Log.i(TAG, "DEC-022 session established with desktop at $base")
+            } catch (e: DesktopSessionException) {
+                // Typed refusal: [message] is already the desktop's own
+                // human-readable description of the wire code.
+                reportSessionFailure(e.message ?: "The desktop refused the session (HTTP ${e.httpStatus})")
             } catch (t: Throwable) {
                 reportSessionFailure("Could not start the session: ${t.message ?: t.javaClass.simpleName}")
             }
         }.start()
-    }
-
-    /**
-     * Normalises a discovered signaling URL into the endpoint we post to, or
-     * null if it is unusable. Host and port come from the peer's mDNS record, so
-     * a malformed one is reported rather than silently skipped.
-     */
-    private fun normaliseEndpoint(receiverUrl: String): String? {
-        val base = receiverUrl.trim().trimEnd('/')
-        val url = runCatching { URL(base) }.getOrNull()
-        if (base.isEmpty() || url == null || url.host.isNullOrEmpty() || url.port <= 0) {
-            reportSessionFailure("The desktop address is not usable: $receiverUrl")
-            return null
-        }
-        return base
     }
 
     /**
@@ -803,57 +801,19 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
     }
 
     /**
-     * Turns a typed refusal into something actionable. The desktop answers with
-     * a code from the shared DEC-022 vocabulary plus a human message, matching
-     * the shape the phone itself uses when refusing a desktop offer.
-     */
-    private fun describePeerOfferFailure(code: Int, response: String): String {
-        val payload = runCatching { JSONObject(response) }.getOrNull()
-        return when (payload?.optString("code")) {
-            "SESSION_BUSY" -> "The desktop is already in a session"
-            "PERMISSION_DENIED" -> "This phone is not paired with the desktop"
-            "INCOMPATIBLE_VERSION" -> "The desktop runs an incompatible session protocol"
-            "TRANSPORT_FAILED" -> "The desktop could not open the media transport"
-            "UNSUPPORTED_MEDIA_PARAMS" -> "The desktop rejected the requested capture format"
-            else -> payload?.optString("message")?.takeIf { it.isNotEmpty() }
-                ?: "The desktop refused the session (HTTP $code)"
-        }
-    }
-
-    /**
      * Tells the desktop the session is over, so it releases the session
      * immediately instead of holding it until its own timeout expires - a held
-     * session is what makes the next offer fail as SESSION_BUSY.
+     * session is what makes the next offer fail as SESSION_BUSY. Best effort:
+     * the desktop also times the session out on its own.
      */
     private fun notifySessionStop(receiverUrl: String?) {
-        val base = receiverUrl?.trim()?.trimEnd('/').orEmpty()
-        val identity = identityManager
-        if (base.isEmpty() || identity == null) {
-            return
-        }
+        val base = DesktopSession.normaliseEndpoint(receiverUrl.orEmpty()) ?: return
+        val identity = identityManager ?: return
         Thread {
             try {
-                val body = JSONObject().apply {
-                    put("reason", "the phone stopped sharing")
-                    put("reason_code", "OK")
-                }.toString().toByteArray(Charsets.UTF_8)
-                val headers = identity.signRequest("POST", STOP_PATH, body)
-                val conn = (URL(base + STOP_PATH).openConnection() as HttpURLConnection).apply {
-                    requestMethod = "POST"
-                    doOutput = true
-                    connectTimeout = 3000
-                    readTimeout = 3000
-                    setRequestProperty("Content-Type", "application/json")
-                    headers.forEach { (name, value) -> setRequestProperty(name, value) }
-                }
-                try {
-                    conn.outputStream.use { it.write(body) }
-                    Log.i(TAG, "Session stop notice answered with HTTP ${conn.responseCode}")
-                } finally {
-                    conn.disconnect()
-                }
+                DesktopSession.postStop(identity, base)
+                Log.i(TAG, "Session stop notice delivered to desktop")
             } catch (t: Throwable) {
-                // Best effort: the desktop also times the session out on its own.
                 Log.i(TAG, "Session stop notice not delivered: ${t.message}")
             }
         }.start()
