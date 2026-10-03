@@ -863,6 +863,9 @@ func (m *SessionManager) ConfirmPairing(ctx context.Context, deviceID string, co
 	if !ok || pending == nil {
 		return fmt.Errorf("no pending pairing for device %s", deviceID)
 	}
+	if time.Since(pending.createdAt) > pendingPairingTTL {
+		return fmt.Errorf("pairing token for device %s expired", deviceID)
+	}
 	if identity == nil {
 		return fmt.Errorf("local identity is not configured")
 	}

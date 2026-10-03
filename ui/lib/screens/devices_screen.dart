@@ -487,6 +487,10 @@ class DevicesScreen extends StatelessWidget {
 
   Widget _buildDiscoveredDeviceTile(
       BuildContext context, ThemeData theme, DiscoveredDevice dev) {
+    // Phone-initiated pairing is not wired (AndroidBridgeService stubs it),
+    // so the phone never offers a Pair action that could only fail: pairing
+    // is initiated from the Linux desktop, where the SAS dialog lives.
+    final canInitiatePairing = !controller.service.isAndroid;
     // Distinct state resolution:
     // 1. isKnown: Device present in local trust store (active or revoked).
     // 2. isTrusted: Local trust store holds an active, non-revoked record.
@@ -543,12 +547,13 @@ class DevicesScreen extends StatelessWidget {
               label: const Text('CONNECTED'),
             ),
             const SizedBox(width: 8),
-            OutlinedButton(
-              onPressed: controller.isLoading
-                  ? null
-                  : () => _startPairingFlow(context, dev),
-              child: const Text('RE-PAIR'),
-            ),
+            if (canInitiatePairing)
+              OutlinedButton(
+                onPressed: controller.isLoading
+                    ? null
+                    : () => _startPairingFlow(context, dev),
+                child: const Text('RE-PAIR'),
+              ),
           ],
         );
       } else {
@@ -562,23 +567,26 @@ class DevicesScreen extends StatelessWidget {
               icon: const Icon(Icons.link, size: 16),
               label: const Text('CONNECT'),
             ),
-            const SizedBox(width: 8),
-            OutlinedButton(
-              onPressed: controller.isLoading
-                  ? null
-                  : () => _startPairingFlow(context, dev),
-              child: const Text('RE-PAIR'),
-            ),
+            if (canInitiatePairing) const SizedBox(width: 8),
+            if (canInitiatePairing)
+              OutlinedButton(
+                onPressed: controller.isLoading
+                    ? null
+                    : () => _startPairingFlow(context, dev),
+                child: const Text('RE-PAIR'),
+              ),
           ],
         );
       }
     } else {
-      actionButton = FilledButton.tonal(
-        onPressed: controller.isLoading
-            ? null
-            : () => _startPairingFlow(context, dev),
-        child: const Text('PAIR'),
-      );
+      actionButton = canInitiatePairing
+          ? FilledButton.tonal(
+              onPressed: controller.isLoading
+                  ? null
+                  : () => _startPairingFlow(context, dev),
+              child: const Text('PAIR'),
+            )
+          : null;
     }
 
     return Card(

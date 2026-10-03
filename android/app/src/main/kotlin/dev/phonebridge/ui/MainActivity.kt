@@ -223,6 +223,35 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
                 initiateDesktopSession(pendingReceiverUrl!!)
             }
         }
+
+        // Trust mutations (pairing commits included) can land from the
+        // background responder path with no activity alive. Reload our view
+        // of the shared store file and push a trustChanged event so Flutter
+        // refreshes instead of showing stale UNPAIRED state.
+        dev.phonebridge.security.TrustStore.changeListener = {
+            mainHandler.post {
+                try {
+                    trustStore.reload()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Trust reload failed: ${e.message}")
+                }
+                // Primary push: a direct method call, which does not depend
+                // on EventChannel subscription timing (the events sink is
+                // shared by several broadcast subscriptions).
+                try {
+                    methodChannel?.invokeMethod("trustChanged", null)
+                } catch (e: Exception) {
+                    Log.w(TAG, "trustChanged invoke failed: ${e.message}")
+                }
+                // Backup push on the events channel for any raw-events
+                // subscriber holding the current sink.
+                try {
+                    eventSink?.success(mapOf("trustChanged" to true))
+                } catch (e: Exception) {
+                    Log.w(TAG, "trustChanged emission failed: ${e.message}")
+                }
+            }
+        }
     }
 
     private val trustStore by lazy {
@@ -842,6 +871,7 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
     override fun onDestroy() {
         mainHandler.removeCallbacks(statsRunnable)
         PhoneBridgeService.stateListener = null
+        dev.phonebridge.security.TrustStore.changeListener = null
         try {
             unregisterReceiver(navReceiver)
         } catch (_: Exception) {}

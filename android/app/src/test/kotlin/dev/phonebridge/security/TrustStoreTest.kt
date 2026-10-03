@@ -65,4 +65,45 @@ class TrustStoreTest {
         assertNull(store3.get(devId))
         assertEquals(0, store3.list().size)
     }
+
+    @Test
+    fun testChangeListenerFiresOnMutations() {
+        val storeFile = File(tempFolder.root, "trusted_listener.json")
+        val store = TrustStore(storeFile)
+        val rawPub = ByteArray(32) { 0x42 }
+        val rec = TrustedDeviceRecord(
+            deviceId = "dev-1", displayName = "PC", platform = "linux",
+            rawPublicKey = rawPub, pairedAtMs = 1L, lastSeenMs = 1L, revoked = false
+        )
+        var fires = 0
+        TrustStore.changeListener = { fires++ }
+        try {
+            store.addTrusted(rec)
+            store.revoke("dev-1")
+            store.remove("dev-1")
+        } finally {
+            TrustStore.changeListener = null
+        }
+        assertEquals("listener must fire once per mutation", 3, fires)
+    }
+
+    @Test
+    fun testReloadPicksUpOtherInstanceWrites() {
+        val storeFile = File(tempFolder.root, "trusted_reload.json")
+        val store1 = TrustStore(storeFile)
+        val store2 = TrustStore(storeFile)
+        assertEquals(0, store2.list().size)
+
+        store1.addTrusted(
+            TrustedDeviceRecord(
+                deviceId = "dev-2", displayName = "PC", platform = "linux",
+                rawPublicKey = ByteArray(32) { 0x07 },
+                pairedAtMs = 1L, lastSeenMs = 1L, revoked = false
+            )
+        )
+        // store2 has a stale in-memory view until it reloads.
+        store2.reload()
+        assertTrue(store2.isTrusted("dev-2"))
+        assertEquals(1, store2.list().size)
+    }
 }

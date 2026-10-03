@@ -216,6 +216,13 @@ class PhoneBridgeController extends ChangeNotifier {
     _rawEventsSub?.cancel();
     _rawEventsSub = _service.rawEventsStream.listen(
       (event) {
+        // Native trust-store mutations (pairing commit, revoke, remove) can
+        // land with no pairing dialog open — e.g. the background responder
+        // path. Refresh so the Devices surface never shows stale UNPAIRED.
+        if (event['trustChanged'] == true) {
+          unawaited(refreshAll());
+        }
+
         final prevCapturing = _captureStats.isCapturing;
         _captureStats = CaptureStats.fromMap(event, previous: _captureStats);
 

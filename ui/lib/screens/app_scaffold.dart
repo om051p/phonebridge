@@ -41,6 +41,11 @@ class _AppScaffoldState extends State<AppScaffold> {
     if (!mounted || rawCall is! MethodCall) return;
     final call = rawCall;
     switch (call.method) {
+      case 'trustChanged':
+        // Native trust-store mutation (pairing commit, revoke, remove),
+        // including background responder commits with no dialog open.
+        await widget.controller.refreshAll();
+        break;
       case 'onNavigateTab':
         final tab = call.arguments['tab'] as int? ?? 0;
         setState(() {

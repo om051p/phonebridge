@@ -23,6 +23,11 @@ import (
 // DefaultSignalingPort is the canonical LAN signaling port (DEC-022).
 const DefaultSignalingPort = 7804
 
+// pendingPairingTTL bounds how long a pairing token stays valid. An expired
+// token is rejected and removed at confirm time; the user simply pairs again
+// (idempotent: trust commits upsert by device ID).
+const pendingPairingTTL = 5 * time.Minute
+
 type serverPendingPairing struct {
 	token          string
 	remoteName     string
@@ -227,6 +232,11 @@ func (s *SignalingServer) handlePairingConfirm(w http.ResponseWriter, r *http.Re
 		delete(s.pendingPairings, req.PairingToken)
 	}
 	s.mu.Unlock()
+
+	if exists && time.Since(pending.createdAt) > pendingPairingTTL {
+		http.Error(w, `{"error":"pairing token expired"}`, http.StatusBadRequest)
+		return
+	}
 
 	if !exists || subtle.ConstantTimeCompare([]byte(pending.sas), []byte(req.SAS)) != 1 {
 		http.Error(w, `{"error":"invalid or expired pairing token/sas"}`, http.StatusBadRequest)

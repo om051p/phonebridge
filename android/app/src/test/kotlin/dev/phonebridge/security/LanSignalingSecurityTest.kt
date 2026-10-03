@@ -162,8 +162,42 @@ class LanSignalingSecurityTest {
     }
 
     @Test
-    fun testPairingWrongSASRejected() {
-        val token = "token-wrong-sas"
+    fun testExpiredPairingTokenRejected() {
+        val token = "token-expired-1"
+        val reqPayload = JSONObject().apply {
+            put("display_name", "Linux Host")
+            put("platform", "linux")
+            put("public_key", CryptoUtils.toHex(clientRawPub))
+            put("pairing_token", token)
+        }
+        val (reqCode, reqResp) = executeHttp("POST", "/pairing/request", reqPayload.toString().toByteArray())
+        assertEquals(200, reqCode)
+        val sas = JSONObject(reqResp).getString("sas")
+
+        // Age the pending token past the TTL.
+        val pending = server.pendingPairings[token]
+        assertNotNull(pending)
+        server.pendingPairings[token] = pending!!.copy(
+            createdAt = System.currentTimeMillis() - 6 * 60 * 1000L
+        )
+
+        // Confirm with an otherwise-valid signature.
+        val sigMaterial = "$token:$sas".toByteArray(StandardCharsets.UTF_8)
+        val sig = CryptoUtils.sign(clientKeyPair.private, sigMaterial)
+        val confirmPayload = JSONObject().apply {
+            put("device_id", clientDeviceId)
+            put("pairing_token", token)
+            put("sas", sas)
+            put("confirmed", true)
+            put("signature", CryptoUtils.toHex(sig))
+        }
+        val (confCode, _) = executeHttp("POST", "/pairing/confirm", confirmPayload.toString().toByteArray())
+        assertEquals(400, confCode)
+        assertTrue("expired token must not commit trust", !trustStore.isTrusted(clientDeviceId))
+    }
+
+    @Test
+    fun testPairingWrongSASRejected() {        val token = "token-wrong-sas"
         val reqPayload = JSONObject().apply {
             put("display_name", "Linux Host")
             put("platform", "linux")

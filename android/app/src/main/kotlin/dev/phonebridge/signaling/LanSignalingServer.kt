@@ -43,6 +43,13 @@ class LanSignalingServer(
     companion object {
         private const val TAG = "LanSignalingServer"
         const val DEFAULT_PORT = 7804
+
+        /**
+         * How long a pairing token stays valid. Expired tokens are rejected
+         * and removed at confirm time; the user simply pairs again
+         * (idempotent: trust commits upsert by device ID).
+         */
+        internal const val PENDING_PAIRING_TTL_MS = 5 * 60 * 1000L
     }
 
     interface SignalingHandler {
@@ -132,7 +139,7 @@ class LanSignalingServer(
         }
     }
 
-    private data class PendingPairing(
+    internal data class PendingPairing(
         val token: String,
         val remoteName: String,
         val remotePlatform: String,
@@ -145,7 +152,7 @@ class LanSignalingServer(
     private var executor: ExecutorService? = null
     private val isRunning = AtomicBoolean(false)
     private val authValidator = if (trustStore != null) AuthValidator(trustStore) else null
-    private val pendingPairings = ConcurrentHashMap<String, PendingPairing>()
+    internal val pendingPairings = ConcurrentHashMap<String, PendingPairing>()
 
     val running: Boolean
         get() = isRunning.get()
@@ -457,6 +464,11 @@ class LanSignalingServer(
             val pending = pendingPairings.remove(token)
             if (pending == null || pending.sas != sas) {
                 val err = """{"error":"invalid or expired pairing token/sas"}""".toByteArray(StandardCharsets.UTF_8)
+                sendResponse(out, 400, "Bad Request", "application/json", err)
+                return
+            }
+            if (System.currentTimeMillis() - pending.createdAt > PENDING_PAIRING_TTL_MS) {
+                val err = """{"error":"pairing token expired"}""".toByteArray(StandardCharsets.UTF_8)
                 sendResponse(out, 400, "Bad Request", "application/json", err)
                 return
             }

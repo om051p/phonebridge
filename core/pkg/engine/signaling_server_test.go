@@ -1,9 +1,12 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -209,5 +212,115 @@ func TestSignalingServer_SessionFlowAuthenticated(t *testing.T) {
 	_, err = unauthClient.RequestOffer(ctx, endpoint, NegotiationRequest{})
 	if err == nil {
 		t.Fatal("expected unauthenticated request to fail, but it succeeded")
+	}
+}
+
+// postPairingConfirm posts a confirm payload for token/sas signed by signer.
+func postPairingConfirm(t *testing.T, endpoint, token, sas string, signer *crypto.DeviceIdentity) int {
+	t.Helper()
+	sig := crypto.Sign(signer.PrivateKey, []byte(fmt.Sprintf("%s:%s", token, sas)))
+	payload := crypto.PairingConfirmPayload{
+		DeviceID:     signer.DeviceID,
+		PairingToken: token,
+		SAS:          sas,
+		Confirmed:    true,
+		Signature:    hex.EncodeToString(sig),
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal confirm: %v", err)
+	}
+	resp, err := http.Post(fmt.Sprintf("http://%s/pairing/confirm", endpoint), "application/json", bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("post confirm: %v", err)
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode
+}
+
+func startPairingTestServer(t *testing.T, tmpDir string) (*SignalingServer, *crypto.DeviceIdentity, *crypto.TrustStore, *crypto.DeviceIdentity, string) {
+	t.Helper()
+	serverIdent, err := crypto.LoadOrGenerateIdentity(filepath.Join(tmpDir, "server_id.json"), "Server", "linux")
+	if err != nil {
+		t.Fatalf("server identity: %v", err)
+	}
+	serverTrust, err := crypto.NewTrustStore(filepath.Join(tmpDir, "server_trust.json"))
+	if err != nil {
+		t.Fatalf("server trust: %v", err)
+	}
+	clientIdent, err := crypto.LoadOrGenerateIdentity(filepath.Join(tmpDir, "client_id.json"), "Client", "android")
+	if err != nil {
+		t.Fatalf("client identity: %v", err)
+	}
+	srv := NewSignalingServer(SignalingServerConfig{Port: 0, Identity: serverIdent, TrustStore: serverTrust})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	if err := srv.Start(ctx); err != nil {
+		t.Fatalf("start server: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+	return srv, serverIdent, serverTrust, clientIdent, fmt.Sprintf("127.0.0.1:%d", srv.Port())
+}
+
+// An expired pending token must be rejected AND removed, even with a valid signature.
+func TestSignalingServer_PairingConfirmExpiredTokenRejected(t *testing.T) {
+	tmpDir := t.TempDir()
+	srv, serverIdent, serverTrust, clientIdent, endpoint := startPairingTestServer(t, tmpDir)
+
+	token := "expired-token-1"
+	sas := crypto.CalculateSAS(serverIdent.PublicKey, clientIdent.PublicKey, token)
+	srv.mu.Lock()
+	srv.pendingPairings[token] = serverPendingPairing{
+		token: token, remoteName: "Client", remotePlatform: "android",
+		remotePub: clientIdent.PublicKey, sas: sas,
+		createdAt: time.Now().Add(-6 * time.Minute),
+	}
+	srv.mu.Unlock()
+
+	if code := postPairingConfirm(t, endpoint, token, sas, clientIdent); code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for expired token, got %d", code)
+	}
+	srv.mu.Lock()
+	_, stillThere := srv.pendingPairings[token]
+	srv.mu.Unlock()
+	if stillThere {
+		t.Fatal("expired token was not removed from pendingPairings")
+	}
+	if _, ok := serverTrust.Get(clientIdent.DeviceID); ok {
+		t.Fatal("expired token committed trust")
+	}
+}
+
+// A duplicate confirm (replayed after success) must not create a second record.
+func TestSignalingServer_PairingDuplicateConfirmSingleRecord(t *testing.T) {
+	tmpDir := t.TempDir()
+	_, serverIdent, serverTrust, clientIdent, _ := startPairingTestServer(t, tmpDir)
+
+	token := "dup-token-1"
+	sas := crypto.CalculateSAS(serverIdent.PublicKey, clientIdent.PublicKey, token)
+
+	srv := NewSignalingServer(SignalingServerConfig{Port: 0, Identity: serverIdent, TrustStore: serverTrust})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := srv.Start(ctx); err != nil {
+		t.Fatalf("start server: %v", err)
+	}
+	defer srv.Close()
+	endpoint := fmt.Sprintf("127.0.0.1:%d", srv.Port())
+	srv.mu.Lock()
+	srv.pendingPairings[token] = serverPendingPairing{
+		token: token, remoteName: "Client", remotePlatform: "android",
+		remotePub: clientIdent.PublicKey, sas: sas, createdAt: time.Now(),
+	}
+	srv.mu.Unlock()
+
+	if code := postPairingConfirm(t, endpoint, token, sas, clientIdent); code != http.StatusOK {
+		t.Fatalf("expected 200 for first confirm, got %d", code)
+	}
+	if code := postPairingConfirm(t, endpoint, token, sas, clientIdent); code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for replayed confirm, got %d", code)
+	}
+	if n := len(serverTrust.List()); n != 1 {
+		t.Fatalf("expected exactly 1 trust record, got %d", n)
 	}
 }

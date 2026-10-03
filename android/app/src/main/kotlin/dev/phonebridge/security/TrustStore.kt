@@ -23,6 +23,25 @@ data class TrustedDeviceRecord(
  */
 class TrustStore(private val storeFile: File) {
 
+    companion object {
+        /**
+         * Fired (off the store lock) after every trust mutation: add, revoke,
+         * remove. Lets UI layers refresh instead of showing stale trust state.
+         * A throwing listener must never break persistence, so dispatch is
+         * guarded.
+         */
+        @Volatile
+        var changeListener: (() -> Unit)? = null
+
+        private fun notifyChanged() {
+            try {
+                changeListener?.invoke()
+            } catch (_: Throwable) {
+                // Listener failures must not break trust persistence.
+            }
+        }
+    }
+
     private val lock = Any()
     private val devices = mutableMapOf<String, TrustedDeviceRecord>()
 
@@ -101,25 +120,40 @@ class TrustStore(private val storeFile: File) {
             devices[record.deviceId] = record
             save()
         }
+        notifyChanged()
     }
 
     fun revoke(deviceId: String): Boolean {
-        synchronized(lock) {
+        val ok = synchronized(lock) {
             val existing = devices[deviceId] ?: return false
             devices[deviceId] = existing.copy(revoked = true)
             save()
-            return true
+            true
         }
+        if (ok) notifyChanged()
+        return ok
     }
 
     fun remove(deviceId: String): Boolean {
-        synchronized(lock) {
+        val ok = synchronized(lock) {
             if (devices.remove(deviceId) != null) {
                 save()
-                return true
+                true
+            } else {
+                false
             }
-            return false
         }
+        if (ok) notifyChanged()
+        return ok
+    }
+
+    /**
+     * Re-reads the store file. Separate in-process instances (service vs UI)
+     * share the file but not memory; readers call this when notified of a
+     * change made by another instance.
+     */
+    fun reload() {
+        load()
     }
 
     fun list(): List<TrustedDeviceRecord> {
