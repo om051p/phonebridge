@@ -115,10 +115,14 @@ func (b *ClipboardBridge) Init(host ClipboardHost) error {
 			}
 		}
 
-		// Fallback to Kotlin host callback if registered
+		// Fallback to Kotlin host callback if registered. With neither path
+		// available the update was NOT sent: report the failure so callers
+		// (e.g. the pending-slot flush) keep the item and retry when a
+		// transport exists. A silent nil here loses the item while the
+		// sender believes it was delivered.
 		h := b.host
 		if h == nil {
-			return nil // host not registered or offline; update safe to drop
+			return errors.New("clipboard: no transport session and no host callback; update not sent")
 		}
 
 		ok := h.SendClipboardUpdate(wireBytes)

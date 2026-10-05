@@ -245,6 +245,8 @@ void main() {
 
       final mock = MockPlatformBridgeService(isLinuxMode: true);
       final controller = PhoneBridgeController(service: mock);
+      // Explicit target for the tab's start control (Phase C).
+      controller.setReceiverUrl('test-peer');
 
       await tester.pumpWidget(buildTestWidget(ScreenSharingScreen(controller: controller)));
       await tester.pumpAndSettle();
@@ -295,7 +297,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('This Device (Arch Linux Workstation)'), findsOneWidget);
-      expect(find.text('Discovered Devices (1)'), findsOneWidget);
+      // Canonical rows: the untrusted browse entry pairs, the trusted-but-
+      // undiscovered phone is unavailable (never mixed into one list).
+      expect(find.text('Available to pair (1)'), findsOneWidget);
+      expect(find.text('Unavailable (1)'), findsOneWidget);
       expect(find.text('Pixel 8'), findsOneWidget);
 
       await tester.tap(find.text('PAIR'));

@@ -28,6 +28,15 @@ const DefaultSignalingPort = 7804
 // (idempotent: trust commits upsert by device ID).
 const pendingPairingTTL = 5 * time.Minute
 
+// confirmPollIntervalDefault paces requester confirm polls while the receiver
+// reports 202 pending. Every poll is its own short HTTP exchange, so the 10 s
+// transport budgets are never the bound — the token TTL is.
+const confirmPollIntervalDefault = 3 * time.Second
+
+// pendingPairingMaxPollElapsed caps the whole confirm-poll wait at the
+// pairing-token TTL: polling past it can only ever meet an expired token.
+const pendingPairingMaxPollElapsed = 5 * time.Minute
+
 type serverPendingPairing struct {
 	token          string
 	remoteName     string
@@ -35,6 +44,20 @@ type serverPendingPairing struct {
 	remotePub      []byte
 	sas            string
 	createdAt      time.Time
+	// approved is the receiving user's explicit decision: nil while the
+	// request is still awaiting them, true/false once they accept/reject.
+	// Trust is committed only after approved==true AND a valid confirm.
+	approved *bool
+}
+
+// InboundPairing is a receiver-side view of one pending pairing request,
+// surfaced to the local UI so the user can accept or reject it.
+type InboundPairing struct {
+	Token          string
+	RemoteName     string
+	RemotePlatform string
+	SAS            string
+	CreatedAt      time.Time
 }
 
 // SignalingServerConfig configures the inbound HTTP LAN signaling server.
@@ -186,7 +209,26 @@ func (s *SignalingServer) handlePairingRequest(w http.ResponseWriter, r *http.Re
 
 	sas := crypto.CalculateSAS(s.cfg.Identity.PublicKey, remotePub, req.PairingToken)
 
+	// Re-pair of an already-trusted key is redundant, never a new request:
+	// answer 409 so the requester can say "already trusted" instead of
+	// opening an approval dialog for a peer both sides already trust. A
+	// revoked key re-pairs through the normal approval flow below.
+	if s.cfg.TrustStore != nil {
+		if entry, ok := s.cfg.TrustStore.FindByPublicKey(remotePub); ok && !entry.Revoked {
+			http.Error(w, `{"error":"already trusted"}`, http.StatusConflict)
+			return
+		}
+	}
+
 	s.mu.Lock()
+	// Duplicate-request protection: one pending request per remote key. A
+	// retry (new token, same peer) supersedes the older one instead of
+	// stacking dialogs on the receiver.
+	for tok, p := range s.pendingPairings {
+		if subtle.ConstantTimeCompare(p.remotePub, remotePub) == 1 {
+			delete(s.pendingPairings, tok)
+		}
+	}
 	s.pendingPairings[req.PairingToken] = serverPendingPairing{
 		token:          req.PairingToken,
 		remoteName:     req.DisplayName,
@@ -228,22 +270,49 @@ func (s *SignalingServer) handlePairingConfirm(w http.ResponseWriter, r *http.Re
 
 	s.mu.Lock()
 	pending, exists := s.pendingPairings[req.PairingToken]
-	if exists {
-		delete(s.pendingPairings, req.PairingToken)
-	}
 	s.mu.Unlock()
 
 	if exists && time.Since(pending.createdAt) > pendingPairingTTL {
+		s.mu.Lock()
+		delete(s.pendingPairings, req.PairingToken)
+		s.mu.Unlock()
 		http.Error(w, `{"error":"pairing token expired"}`, http.StatusBadRequest)
 		return
 	}
 
 	if !exists || subtle.ConstantTimeCompare([]byte(pending.sas), []byte(req.SAS)) != 1 {
+		if exists {
+			s.mu.Lock()
+			delete(s.pendingPairings, req.PairingToken)
+			s.mu.Unlock()
+		}
 		http.Error(w, `{"error":"invalid or expired pairing token/sas"}`, http.StatusBadRequest)
 		return
 	}
 
 	if !req.Confirmed {
+		// Requester-side rejection withdraws the request: the receiver's
+		// pending dialog disappears on its next refresh instead of asking
+		// about a peer that already walked away.
+		s.mu.Lock()
+		delete(s.pendingPairings, req.PairingToken)
+		s.mu.Unlock()
+		http.Error(w, `{"error":"pairing rejected by user"}`, http.StatusBadRequest)
+		return
+	}
+
+	// The receiving user has not decided yet: hold the token (202) so the
+	// requester polls. Trust is committed only after an explicit approval.
+	if pending.approved == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(crypto.PairingStatusPayload{Status: "pending"})
+		return
+	}
+	if !*pending.approved {
+		s.mu.Lock()
+		delete(s.pendingPairings, req.PairingToken)
+		s.mu.Unlock()
 		http.Error(w, `{"error":"pairing rejected by user"}`, http.StatusBadRequest)
 		return
 	}
@@ -256,12 +325,34 @@ func (s *SignalingServer) handlePairingConfirm(w http.ResponseWriter, r *http.Re
 
 	sigMaterial := fmt.Sprintf("%s:%s", req.PairingToken, req.SAS)
 	if !crypto.Verify(pending.remotePub, []byte(sigMaterial), sigBytes) {
+		s.mu.Lock()
+		delete(s.pendingPairings, req.PairingToken)
+		s.mu.Unlock()
 		http.Error(w, `{"error":"invalid confirmation signature"}`, http.StatusUnauthorized)
 		return
 	}
 
+	// The requester identifies itself with req.DeviceID. Never trust it blindly:
+	// the authenticated identity is pending.remotePub (the key this token was
+	// issued for and the signature was verified against). A mismatched ID
+	// would create a second logical trust record for the same key, which is
+	// exactly the duplicate-device accumulation the connection audit found.
+	if req.DeviceID != crypto.Fingerprint(pending.remotePub) {
+		s.mu.Lock()
+		delete(s.pendingPairings, req.PairingToken)
+		s.mu.Unlock()
+		http.Error(w, `{"error":"device_id does not match authenticated public key"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Single-use token: a successful pairing consumes it, so a replayed
+	// confirm can never commit trust twice.
+	s.mu.Lock()
+	delete(s.pendingPairings, req.PairingToken)
+	s.mu.Unlock()
+
 	if s.cfg.TrustStore != nil {
-		_ = s.cfg.TrustStore.AddTrusted(crypto.TrustEntry{
+		_ = s.cfg.TrustStore.UpsertCanonical(crypto.TrustEntry{
 			DeviceID:    req.DeviceID,
 			DisplayName: pending.remoteName,
 			Platform:    pending.remotePlatform,
@@ -274,6 +365,60 @@ func (s *SignalingServer) handlePairingConfirm(w http.ResponseWriter, r *http.Re
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(crypto.PairingStatusPayload{Status: "paired"})
+}
+
+// ApprovePairing records the receiving user's explicit decision for one
+// pending inbound pairing request. It returns false when the token is
+// unknown or already expired (expired entries are swept). Approval holds the
+// token until the requester's signed confirm commits trust; rejection is
+// terminal for the receiver, so the token is dropped immediately and the
+// requester's next confirm poll learns the outcome as 400.
+func (s *SignalingServer) ApprovePairing(token string, approved bool) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pending, ok := s.pendingPairings[token]
+	if !ok {
+		return false
+	}
+	if time.Since(pending.createdAt) > pendingPairingTTL {
+		delete(s.pendingPairings, token)
+		return false
+	}
+	if !approved {
+		// A rejected request must not linger in PendingPairings: the UI
+		// would keep asking the receiver about a decision they already
+		// made until the TTL sweep.
+		delete(s.pendingPairings, token)
+		return true
+	}
+	pending.approved = &approved
+	s.pendingPairings[token] = pending
+	return true
+}
+
+// PendingPairings snapshots the inbound pairing requests still awaiting the
+// receiving user's decision. Expired entries are swept and omitted, so the UI
+// auto-dismisses stale dialogs by refreshing this list.
+func (s *SignalingServer) PendingPairings() []InboundPairing {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	out := make([]InboundPairing, 0, len(s.pendingPairings))
+	for token, p := range s.pendingPairings {
+		if time.Since(p.createdAt) > pendingPairingTTL {
+			delete(s.pendingPairings, token)
+			continue
+		}
+		out = append(out, InboundPairing{
+			Token:          token,
+			RemoteName:     p.remoteName,
+			RemotePlatform: p.remotePlatform,
+			SAS:            p.sas,
+			CreatedAt:      p.createdAt,
+		})
+	}
+	return out
 }
 
 func (s *SignalingServer) verifyAuth(r *http.Request, body []byte) (string, error) {
@@ -301,9 +446,7 @@ func (s *SignalingServer) handleSessionOffer(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if s.cfg.TrustStore != nil && deviceID != "" {
-		if entry, ok := s.cfg.TrustStore.Get(deviceID); ok {
-			_ = s.cfg.TrustStore.AddTrusted(entry)
-		}
+		s.cfg.TrustStore.TouchLastSeen(deviceID)
 	}
 
 	var req offerRequest
@@ -417,9 +560,7 @@ func (s *SignalingServer) handleSessionPeerOffer(w http.ResponseWriter, r *http.
 		return
 	}
 	if s.cfg.TrustStore != nil && deviceID != "" {
-		if entry, ok := s.cfg.TrustStore.Get(deviceID); ok {
-			_ = s.cfg.TrustStore.AddTrusted(entry)
-		}
+		s.cfg.TrustStore.TouchLastSeen(deviceID)
 	}
 
 	// sessionID is carried on refusals too: a SESSION_BUSY answer that names the
@@ -528,9 +669,7 @@ func (s *SignalingServer) handleSessionAnswer(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if s.cfg.TrustStore != nil && deviceID != "" {
-		if entry, ok := s.cfg.TrustStore.Get(deviceID); ok {
-			_ = s.cfg.TrustStore.AddTrusted(entry)
-		}
+		s.cfg.TrustStore.TouchLastSeen(deviceID)
 	}
 
 	var payload sdpPayload
@@ -573,9 +712,7 @@ func (s *SignalingServer) handleSessionStop(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if s.cfg.TrustStore != nil && deviceID != "" {
-		if entry, ok := s.cfg.TrustStore.Get(deviceID); ok {
-			_ = s.cfg.TrustStore.AddTrusted(entry)
-		}
+		s.cfg.TrustStore.TouchLastSeen(deviceID)
 	}
 
 	var payload stopPayload

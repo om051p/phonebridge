@@ -31,7 +31,10 @@ fi
 
 # 3. Clean prior build staging
 rm -rf "$STAGE_DIR" "$TARBALL"
-mkdir -p "$STAGE_DIR/bin" "$STAGE_DIR/ui" "$STAGE_DIR/systemd" "$STAGE_DIR/desktop/icons/hicolor/512x512/apps" "$STAGE_DIR/scripts"
+mkdir -p "$STAGE_DIR/bin" "$STAGE_DIR/ui" "$STAGE_DIR/systemd" "$STAGE_DIR/scripts"
+for size in 16 22 24 32 48 64 128 256 512; do
+    mkdir -p "$STAGE_DIR/desktop/icons/hicolor/${size}x${size}/apps"
+done
 
 # 4. Build Go binaries with metadata
 VERSION="0.1.0"
@@ -66,7 +69,9 @@ cp -a "$REPO_ROOT/ui/build/linux/x64/release/bundle/"* "$STAGE_DIR/ui/"
 echo "Staging systemd service, desktop launcher, scripts and docs..."
 install -m 0644 "$REPO_ROOT/linux/packaging/systemd/phonebridge.service" "$STAGE_DIR/systemd/phonebridge.service"
 install -m 0644 "$REPO_ROOT/linux/packaging/desktop/dev.phonebridge.ui.desktop" "$STAGE_DIR/desktop/dev.phonebridge.ui.desktop"
-install -m 0644 "$REPO_ROOT/linux/packaging/desktop/icons/hicolor/512x512/apps/dev.phonebridge.ui.png" "$STAGE_DIR/desktop/icons/hicolor/512x512/apps/dev.phonebridge.ui.png"
+for size in 16 22 24 32 48 64 128 256 512; do
+    install -m 0644 "$REPO_ROOT/linux/packaging/desktop/icons/hicolor/${size}x${size}/apps/dev.phonebridge.ui.png" "$STAGE_DIR/desktop/icons/hicolor/${size}x${size}/apps/dev.phonebridge.ui.png"
+done
 
 install -m 0755 "$REPO_ROOT/linux/packaging/scripts/check-env.sh" "$STAGE_DIR/scripts/check-env.sh"
 install -m 0755 "$REPO_ROOT/linux/packaging/scripts/install.sh" "$STAGE_DIR/scripts/install.sh"

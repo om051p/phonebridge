@@ -112,12 +112,25 @@ class LocalEngineServiceClient extends $grpc.Client {
     return $createUnaryCall(_$pairDevice, request, options: options);
   }
 
-  /// ConfirmPairing completes pairing by confirming the SAS.
   $grpc.ResponseFuture<$0.ConfirmPairingResponse> confirmPairing(
     $0.ConfirmPairingRequest request, {
     $grpc.CallOptions? options,
   }) {
     return $createUnaryCall(_$confirmPairing, request, options: options);
+  }
+
+  $grpc.ResponseFuture<$0.ListInboundPairingsResponse> listInboundPairings(
+    $0.ListInboundPairingsRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$listInboundPairings, request, options: options);
+  }
+
+  $grpc.ResponseFuture<$0.RespondInboundPairingResponse> respondInboundPairing(
+    $0.RespondInboundPairingRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$respondInboundPairing, request, options: options);
   }
 
   /// ListTrustedDevices returns all trusted/paired devices.
@@ -134,6 +147,15 @@ class LocalEngineServiceClient extends $grpc.Client {
     $grpc.CallOptions? options,
   }) {
     return $createUnaryCall(_$revokeDevice, request, options: options);
+  }
+
+  /// RemoveDevice permanently deletes a trusted record (Forget Device).
+  /// Hand-added for Phase H (mirrors RevokeDevice; reuses its messages).
+  $grpc.ResponseFuture<$0.RevokeDeviceResponse> removeDevice(
+    $0.RevokeDeviceRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$removeDevice, request, options: options);
   }
 
   /// GetClipboardStatus returns the current status of the host clipboard adapter and engine.
@@ -267,6 +289,16 @@ class LocalEngineServiceClient extends $grpc.Client {
           '/phonebridge.localipc.v1.LocalEngineService/ConfirmPairing',
           ($0.ConfirmPairingRequest value) => value.writeToBuffer(),
           $0.ConfirmPairingResponse.fromBuffer);
+  static final _$listInboundPairings = $grpc.ClientMethod<
+          $0.ListInboundPairingsRequest, $0.ListInboundPairingsResponse>(
+      '/phonebridge.localipc.v1.LocalEngineService/ListInboundPairings',
+      ($0.ListInboundPairingsRequest value) => value.writeToBuffer(),
+      $0.ListInboundPairingsResponse.fromBuffer);
+  static final _$respondInboundPairing = $grpc.ClientMethod<
+          $0.RespondInboundPairingRequest, $0.RespondInboundPairingResponse>(
+      '/phonebridge.localipc.v1.LocalEngineService/RespondInboundPairing',
+      ($0.RespondInboundPairingRequest value) => value.writeToBuffer(),
+      $0.RespondInboundPairingResponse.fromBuffer);
   static final _$listTrustedDevices = $grpc.ClientMethod<
           $0.ListTrustedDevicesRequest, $0.ListTrustedDevicesResponse>(
       '/phonebridge.localipc.v1.LocalEngineService/ListTrustedDevices',
@@ -275,6 +307,12 @@ class LocalEngineServiceClient extends $grpc.Client {
   static final _$revokeDevice =
       $grpc.ClientMethod<$0.RevokeDeviceRequest, $0.RevokeDeviceResponse>(
           '/phonebridge.localipc.v1.LocalEngineService/RevokeDevice',
+          ($0.RevokeDeviceRequest value) => value.writeToBuffer(),
+          $0.RevokeDeviceResponse.fromBuffer);
+  // Hand-added for Phase H (mirrors _$revokeDevice).
+  static final _$removeDevice =
+      $grpc.ClientMethod<$0.RevokeDeviceRequest, $0.RevokeDeviceResponse>(
+          '/phonebridge.localipc.v1.LocalEngineService/RemoveDevice',
           ($0.RevokeDeviceRequest value) => value.writeToBuffer(),
           $0.RevokeDeviceResponse.fromBuffer);
   static final _$getClipboardStatus = $grpc.ClientMethod<
@@ -406,6 +444,24 @@ abstract class LocalEngineServiceBase extends $grpc.Service {
         ($core.List<$core.int> value) =>
             $0.ConfirmPairingRequest.fromBuffer(value),
         ($0.ConfirmPairingResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.ListInboundPairingsRequest,
+            $0.ListInboundPairingsResponse>(
+        'ListInboundPairings',
+        listInboundPairings_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) =>
+            $0.ListInboundPairingsRequest.fromBuffer(value),
+        ($0.ListInboundPairingsResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.RespondInboundPairingRequest,
+            $0.RespondInboundPairingResponse>(
+        'RespondInboundPairing',
+        respondInboundPairing_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) =>
+            $0.RespondInboundPairingRequest.fromBuffer(value),
+        ($0.RespondInboundPairingResponse value) => value.writeToBuffer()));
     $addMethod($grpc.ServiceMethod<$0.ListTrustedDevicesRequest,
             $0.ListTrustedDevicesResponse>(
         'ListTrustedDevices',
@@ -419,6 +475,15 @@ abstract class LocalEngineServiceBase extends $grpc.Service {
         $grpc.ServiceMethod<$0.RevokeDeviceRequest, $0.RevokeDeviceResponse>(
             'RevokeDevice',
             revokeDevice_Pre,
+            false,
+            false,
+            ($core.List<$core.int> value) =>
+                $0.RevokeDeviceRequest.fromBuffer(value),
+            ($0.RevokeDeviceResponse value) => value.writeToBuffer()));
+    $addMethod(
+        $grpc.ServiceMethod<$0.RevokeDeviceRequest, $0.RevokeDeviceResponse>(
+            'RemoveDevice',
+            removeDevice_Pre,
             false,
             false,
             ($core.List<$core.int> value) =>
@@ -578,6 +643,24 @@ abstract class LocalEngineServiceBase extends $grpc.Service {
   $async.Future<$0.ConfirmPairingResponse> confirmPairing(
       $grpc.ServiceCall call, $0.ConfirmPairingRequest request);
 
+  $async.Future<$0.ListInboundPairingsResponse> listInboundPairings_Pre(
+      $grpc.ServiceCall $call,
+      $async.Future<$0.ListInboundPairingsRequest> $request) async {
+    return listInboundPairings($call, await $request);
+  }
+
+  $async.Future<$0.ListInboundPairingsResponse> listInboundPairings(
+      $grpc.ServiceCall call, $0.ListInboundPairingsRequest request);
+
+  $async.Future<$0.RespondInboundPairingResponse> respondInboundPairing_Pre(
+      $grpc.ServiceCall $call,
+      $async.Future<$0.RespondInboundPairingRequest> $request) async {
+    return respondInboundPairing($call, await $request);
+  }
+
+  $async.Future<$0.RespondInboundPairingResponse> respondInboundPairing(
+      $grpc.ServiceCall call, $0.RespondInboundPairingRequest request);
+
   $async.Future<$0.ListTrustedDevicesResponse> listTrustedDevices_Pre(
       $grpc.ServiceCall $call,
       $async.Future<$0.ListTrustedDevicesRequest> $request) async {
@@ -594,6 +677,15 @@ abstract class LocalEngineServiceBase extends $grpc.Service {
   }
 
   $async.Future<$0.RevokeDeviceResponse> revokeDevice(
+      $grpc.ServiceCall call, $0.RevokeDeviceRequest request);
+
+  $async.Future<$0.RevokeDeviceResponse> removeDevice_Pre(
+      $grpc.ServiceCall $call,
+      $async.Future<$0.RevokeDeviceRequest> $request) async {
+    return removeDevice($call, await $request);
+  }
+
+  $async.Future<$0.RevokeDeviceResponse> removeDevice(
       $grpc.ServiceCall call, $0.RevokeDeviceRequest request);
 
   $async.Future<$0.GetClipboardStatusResponse> getClipboardStatus_Pre(

@@ -34,7 +34,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
         // send-file action) sits above the activity log, so file transfer is not
         // hidden behind a mode the user has to discover first.
         return ListView(
-          padding: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.only(bottom: 32),
           children: [
             const SizedBox(height: 16),
             NotificationsSection(controller: widget.controller.notifications),
@@ -73,6 +73,9 @@ class _ActivityScreenState extends State<ActivityScreen> {
       child: Row(
         children: [
           Expanded(
+            // Horizontal scroll keeps every filter reachable on narrow
+            // phones — no clipped buttons. Includes System so no category is
+            // filterable-only-by-All.
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -109,6 +112,13 @@ class _ActivityScreenState extends State<ActivityScreen> {
                     label: const Text('Connection'),
                     selected: _selectedFilter == ActivityCategory.connection,
                     onSelected: (_) => setState(() => _selectedFilter = ActivityCategory.connection),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  const SizedBox(width: 8),
+                  FilterChip(
+                    label: const Text('System'),
+                    selected: _selectedFilter == ActivityCategory.system,
+                    onSelected: (_) => setState(() => _selectedFilter = ActivityCategory.system),
                     visualDensity: VisualDensity.compact,
                   ),
                 ],

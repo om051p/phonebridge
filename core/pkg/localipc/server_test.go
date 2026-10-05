@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -467,8 +468,14 @@ type mockOrchestrator struct {
 	pairSAS     string
 	pairErr     error
 	confirmErr  error
-	trustedDevs []crypto.TrustEntry
-	revokeErr   error
+	inbound     []engine.InboundPairing
+	respondOK   bool
+	// respondFailToken makes RespondInboundPairing report "not recordable"
+	// for that one token, modelling an expired/unknown request.
+	respondFailToken string
+	responded        [2]string // token, approved ("true"/"false"); "" when never called
+	trustedDevs      []crypto.TrustEntry
+	revokeErr        error
 	cbStatus    *phonebridgelocalipcv1.GetClipboardStatusResponse
 	cbErr       error
 	cbPullErr   error
@@ -518,11 +525,26 @@ func (m *mockOrchestrator) ConfirmPairing(ctx context.Context, deviceID string, 
 	return m.confirmErr
 }
 
+func (m *mockOrchestrator) ListInboundPairings() []engine.InboundPairing {
+	return m.inbound
+}
+
+func (m *mockOrchestrator) RespondInboundPairing(token string, approved bool) bool {
+	m.mu.Lock()
+	m.responded = [2]string{token, strconv.FormatBool(approved)}
+	m.mu.Unlock()
+	return m.respondOK && token != m.respondFailToken
+}
+
 func (m *mockOrchestrator) ListTrustedDevices() []crypto.TrustEntry {
 	return m.trustedDevs
 }
 
 func (m *mockOrchestrator) RevokeDevice(deviceID string) error {
+	return m.revokeErr
+}
+
+func (m *mockOrchestrator) RemoveDevice(deviceID string) error {
 	return m.revokeErr
 }
 
@@ -595,6 +617,43 @@ func TestMediaParamsConversions(t *testing.T) {
 	}
 }
 
+func TestMediaCapabilitiesConversions(t *testing.T) {
+	caps := []engine.MediaCapability{{
+		Codecs:         []string{"h264"},
+		MaxWidth:       1080,
+		MaxHeight:      2400,
+		MaxFPS:         30,
+		SupportsScreen: true,
+	}}
+
+	// Unknown stays absent on the wire: the UI renders "Checking device
+	// capabilities…" instead of guessing availability.
+	if got := ToProtoMediaCapabilitiesKnown(nil, false); got != nil {
+		t.Errorf("unknown caps must be encoded as absent, got %v", got)
+	}
+	if got := ToProtoMediaCapabilitiesKnown(caps, false); got != nil {
+		t.Errorf("unreported caps must be encoded as absent even with values, got %v", got)
+	}
+	if got := ToProtoMediaCapabilitiesKnown(nil, true); got != nil {
+		t.Errorf("a known flag with no entries must be encoded as absent, got %v", got)
+	}
+
+	got := ToProtoMediaCapabilitiesKnown(caps, true)
+	if got == nil {
+		t.Fatal("reported caps must be encoded")
+	}
+	if got.GetMaxWidth() != 1080 || got.GetMaxHeight() != 2400 || got.GetMaxFps() != 30 {
+		t.Errorf("caps bounds = %dx%d@%d, want 1080x2400@30",
+			got.GetMaxWidth(), got.GetMaxHeight(), got.GetMaxFps())
+	}
+	if !got.GetSupportsScreen() {
+		t.Error("caps must report screen support")
+	}
+	if codecs := got.GetCodecs(); len(codecs) != 1 || codecs[0] != "h264" {
+		t.Errorf("caps codecs = %v, want [h264]", codecs)
+	}
+}
+
 func TestRPC_SessionLifecycle_And_Events(t *testing.T) {
 	sock, tok, tokVal := testSetup(t)
 
@@ -612,6 +671,16 @@ func TestRPC_SessionLifecycle_And_Events(t *testing.T) {
 			Requested:         engine.MediaParams{Width: 1080, Height: 2400, FPS: 60, BitrateKbps: 8000},
 			Actual:            engine.MediaParams{Width: 720, Height: 1600, FPS: 30, BitrateKbps: 4000},
 			ActualKnown:       true,
+			// What the peer advertised in the DEC-022 offer exchange rides the
+			// same snapshot so Flutter gates presets on runtime truth.
+			AdvertisedCaps: []engine.MediaCapability{{
+				Codecs:         []string{"h264"},
+				MaxWidth:       1080,
+				MaxHeight:      2400,
+				MaxFPS:         30,
+				SupportsScreen: true,
+			}},
+			AdvertisedCapsKnown: true,
 			// Real receiver state: the sink classification and the
 			// depacketizer's transport counters must ride the same snapshot
 			// that already carries session state and negotiated media.
@@ -748,6 +817,14 @@ func TestRPC_SessionLifecycle_And_Events(t *testing.T) {
 	}
 	if got := stateResp.GetActual(); got.GetWidth() != 720 || got.GetFps() != 30 {
 		t.Errorf("actual media = %v, want the device-reported 720x1600@30", got)
+	}
+	// Advertised capabilities reach the client verbatim; absent stays absent.
+	if got := stateResp.GetCapabilities(); got == nil || got.GetMaxWidth() != 1080 ||
+		got.GetMaxHeight() != 2400 || got.GetMaxFps() != 30 || !got.GetSupportsScreen() {
+		t.Errorf("capabilities = %v, want the reported 1080x2400@30 h264 advertisement", got)
+	}
+	if got := stateResp.GetCapabilities().GetCodecs(); len(got) != 1 || got[0] != "h264" {
+		t.Errorf("capability codecs = %v, want [h264]", got)
 	}
 	if stateResp.GetReasonCode() != phonebridgelocalipcv1.SessionReason_SESSION_REASON_NONE {
 		t.Errorf("reason code = %v, want NONE", stateResp.GetReasonCode())
@@ -963,5 +1040,177 @@ func TestServer_ClipboardEndpoints(t *testing.T) {
 	}
 	if evt.GetClipboardEvent().GetState() != "COSMIC_FLAG_REQUIRED" {
 		t.Errorf("expected COSMIC_FLAG_REQUIRED, got %s", evt.GetClipboardEvent().GetState())
+	}
+}
+
+func TestRPC_ListAndRespondInboundPairings(t *testing.T) {
+	sock, tok, tokVal := testSetup(t)
+
+	mock := &mockOrchestrator{
+		inbound: []engine.InboundPairing{
+			{
+				Token:          "tok-1",
+				RemoteName:     "POCO F5",
+				RemotePlatform: "android",
+				SAS:            "123456",
+				CreatedAt:      time.UnixMilli(1700000000000),
+			},
+		},
+		respondOK:        true,
+		respondFailToken: "gone",
+	}
+
+	srv, cancel, errCh := startTestServer(t, Config{
+		SocketPath: sock,
+		TokenPath:  tok,
+		Token:      tokVal,
+	})
+	defer func() {
+		cancel()
+		<-errCh
+	}()
+	srv.SetOrchestrator(mock)
+
+	client, err := Dial(context.Background(), sock, tokVal)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer client.Close()
+
+	list, err := client.ListInboundPairings(context.Background(), &phonebridgelocalipcv1.ListInboundPairingsRequest{})
+	if err != nil {
+		t.Fatalf("ListInboundPairings: %v", err)
+	}
+	if len(list.GetRequests()) != 1 {
+		t.Fatalf("expected 1 inbound request, got %d", len(list.GetRequests()))
+	}
+	got := list.GetRequests()[0]
+	if got.GetPairingToken() != "tok-1" || got.GetRemoteName() != "POCO F5" ||
+		got.GetRemotePlatform() != "android" || got.GetSas() != "123456" ||
+		got.GetCreatedAtMs() != 1700000000000 {
+		t.Errorf("inbound request mapping mismatch: %+v", got)
+	}
+
+	resp, err := client.RespondInboundPairing(context.Background(), &phonebridgelocalipcv1.RespondInboundPairingRequest{
+		PairingToken: "tok-1",
+		Approved:     true,
+	})
+	if err != nil {
+		t.Fatalf("RespondInboundPairing: %v", err)
+	}
+	if !resp.GetRecorded() {
+		t.Fatalf("expected recorded=true")
+	}
+	mock.mu.Lock()
+	responded := mock.responded
+	mock.mu.Unlock()
+	if responded[0] != "tok-1" || responded[1] != "true" {
+		t.Errorf("orchestrator did not receive the decision: %v", responded)
+	}
+
+	// Unknown token: decision not recordable — must report recorded=false,
+	// not an error, so the UI can dismiss gracefully.
+	resp, err = client.RespondInboundPairing(context.Background(), &phonebridgelocalipcv1.RespondInboundPairingRequest{
+		PairingToken: "gone",
+		Approved:     false,
+	})
+	if err != nil {
+		t.Fatalf("RespondInboundPairing(gone): %v", err)
+	}
+	if resp.GetRecorded() {
+		t.Errorf("expected recorded=false for unknown token")
+	}
+
+	if _, err := client.RespondInboundPairing(context.Background(), &phonebridgelocalipcv1.RespondInboundPairingRequest{}); err == nil {
+		t.Errorf("empty pairing_token must be rejected as InvalidArgument")
+	} else if status.Code(err) != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument, got %v", status.Code(err))
+	}
+}
+
+func TestRPC_PairingEventBroadcast(t *testing.T) {
+	sock, tok, tokVal := testSetup(t)
+
+	srv, cancel, errCh := startTestServer(t, Config{
+		SocketPath: sock,
+		TokenPath:  tok,
+		Token:      tokVal,
+	})
+	defer func() {
+		cancel()
+		<-errCh
+	}()
+
+	client, err := Dial(context.Background(), sock, tokVal)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer client.Close()
+
+	ctx, streamCancel := context.WithCancel(context.Background())
+	defer streamCancel()
+	stream, err := client.StreamEvents(ctx, &phonebridgelocalipcv1.StreamEventsRequest{})
+	if err != nil {
+		t.Fatalf("StreamEvents: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	srv.BroadcastPairingEvent(&phonebridgelocalipcv1.PairingEvent{
+		Type:         phonebridgelocalipcv1.PairingEventType_PAIRING_EVENT_TYPE_ARRIVED,
+		PairingToken: "tok-arrived",
+	})
+
+	evt, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("stream.Recv: %v", err)
+	}
+	pe := evt.GetPairingEvent()
+	if pe == nil {
+		t.Fatalf("expected pairing_event in StreamEventsResponse")
+	}
+	if pe.GetType() != phonebridgelocalipcv1.PairingEventType_PAIRING_EVENT_TYPE_ARRIVED ||
+		pe.GetPairingToken() != "tok-arrived" {
+		t.Errorf("pairing event mismatch: %+v", pe)
+	}
+}
+
+func TestHasSubscribers(t *testing.T) {
+	sock, tok, tokVal := testSetup(t)
+
+	srv, cancel, errCh := startTestServer(t, Config{
+		SocketPath: sock,
+		TokenPath:  tok,
+		Token:      tokVal,
+	})
+	defer func() {
+		cancel()
+		<-errCh
+	}()
+
+	if srv.HasSubscribers() {
+		t.Fatalf("no subscriber yet, HasSubscribers must be false")
+	}
+
+	client, err := Dial(context.Background(), sock, tokVal)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer client.Close()
+
+	ctx, streamCancel := context.WithCancel(context.Background())
+	defer streamCancel()
+	// Subscription lifetime is the point here, not the events.
+	_, err = client.StreamEvents(ctx, &phonebridgelocalipcv1.StreamEventsRequest{})
+	if err != nil {
+		t.Fatalf("StreamEvents: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if !srv.HasSubscribers() {
+		t.Fatalf("subscriber attached, HasSubscribers must be true")
+	}
+	streamCancel()
+	time.Sleep(50 * time.Millisecond)
+	if srv.HasSubscribers() {
+		t.Fatalf("subscriber cancelled, HasSubscribers must be false")
 	}
 }

@@ -155,7 +155,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Permissions Configured'), findsOneWidget);
-    expect(find.text('Active'), findsNWidgets(3));
+    // Granted (permission on) is distinct from Active (service functioning):
+    // the badge reads Granted until a live service check confirms activity.
+    expect(find.text('Granted'), findsNWidgets(3));
     expect(find.text('Android 13+ Restricted Settings Guidance'), findsNothing);
   });
 }

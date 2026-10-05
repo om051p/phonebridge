@@ -76,9 +76,9 @@ void main() {
     expect(find.text('Activity'), findsOneWidget);
 
     // Home opens first, in its no-peer state on the fake daemon.
-    expect(find.text('No Paired PC'), findsOneWidget);
+    expect(find.text('No paired device'), findsOneWidget);
     expect(
-      find.text('Pair with your Linux desktop to connect'),
+      find.text('Pair with your other device to connect'),
       findsOneWidget,
     );
 

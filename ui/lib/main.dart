@@ -86,6 +86,7 @@ class PhoneBridgeApp extends StatelessWidget {
 
     return MaterialApp(
       title: 'PhoneBridge',
+      debugShowCheckedModeBanner: false,
       theme: buildTheme(lightBase, Brightness.light),
       darkTheme: buildTheme(darkBase, Brightness.dark),
       themeMode: ThemeMode.system,

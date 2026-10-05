@@ -30,11 +30,15 @@ import (
 
 // SessionEvent models an event emitted by SessionManager.
 type SessionEvent struct {
-	SessionID    string
-	State        SessionState
-	Reason       string
-	ReasonCode   SessionReason
-	ErrorMessage string
+	SessionID string
+	// TargetDeviceID is the authoritative session peer (the device the
+	// session was started for). Flutter derives activeDeviceId from it;
+	// it must never be inferred from trust ordering (Phase B).
+	TargetDeviceID string
+	State          SessionState
+	Reason         string
+	ReasonCode     SessionReason
+	ErrorMessage   string
 	// Requested/Actual carry the media negotiation when it is known, so the
 	// local IPC snapshot and UI show what was asked for versus what the device
 	// applied (DEC-022).
@@ -44,13 +48,14 @@ type SessionEvent struct {
 }
 
 type pendingPairing struct {
-	deviceID   string
-	endpoint   string
-	token      string
-	sas        string
-	remoteName string
-	remotePub  []byte
-	createdAt  time.Time
+	deviceID       string
+	endpoint       string
+	token          string
+	sas            string
+	remoteName     string
+	remotePlatform string
+	remotePub      []byte
+	createdAt      time.Time
 }
 
 // SessionManager coordinates device discovery and active session lifecycle.
@@ -70,12 +75,21 @@ type SessionManager struct {
 	clipboardAdapter clipboard.PlatformAdapter
 	pendingPairings  map[string]*pendingPairing
 	httpClient       *http.Client
+	// confirmPollInterval paces confirm polls while the receiver reports 202
+	// pending. Zero uses confirmPollIntervalDefault (tests inject a short one).
+	confirmPollInterval time.Duration
 	// frameHub receives completed frames for local-IPC StreamFrames (Phase 6
 	// Slice 3). When set, sessions are wrapped PSIGuard(TapSink(sink)).
 	frameHub *frames.Hub
 
 	notificationStore *notification.Store
 	onNotification    func(*phonebridgev1.NotificationFrame)
+
+	// sigServer is the LAN signaling server this manager serves (optional).
+	// Inbound pairing requests arrive there; ListInboundPairings and
+	// RespondInboundPairing delegate to it so the local IPC surface and the
+	// daemon glue read one source of truth.
+	sigServer *SignalingServer
 }
 
 // NewSessionManager creates a new session coordinator.
@@ -429,14 +443,15 @@ func (m *SessionManager) StartSession(ctx context.Context, deviceID string, requ
 			requested := sess.RequestedParams()
 			actual, actualKnown := sess.NegotiatedParams()
 			m.onEvent(SessionEvent{
-				SessionID:    sessionID,
-				State:        newState,
-				Reason:       reason,
-				ReasonCode:   code,
-				ErrorMessage: errMsg,
-				Requested:    requested,
-				Actual:       actual,
-				ActualKnown:  actualKnown,
+				SessionID:      sessionID,
+				TargetDeviceID: deviceID,
+				State:          newState,
+				Reason:         reason,
+				ReasonCode:     code,
+				ErrorMessage:   errMsg,
+				Requested:      requested,
+				Actual:         actual,
+				ActualKnown:    actualKnown,
 			})
 		}
 	})
@@ -650,20 +665,24 @@ func (m *SessionManager) HandlePeerOffer(ctx context.Context, req PeerOfferReque
 			requested := sess.RequestedParams()
 			actual, actualKnown := sess.NegotiatedParams()
 			m.onEvent(SessionEvent{
-				SessionID:    sessionID,
-				State:        newState,
-				Reason:       reason,
-				ReasonCode:   code,
-				ErrorMessage: errMsg,
-				Requested:    requested,
-				Actual:       actual,
-				ActualKnown:  actualKnown,
+				SessionID:      sessionID,
+				TargetDeviceID: req.PeerDeviceID,
+				State:          newState,
+				Reason:         reason,
+				ReasonCode:     code,
+				ErrorMessage:   errMsg,
+				Requested:      requested,
+				Actual:         actual,
+				ActualKnown:    actualKnown,
 			})
 		}
 	})
 
 	// The peer dialled us, so it may not be in the discovery registry at all; the
 	// endpoint it was authenticated from is what a reconnect will use.
+	// Record the authenticated peer as the session target so snapshots and
+	// events report the authoritative device even without a registry entry.
+	sess.SetTargetDevice(discovery.Device{ID: req.PeerDeviceID})
 	sess.SetTargetEndpoint(req.Endpoint)
 	m.activeSess = sess
 	m.mu.Unlock()
@@ -839,13 +858,14 @@ func (m *SessionManager) PairDevice(ctx context.Context, deviceID string) (strin
 
 	m.mu.Lock()
 	m.pendingPairings[deviceID] = &pendingPairing{
-		deviceID:   deviceID,
-		endpoint:   endpoint,
-		token:      token,
-		sas:        expectedSAS,
-		remoteName: accept.DisplayName,
-		remotePub:  remotePub,
-		createdAt:  time.Now(),
+		deviceID:       deviceID,
+		endpoint:       endpoint,
+		token:          token,
+		sas:            expectedSAS,
+		remoteName:     accept.DisplayName,
+		remotePlatform: accept.Platform,
+		remotePub:      remotePub,
+		createdAt:      time.Now(),
 	}
 	m.mu.Unlock()
 
@@ -892,43 +912,117 @@ func (m *SessionManager) ConfirmPairing(ctx context.Context, deviceID string, co
 	}
 
 	url := fmt.Sprintf("http://%s/pairing/confirm", pending.endpoint)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("create confirm request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
+	postConfirm := func() (int, []byte, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
+		if err != nil {
+			return 0, nil, fmt.Errorf("create confirm request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
 
-	resp, err := m.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("send confirm to %s: %w", url, err)
+		resp, err := m.httpClient.Do(req)
+		if err != nil {
+			return 0, nil, fmt.Errorf("send confirm to %s: %w", url, err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, b, nil
 	}
-	defer resp.Body.Close()
 
 	if !confirmed {
+		// The requester's own rejection still reaches the receiver so its
+		// pending dialog is withdrawn instead of lingering to expiry.
+		_, _, _ = postConfirm()
 		return fmt.Errorf("pairing rejected by user")
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("remote rejected pairing confirm (%d): %s", resp.StatusCode, string(b))
+	// The receiver approves asynchronously: 202 pending means "not yet
+	// decided" — poll the identical confirm until it pairs, rejects, expires,
+	// or the wait (token TTL) / context runs out.
+	pollInterval := m.confirmPollInterval
+	if pollInterval <= 0 {
+		pollInterval = confirmPollIntervalDefault
+	}
+	deadline := time.Now().Add(pendingPairingMaxPollElapsed)
+	for {
+		code, body, err := postConfirm()
+		if err != nil {
+			return err
+		}
+		if code == http.StatusAccepted {
+			if time.Now().After(deadline) {
+				return fmt.Errorf("pairing confirm timed out waiting for receiver approval")
+			}
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("pairing confirm cancelled: %w", ctx.Err())
+			case <-time.After(pollInterval):
+			}
+			continue
+		}
+		if code != http.StatusOK {
+			return fmt.Errorf("remote rejected pairing confirm (%d): %s", code, string(body))
+		}
+		break
 	}
 
 	if store != nil {
+		// Canonical identity: the discovery ID that keyed the pending map is
+		// a browse artifact (TXT `id`, with an instance-name fallback when the
+		// TXT record is absent). The trust record must be keyed by the
+		// fingerprint of the authenticated remote key instead, so the same
+		// physical device can never accumulate a second row under a
+		// discovery-derived ID (connection-audit Phase A).
 		entry := crypto.TrustEntry{
-			DeviceID:    deviceID,
+			DeviceID:    crypto.Fingerprint(pending.remotePub),
 			DisplayName: pending.remoteName,
-			Platform:    "android",
+			Platform:    pending.remotePlatform,
 			PublicKey:   pending.remotePub,
 			PairedAt:    time.Now(),
 			LastSeen:    time.Now(),
 			Revoked:     false,
 		}
-		if err := store.AddTrusted(entry); err != nil {
+		if err := store.UpsertCanonical(entry); err != nil {
 			return fmt.Errorf("save trusted device: %w", err)
 		}
 	}
 
 	return nil
+}
+
+// SetSignalingServer wires the LAN signaling server whose inbound pairing
+// requests this manager exposes. Optional: without it the inbound-pairing
+// surface simply reports nothing.
+func (m *SessionManager) SetSignalingServer(sig *SignalingServer) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sigServer = sig
+}
+
+// ListInboundPairings snapshots the pairing requests awaiting this device's
+// approval (Phase 2 bidirectional pairing). Expired entries are swept by the
+// signaling server itself.
+func (m *SessionManager) ListInboundPairings() []InboundPairing {
+	m.mu.RLock()
+	sig := m.sigServer
+	m.mu.RUnlock()
+	if sig == nil {
+		return nil
+	}
+	return sig.PendingPairings()
+}
+
+// RespondInboundPairing records the local user's accept/reject decision for
+// one inbound pairing request. False means the token is unknown or expired.
+// The decision takes effect on the requester's next confirm poll; approval
+// alone never commits trust.
+func (m *SessionManager) RespondInboundPairing(token string, approved bool) bool {
+	m.mu.RLock()
+	sig := m.sigServer
+	m.mu.RUnlock()
+	if sig == nil {
+		return false
+	}
+	return sig.ApprovePairing(token, approved)
 }
 
 // ListTrustedDevices returns all trusted devices from the store.
@@ -960,6 +1054,32 @@ func (m *SessionManager) RevokeDevice(deviceID string) error {
 	if sess != nil && sess.State() != StateStopped && sess.State() != StateFailed {
 		if sess.cfg.TargetDeviceID == deviceID || (sess.targetDevice.ID == deviceID) {
 			_ = sess.Stop("device trust revoked")
+		}
+	}
+
+	return nil
+}
+
+// RemoveDevice permanently deletes a trust record (Forget Device). Unlike
+// RevokeDevice it preserves no revoked row. A live session targeting the
+// removed device is stopped, mirroring revoke semantics.
+func (m *SessionManager) RemoveDevice(deviceID string) error {
+	m.mu.Lock()
+	store := m.trustStore
+	sess := m.activeSess
+	m.mu.Unlock()
+
+	if store == nil {
+		return fmt.Errorf("trust store is not configured")
+	}
+
+	if err := store.Remove(deviceID); err != nil {
+		return err
+	}
+
+	if sess != nil && sess.State() != StateStopped && sess.State() != StateFailed {
+		if sess.cfg.TargetDeviceID == deviceID || (sess.targetDevice.ID == deviceID) {
+			_ = sess.Stop("device removed from trust store")
 		}
 	}
 

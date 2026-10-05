@@ -25,7 +25,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Implements the approved LAN signaling protocol with mutual Ed25519 authentication:
  * - GET  /health          -> 200 {"status":"ok"}
  * - POST /pairing/request -> 200 {"display_name":"...","platform":"...","public_key":"...","sas":"..."}
- * - POST /pairing/confirm -> 200 {"status":"paired"}
+ *                           or 409 {"error":"already trusted"}
+ * - POST /pairing/confirm -> 200 {"status":"paired"} once the receiving user
+ *                           approved via [respondToPairing]; 202 {"status":"pending"}
+ *                           while they have not decided; 400 on rejection or expiry.
  * - POST /session/offer   -> 200 {"type":"offer","sdp":"...","accepted":true,"actual":{...}} (Authenticated)
  *                            or a typed refusal: 409 {"accepted":false,"code":"...","message":"..."}
  * - POST /session/answer  -> 200 {"status":"ok"} (Authenticated)
@@ -145,7 +148,21 @@ class LanSignalingServer(
         val remotePlatform: String,
         val remotePub: ByteArray,
         val sas: String,
-        val createdAt: Long = System.currentTimeMillis()
+        val createdAt: Long = System.currentTimeMillis(),
+        // The receiving user's explicit decision: null while the request is
+        // still awaiting them, true/false once they accept/reject. Trust is
+        // committed only after approved == true AND a valid confirm — the
+        // same contract as the Go signaling server (Phase 2).
+        val approved: Boolean? = null,
+    )
+
+    /** Receiver-side view of one pending pairing request, surfaced to the UI. */
+    data class PairingRequestInfo(
+        val token: String,
+        val remoteName: String,
+        val remotePlatform: String,
+        val sas: String,
+        val createdAtMs: Long,
     )
 
     private var serverSocket: ServerSocket? = null
@@ -153,6 +170,59 @@ class LanSignalingServer(
     private val isRunning = AtomicBoolean(false)
     private val authValidator = if (trustStore != null) AuthValidator(trustStore) else null
     internal val pendingPairings = ConcurrentHashMap<String, PendingPairing>()
+
+    /**
+     * Fired (off the server lock) whenever a NEW inbound pairing request is
+     * stored, so the service can raise the Pairing Request notification and
+     * tell the UI. Never fired for a retry that supersedes an older request —
+     * the duplicate protection below guarantees one dialog per peer.
+     */
+    @Volatile
+    var onPairingRequest: ((PairingRequestInfo) -> Unit)? = null
+
+    /**
+     * Sweeps expired pending pairings. Called from every read path and from
+     * request/confirm handling, so an expired request disappears even with no
+     * confirm arriving to reap it.
+     */
+    private fun sweepExpiredLocked(): Boolean {
+        val now = System.currentTimeMillis()
+        var removed = false
+        val it = pendingPairings.entries.iterator()
+        while (it.hasNext()) {
+            val entry = it.next()
+            if (now - entry.value.createdAt > PENDING_PAIRING_TTL_MS) {
+                it.remove()
+                removed = true
+            }
+        }
+        return removed
+    }
+
+    /**
+     * Snapshots the inbound pairing requests still awaiting (or decided-but-
+     * unconsumed) for the UI. Expired entries are swept and omitted, so the
+     * UI auto-dismisses stale dialogs by refreshing this list.
+     */
+    fun listPendingPairings(): List<PairingRequestInfo> {
+        sweepExpiredLocked()
+        return pendingPairings.values
+            .map { PairingRequestInfo(it.token, it.remoteName, it.remotePlatform, it.sas, it.createdAt) }
+            .sortedBy { it.createdAtMs }
+    }
+
+    /**
+     * Records the receiving user's explicit accept/reject for one pending
+     * request. False when the token is unknown or already expired. The
+     * decision takes effect on the requester's next confirm poll; approval
+     * alone never commits trust.
+     */
+    fun respondToPairing(token: String, approved: Boolean): Boolean {
+        sweepExpiredLocked()
+        val current = pendingPairings[token] ?: return false
+        pendingPairings[token] = current.copy(approved = approved)
+        return true
+    }
 
     val running: Boolean
         get() = isRunning.get()
@@ -328,9 +398,7 @@ class LanSignalingServer(
                             return
                         }
                         is AuthValidator.AuthResult.Success -> {
-                            trustStore?.get(authResult.deviceId)?.let { existing ->
-                                trustStore.addTrusted(existing.copy(lastSeenMs = System.currentTimeMillis()))
-                            }
+                            trustStore?.touchLastSeen(authResult.deviceId)
                         }
                     }
                 }
@@ -431,7 +499,36 @@ class LanSignalingServer(
                 return
             }
 
+            // Re-pair of an already-trusted key is redundant, never a new
+            // request: 409 lets the requester say "already trusted" instead of
+            // opening an approval dialog for a peer both sides already trust.
+            // A revoked key re-pairs through the normal approval flow. The
+            // store is re-read first: the UI's trust mutations (revoke) land
+            // in the shared file, and this server's in-memory instance must
+            // not answer 409 from a stale view of trust.
+            trustStore?.reload()
+            val existing = trustStore?.findByPublicKey(remotePub)
+            if (existing != null && !existing.revoked) {
+                val err = """{"error":"already trusted"}""".toByteArray(StandardCharsets.UTF_8)
+                sendResponse(out, 409, "Conflict", "application/json", err)
+                return
+            }
+
             val sas = CryptoUtils.calculateSAS(identityManager.rawPublicKey, remotePub, token)
+
+            // Duplicate-request protection: one pending request per remote
+            // key. A retry (new token, same peer) supersedes the older one
+            // instead of stacking dialogs on the receiver.
+            val it = pendingPairings.entries.iterator()
+            while (it.hasNext()) {
+                val entry = it.next()
+                if (entry.value.remotePub.size == remotePub.size &&
+                    java.security.MessageDigest.isEqual(entry.value.remotePub, remotePub)
+                ) {
+                    it.remove()
+                }
+            }
+
             pendingPairings[token] = PendingPairing(
                 token = token,
                 remoteName = remoteName,
@@ -446,6 +543,17 @@ class LanSignalingServer(
             resp.put("public_key", CryptoUtils.toHex(identityManager.rawPublicKey))
             resp.put("sas", sas)
             sendResponse(out, 200, "OK", "application/json", resp.toString().toByteArray(StandardCharsets.UTF_8))
+
+            // Off the request path: the notification and UI hook must never
+            // delay the 200 the requester is waiting on, and a throwing
+            // listener must not fail an already-answered request.
+            try {
+                onPairingRequest?.invoke(
+                    PairingRequestInfo(token, remoteName, remotePlatform, sas, System.currentTimeMillis())
+                )
+            } catch (t: Throwable) {
+                logW(TAG, "pairing request listener failed: ${t.message}")
+            }
         } catch (t: Throwable) {
             val err = """{"error":"${t.message}"}""".toByteArray(StandardCharsets.UTF_8)
             sendResponse(out, 400, "Bad Request", "application/json", err)
@@ -461,19 +569,40 @@ class LanSignalingServer(
             val confirmed = json.getBoolean("confirmed")
             val sigHex = json.getString("signature")
 
-            val pending = pendingPairings.remove(token)
+            sweepExpiredLocked()
+            val pending = pendingPairings[token]
             if (pending == null || pending.sas != sas) {
                 val err = """{"error":"invalid or expired pairing token/sas"}""".toByteArray(StandardCharsets.UTF_8)
                 sendResponse(out, 400, "Bad Request", "application/json", err)
                 return
             }
             if (System.currentTimeMillis() - pending.createdAt > PENDING_PAIRING_TTL_MS) {
+                pendingPairings.remove(token)
                 val err = """{"error":"pairing token expired"}""".toByteArray(StandardCharsets.UTF_8)
                 sendResponse(out, 400, "Bad Request", "application/json", err)
                 return
             }
 
             if (!confirmed) {
+                // Requester-side rejection withdraws the request: the
+                // receiver's pending dialog disappears on its next refresh
+                // instead of asking about a peer that already walked away.
+                pendingPairings.remove(token)
+                val err = """{"error":"pairing rejected by user"}""".toByteArray(StandardCharsets.UTF_8)
+                sendResponse(out, 400, "Bad Request", "application/json", err)
+                return
+            }
+
+            // The receiving user has not decided yet: hold the token (202) so
+            // the requester polls. Trust is committed only after an explicit
+            // approval — never by the confirm alone.
+            if (pending.approved == null) {
+                val resp = """{"status":"pending"}""".toByteArray(StandardCharsets.UTF_8)
+                sendResponse(out, 202, "Accepted", "application/json", resp)
+                return
+            }
+            if (!pending.approved) {
+                pendingPairings.remove(token)
                 val err = """{"error":"pairing rejected by user"}""".toByteArray(StandardCharsets.UTF_8)
                 sendResponse(out, 400, "Bad Request", "application/json", err)
                 return
@@ -484,10 +613,26 @@ class LanSignalingServer(
             val peerPubKey = CryptoUtils.parsePublicKey(pending.remotePub)
 
             if (!CryptoUtils.verify(peerPubKey, sigMaterial, sig)) {
+                pendingPairings.remove(token)
                 val err = """{"error":"invalid confirmation signature"}""".toByteArray(StandardCharsets.UTF_8)
                 sendResponse(out, 401, "Unauthorized", "application/json", err)
                 return
             }
+
+            // Never trust the requester's claimed device_id blindly: the
+            // authenticated identity is pending.remotePub (the key this token
+            // was issued for and the signature verified against). A mismatch
+            // would fork a second logical trust record for the same key.
+            if (devId != CryptoUtils.fingerprint(pending.remotePub)) {
+                pendingPairings.remove(token)
+                val err = """{"error":"device_id does not match authenticated public key"}""".toByteArray(StandardCharsets.UTF_8)
+                sendResponse(out, 400, "Bad Request", "application/json", err)
+                return
+            }
+
+            // Single-use token: a successful pairing consumes it, so a
+            // replayed confirm can never commit trust twice.
+            pendingPairings.remove(token)
 
             if (trustStore != null) {
                 val rec = TrustedDeviceRecord(
@@ -499,7 +644,7 @@ class LanSignalingServer(
                     lastSeenMs = System.currentTimeMillis(),
                     revoked = false
                 )
-                trustStore.addTrusted(rec)
+                trustStore.upsertCanonical(rec)
             }
 
             val resp = """{"status":"paired"}""".toByteArray(StandardCharsets.UTF_8)

@@ -4,6 +4,7 @@ import '../models/capture_stats.dart';
 import '../models/clipboard_status.dart';
 import '../models/device_state.dart';
 import '../models/discovered_device.dart';
+import '../models/inbound_pairing.dart';
 import '../models/notification_item.dart';
 import '../generated/phonebridge/v1/phonebridge.pb.dart' as pb;
 import '../models/transfer_item.dart';
@@ -11,6 +12,7 @@ import '../models/trusted_device.dart';
 import 'frame_stream.dart';
 import 'local_ipc_client.dart' show LocalIpcClient, LocalIpcState;
 import 'notification_backend.dart';
+import 'pairing_backend.dart';
 import 'platform_bridge_service.dart';
 import 'session_backend.dart';
 
@@ -19,7 +21,8 @@ class LinuxBridgeService
         PlatformBridgeService,
         SessionBackend,
         ProvidesFrameStream,
-        NotificationBackend {
+        NotificationBackend,
+        PairingBackend {
   LinuxBridgeService({LocalIpcClient? client})
       : _client = client ?? LocalIpcClient() {
     _initStream();
@@ -41,6 +44,11 @@ class LinuxBridgeService
   /// not cost an extra RPC stream to the daemon.
   final StreamController<ipc.SessionEvent> _sessionEventsController =
       StreamController<ipc.SessionEvent>.broadcast();
+
+  /// Inbound-pairing lifecycle transitions (Phase 2), forwarded from the same
+  /// single IPC subscription.
+  final StreamController<ipc.PairingEvent> _pairingEventsController =
+      StreamController<ipc.PairingEvent>.broadcast();
 
   StreamSubscription<ipc.StreamEventsResponse>? _streamSub;
   String? _activeSessionId;
@@ -69,9 +77,11 @@ class LinuxBridgeService
           if (!_sessionEventsController.isClosed) {
             _sessionEventsController.add(se);
           }
-          final isStreaming = se.state == ipc.SessionState.SESSION_STATE_STREAMING;
-          final isStopped = se.state == ipc.SessionState.SESSION_STATE_STOPPED ||
-              se.state == ipc.SessionState.SESSION_STATE_FAILED;
+          final isStreaming =
+              se.state == ipc.SessionState.SESSION_STATE_STREAMING;
+          final isStopped =
+              se.state == ipc.SessionState.SESSION_STATE_STOPPED ||
+                  se.state == ipc.SessionState.SESSION_STATE_FAILED;
 
           map['isCapturing'] = isStreaming;
           if (isStopped) {
@@ -109,6 +119,14 @@ class LinuxBridgeService
           if (!_notificationStreamController.isClosed) {
             _notificationStreamController.add(ne);
           }
+        }
+
+        if (resp.hasPairingEvent()) {
+          final pe = resp.pairingEvent;
+          if (!_pairingEventsController.isClosed) {
+            _pairingEventsController.add(pe);
+          }
+          map['pairingEvent'] = pe.type.value;
         }
 
         if (map.isNotEmpty) {
@@ -161,9 +179,13 @@ class LinuxBridgeService
   Future<CaptureStats> getMediaStats() async {
     try {
       if (_activeSessionId != null && _activeSessionId!.isNotEmpty) {
-        final snap = await _client.getSessionState(sessionId: _activeSessionId!);
-        final isStreaming = snap.state == ipc.SessionState.SESSION_STATE_STREAMING;
-        final fps = snap.hasActual() && snap.actual.fps > 0 ? snap.actual.fps.toDouble() : null;
+        final snap =
+            await _client.getSessionState(sessionId: _activeSessionId!);
+        final isStreaming =
+            snap.state == ipc.SessionState.SESSION_STATE_STREAMING;
+        final fps = snap.hasActual() && snap.actual.fps > 0
+            ? snap.actual.fps.toDouble()
+            : null;
         _lastStats = _lastStats.copyWith(
           isCapturing: isStreaming,
           durationUs: (snap.connectedDurationMs * 1000).toInt(),
@@ -206,7 +228,7 @@ class LinuxBridgeService
   @override
   Future<bool> removeDevice(String deviceId) async {
     try {
-      final resp = await _client.revokeDevice(deviceId);
+      final resp = await _client.removeDevice(deviceId);
       return resp.success;
     } catch (_) {
       return false;
@@ -218,9 +240,15 @@ class LinuxBridgeService
     try {
       final resp = await _client.getClipboardStatus();
       _lastClipboardState = resp.state;
+      final mapped = ClipboardSyncState.fromString(resp.state);
+      // The master switch is user intent (Flutter-owned on Linux); the daemon
+      // only reports adapter reality. STOPPED means the service is off;
+      // setup/unavailable states keep the switch on so the UI shows what to
+      // fix instead of pretending sync was turned off.
+      final enabled = mapped != ClipboardSyncState.stopped;
       return ClipboardStatus(
-        isEnabled: resp.state != 'STOPPED' && resp.state != 'UNAVAILABLE',
-        state: ClipboardSyncState.fromString(resp.state),
+        isEnabled: enabled,
+        state: mapped,
         maxPayloadSize: resp.maxPayloadSize > 0 ? resp.maxPayloadSize : 786432,
         syncCount: 0,
         lastSyncTimestampMs: resp.lastSyncMs.toInt(),
@@ -247,6 +275,10 @@ class LinuxBridgeService
   /// daemon has always accepted a requested tuple (DEC-022); only the transport of
   /// it was missing here, which meant the phone silently applied its own defaults
   /// while the UI showed the user's chosen preset.
+  ///
+  /// Explicit target only (Phase C): an empty target fails instead of falling
+  /// back to `peer-auto`. The daemon keeps `peer-auto` for internal/test use,
+  /// but user-initiated connects always name their device.
   @override
   Future<bool> startCapture({
     String? receiverUrl,
@@ -255,9 +287,9 @@ class LinuxBridgeService
     int fps = 30,
     int bitrateKbps = 2500,
   }) async {
-    final target = receiverUrl != null && receiverUrl.isNotEmpty
-        ? receiverUrl
-        : 'peer-auto';
+    final target =
+        receiverUrl != null && receiverUrl.isNotEmpty ? receiverUrl : null;
+    if (target == null || target.isEmpty) return false;
     try {
       final resp = await startSession(
         target: target,
@@ -353,6 +385,56 @@ class LinuxBridgeService
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Inbound pairing (Phase 2 bidirectional pairing): pairing requests that
+  // arrive at THIS device's signaling server and await the local user's
+  // explicit approval. State lives in the daemon; the UI reads and answers.
+  // -------------------------------------------------------------------------
+
+  /// Snapshots the pairing requests awaiting local approval. Expired entries
+  /// are swept daemon-side; an empty list is the truth after a timeout.
+  @override
+  Future<List<InboundPairing>> listInboundPairings() async {
+    try {
+      final resp = await _client.listInboundPairings();
+      return resp.requests
+          .map((r) => InboundPairing(
+                token: r.pairingToken,
+                remoteName: r.remoteName,
+                remotePlatform: r.remotePlatform,
+                sas: r.sas,
+                createdAtMs: r.createdAtMs.toInt(),
+              ))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Records the local user's decision. False means the token was unknown or
+  /// already expired; trust is committed daemon-side on the requester's next
+  /// signed confirm, never by this call.
+  @override
+  Future<bool> respondInboundPairing({
+    required String pairingToken,
+    required bool approved,
+  }) async {
+    try {
+      final resp = await _client.respondInboundPairing(
+        pairingToken: pairingToken,
+        approved: approved,
+      );
+      return resp.recorded;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Inbound-pairing lifecycle transitions (ARRIVED / WITHDRAWN) relayed from
+  /// the daemon on the same single subscription as every other event.
+  Stream<ipc.PairingEvent> get pairingEventStream =>
+      _pairingEventsController.stream;
+
   @override
   bool get supportsFileTransfer => true;
 
@@ -418,7 +500,8 @@ class LinuxBridgeService
   Stream<CaptureStats> get statsStream => _statsController.stream;
 
   @override
-  Stream<Map<dynamic, dynamic>> get rawEventsStream => _rawEventsController.stream;
+  Stream<Map<dynamic, dynamic>> get rawEventsStream =>
+      _rawEventsController.stream;
 
   @override
   void setNativeCallHandler(Future<dynamic> Function(dynamic call)? handler) {
@@ -460,7 +543,8 @@ class LinuxBridgeService
     required String sessionId,
     String reason = 'user stopped',
   }) async {
-    final resp = await _client.stopSession(sessionId: sessionId, reason: reason);
+    final resp =
+        await _client.stopSession(sessionId: sessionId, reason: reason);
     if (resp.sessionId.isNotEmpty) {
       _activeSessionId = null;
     }
@@ -522,6 +606,7 @@ class LinuxBridgeService
     _transferController.close();
     _notificationStreamController.close();
     _sessionEventsController.close();
+    _pairingEventsController.close();
     _eventPulse.close();
     _client.shutdown();
   }

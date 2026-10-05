@@ -80,26 +80,29 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	LocalEngineService_Handshake_FullMethodName            = "/phonebridge.localipc.v1.LocalEngineService/Handshake"
-	LocalEngineService_Ping_FullMethodName                 = "/phonebridge.localipc.v1.LocalEngineService/Ping"
-	LocalEngineService_StreamEvents_FullMethodName         = "/phonebridge.localipc.v1.LocalEngineService/StreamEvents"
-	LocalEngineService_Health_FullMethodName               = "/phonebridge.localipc.v1.LocalEngineService/Health"
-	LocalEngineService_StartSession_FullMethodName         = "/phonebridge.localipc.v1.LocalEngineService/StartSession"
-	LocalEngineService_StopSession_FullMethodName          = "/phonebridge.localipc.v1.LocalEngineService/StopSession"
-	LocalEngineService_GetSessionState_FullMethodName      = "/phonebridge.localipc.v1.LocalEngineService/GetSessionState"
-	LocalEngineService_ListDevices_FullMethodName          = "/phonebridge.localipc.v1.LocalEngineService/ListDevices"
-	LocalEngineService_PairDevice_FullMethodName           = "/phonebridge.localipc.v1.LocalEngineService/PairDevice"
-	LocalEngineService_ConfirmPairing_FullMethodName       = "/phonebridge.localipc.v1.LocalEngineService/ConfirmPairing"
-	LocalEngineService_ListTrustedDevices_FullMethodName   = "/phonebridge.localipc.v1.LocalEngineService/ListTrustedDevices"
-	LocalEngineService_RevokeDevice_FullMethodName         = "/phonebridge.localipc.v1.LocalEngineService/RevokeDevice"
-	LocalEngineService_GetClipboardStatus_FullMethodName   = "/phonebridge.localipc.v1.LocalEngineService/GetClipboardStatus"
-	LocalEngineService_TriggerClipboardPull_FullMethodName = "/phonebridge.localipc.v1.LocalEngineService/TriggerClipboardPull"
-	LocalEngineService_SendFile_FullMethodName             = "/phonebridge.localipc.v1.LocalEngineService/SendFile"
-	LocalEngineService_CancelTransfer_FullMethodName       = "/phonebridge.localipc.v1.LocalEngineService/CancelTransfer"
-	LocalEngineService_ListTransfers_FullMethodName        = "/phonebridge.localipc.v1.LocalEngineService/ListTransfers"
-	LocalEngineService_StreamFrames_FullMethodName         = "/phonebridge.localipc.v1.LocalEngineService/StreamFrames"
-	LocalEngineService_SendInput_FullMethodName            = "/phonebridge.localipc.v1.LocalEngineService/SendInput"
-	LocalEngineService_ListNotifications_FullMethodName    = "/phonebridge.localipc.v1.LocalEngineService/ListNotifications"
+	LocalEngineService_Handshake_FullMethodName             = "/phonebridge.localipc.v1.LocalEngineService/Handshake"
+	LocalEngineService_Ping_FullMethodName                  = "/phonebridge.localipc.v1.LocalEngineService/Ping"
+	LocalEngineService_StreamEvents_FullMethodName          = "/phonebridge.localipc.v1.LocalEngineService/StreamEvents"
+	LocalEngineService_Health_FullMethodName                = "/phonebridge.localipc.v1.LocalEngineService/Health"
+	LocalEngineService_StartSession_FullMethodName          = "/phonebridge.localipc.v1.LocalEngineService/StartSession"
+	LocalEngineService_StopSession_FullMethodName           = "/phonebridge.localipc.v1.LocalEngineService/StopSession"
+	LocalEngineService_GetSessionState_FullMethodName       = "/phonebridge.localipc.v1.LocalEngineService/GetSessionState"
+	LocalEngineService_ListDevices_FullMethodName           = "/phonebridge.localipc.v1.LocalEngineService/ListDevices"
+	LocalEngineService_PairDevice_FullMethodName            = "/phonebridge.localipc.v1.LocalEngineService/PairDevice"
+	LocalEngineService_ConfirmPairing_FullMethodName        = "/phonebridge.localipc.v1.LocalEngineService/ConfirmPairing"
+	LocalEngineService_ListInboundPairings_FullMethodName   = "/phonebridge.localipc.v1.LocalEngineService/ListInboundPairings"
+	LocalEngineService_RespondInboundPairing_FullMethodName = "/phonebridge.localipc.v1.LocalEngineService/RespondInboundPairing"
+	LocalEngineService_ListTrustedDevices_FullMethodName    = "/phonebridge.localipc.v1.LocalEngineService/ListTrustedDevices"
+	LocalEngineService_RevokeDevice_FullMethodName          = "/phonebridge.localipc.v1.LocalEngineService/RevokeDevice"
+	LocalEngineService_RemoveDevice_FullMethodName          = "/phonebridge.localipc.v1.LocalEngineService/RemoveDevice"
+	LocalEngineService_GetClipboardStatus_FullMethodName    = "/phonebridge.localipc.v1.LocalEngineService/GetClipboardStatus"
+	LocalEngineService_TriggerClipboardPull_FullMethodName  = "/phonebridge.localipc.v1.LocalEngineService/TriggerClipboardPull"
+	LocalEngineService_SendFile_FullMethodName              = "/phonebridge.localipc.v1.LocalEngineService/SendFile"
+	LocalEngineService_CancelTransfer_FullMethodName        = "/phonebridge.localipc.v1.LocalEngineService/CancelTransfer"
+	LocalEngineService_ListTransfers_FullMethodName         = "/phonebridge.localipc.v1.LocalEngineService/ListTransfers"
+	LocalEngineService_StreamFrames_FullMethodName          = "/phonebridge.localipc.v1.LocalEngineService/StreamFrames"
+	LocalEngineService_SendInput_FullMethodName             = "/phonebridge.localipc.v1.LocalEngineService/SendInput"
+	LocalEngineService_ListNotifications_FullMethodName     = "/phonebridge.localipc.v1.LocalEngineService/ListNotifications"
 )
 
 // LocalEngineServiceClient is the client API for LocalEngineService service.
@@ -131,12 +134,17 @@ type LocalEngineServiceClient interface {
 	ListDevices(ctx context.Context, in *ListDevicesRequest, opts ...grpc.CallOption) (*ListDevicesResponse, error)
 	// PairDevice initiates pairing with a discovered LAN device.
 	PairDevice(ctx context.Context, in *PairDeviceRequest, opts ...grpc.CallOption) (*PairDeviceResponse, error)
-	// ConfirmPairing completes pairing by confirming the SAS.
 	ConfirmPairing(ctx context.Context, in *ConfirmPairingRequest, opts ...grpc.CallOption) (*ConfirmPairingResponse, error)
+	ListInboundPairings(ctx context.Context, in *ListInboundPairingsRequest, opts ...grpc.CallOption) (*ListInboundPairingsResponse, error)
+	RespondInboundPairing(ctx context.Context, in *RespondInboundPairingRequest, opts ...grpc.CallOption) (*RespondInboundPairingResponse, error)
 	// ListTrustedDevices returns all trusted/paired devices.
 	ListTrustedDevices(ctx context.Context, in *ListTrustedDevicesRequest, opts ...grpc.CallOption) (*ListTrustedDevicesResponse, error)
 	// RevokeDevice revokes trust for a previously paired device.
 	RevokeDevice(ctx context.Context, in *RevokeDeviceRequest, opts ...grpc.CallOption) (*RevokeDeviceResponse, error)
+	// RemoveDevice permanently deletes a trusted record (Forget Device).
+	// Unlike RevokeDevice it does not preserve a revoked row. Reuses the
+	// revoke messages: no new payload shape (Phase H).
+	RemoveDevice(ctx context.Context, in *RevokeDeviceRequest, opts ...grpc.CallOption) (*RevokeDeviceResponse, error)
 	// GetClipboardStatus returns the current status of the host clipboard adapter and engine.
 	GetClipboardStatus(ctx context.Context, in *GetClipboardStatusRequest, opts ...grpc.CallOption) (*GetClipboardStatusResponse, error)
 	// TriggerClipboardPull reads the host clipboard and synchronizes it to the active peer.
@@ -286,6 +294,26 @@ func (c *localEngineServiceClient) ConfirmPairing(ctx context.Context, in *Confi
 	return out, nil
 }
 
+func (c *localEngineServiceClient) ListInboundPairings(ctx context.Context, in *ListInboundPairingsRequest, opts ...grpc.CallOption) (*ListInboundPairingsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListInboundPairingsResponse)
+	err := c.cc.Invoke(ctx, LocalEngineService_ListInboundPairings_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *localEngineServiceClient) RespondInboundPairing(ctx context.Context, in *RespondInboundPairingRequest, opts ...grpc.CallOption) (*RespondInboundPairingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RespondInboundPairingResponse)
+	err := c.cc.Invoke(ctx, LocalEngineService_RespondInboundPairing_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *localEngineServiceClient) ListTrustedDevices(ctx context.Context, in *ListTrustedDevicesRequest, opts ...grpc.CallOption) (*ListTrustedDevicesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListTrustedDevicesResponse)
@@ -300,6 +328,16 @@ func (c *localEngineServiceClient) RevokeDevice(ctx context.Context, in *RevokeD
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RevokeDeviceResponse)
 	err := c.cc.Invoke(ctx, LocalEngineService_RevokeDevice_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *localEngineServiceClient) RemoveDevice(ctx context.Context, in *RevokeDeviceRequest, opts ...grpc.CallOption) (*RevokeDeviceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RevokeDeviceResponse)
+	err := c.cc.Invoke(ctx, LocalEngineService_RemoveDevice_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -424,12 +462,15 @@ type LocalEngineServiceServer interface {
 	ListDevices(context.Context, *ListDevicesRequest) (*ListDevicesResponse, error)
 	// PairDevice initiates pairing with a discovered LAN device.
 	PairDevice(context.Context, *PairDeviceRequest) (*PairDeviceResponse, error)
-	// ConfirmPairing completes pairing by confirming the SAS.
 	ConfirmPairing(context.Context, *ConfirmPairingRequest) (*ConfirmPairingResponse, error)
+	ListInboundPairings(context.Context, *ListInboundPairingsRequest) (*ListInboundPairingsResponse, error)
+	RespondInboundPairing(context.Context, *RespondInboundPairingRequest) (*RespondInboundPairingResponse, error)
 	// ListTrustedDevices returns all trusted/paired devices.
 	ListTrustedDevices(context.Context, *ListTrustedDevicesRequest) (*ListTrustedDevicesResponse, error)
 	// RevokeDevice revokes trust for a previously paired device.
 	RevokeDevice(context.Context, *RevokeDeviceRequest) (*RevokeDeviceResponse, error)
+	// RemoveDevice permanently deletes a trusted record (Forget Device).
+	RemoveDevice(context.Context, *RevokeDeviceRequest) (*RevokeDeviceResponse, error)
 	// GetClipboardStatus returns the current status of the host clipboard adapter and engine.
 	GetClipboardStatus(context.Context, *GetClipboardStatusRequest) (*GetClipboardStatusResponse, error)
 	// TriggerClipboardPull reads the host clipboard and synchronizes it to the active peer.
@@ -499,11 +540,20 @@ func (UnimplementedLocalEngineServiceServer) PairDevice(context.Context, *PairDe
 func (UnimplementedLocalEngineServiceServer) ConfirmPairing(context.Context, *ConfirmPairingRequest) (*ConfirmPairingResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ConfirmPairing not implemented")
 }
+func (UnimplementedLocalEngineServiceServer) ListInboundPairings(context.Context, *ListInboundPairingsRequest) (*ListInboundPairingsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListInboundPairings not implemented")
+}
+func (UnimplementedLocalEngineServiceServer) RespondInboundPairing(context.Context, *RespondInboundPairingRequest) (*RespondInboundPairingResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RespondInboundPairing not implemented")
+}
 func (UnimplementedLocalEngineServiceServer) ListTrustedDevices(context.Context, *ListTrustedDevicesRequest) (*ListTrustedDevicesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListTrustedDevices not implemented")
 }
 func (UnimplementedLocalEngineServiceServer) RevokeDevice(context.Context, *RevokeDeviceRequest) (*RevokeDeviceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RevokeDevice not implemented")
+}
+func (UnimplementedLocalEngineServiceServer) RemoveDevice(context.Context, *RevokeDeviceRequest) (*RevokeDeviceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveDevice not implemented")
 }
 func (UnimplementedLocalEngineServiceServer) GetClipboardStatus(context.Context, *GetClipboardStatusRequest) (*GetClipboardStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetClipboardStatus not implemented")
@@ -722,6 +772,42 @@ func _LocalEngineService_ConfirmPairing_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LocalEngineService_ListInboundPairings_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListInboundPairingsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalEngineServiceServer).ListInboundPairings(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalEngineService_ListInboundPairings_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalEngineServiceServer).ListInboundPairings(ctx, req.(*ListInboundPairingsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LocalEngineService_RespondInboundPairing_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RespondInboundPairingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalEngineServiceServer).RespondInboundPairing(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalEngineService_RespondInboundPairing_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalEngineServiceServer).RespondInboundPairing(ctx, req.(*RespondInboundPairingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _LocalEngineService_ListTrustedDevices_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListTrustedDevicesRequest)
 	if err := dec(in); err != nil {
@@ -754,6 +840,24 @@ func _LocalEngineService_RevokeDevice_Handler(srv interface{}, ctx context.Conte
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(LocalEngineServiceServer).RevokeDevice(ctx, req.(*RevokeDeviceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LocalEngineService_RemoveDevice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokeDeviceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalEngineServiceServer).RemoveDevice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalEngineService_RemoveDevice_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalEngineServiceServer).RemoveDevice(ctx, req.(*RevokeDeviceRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -939,12 +1043,24 @@ var LocalEngineService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _LocalEngineService_ConfirmPairing_Handler,
 		},
 		{
+			MethodName: "ListInboundPairings",
+			Handler:    _LocalEngineService_ListInboundPairings_Handler,
+		},
+		{
+			MethodName: "RespondInboundPairing",
+			Handler:    _LocalEngineService_RespondInboundPairing_Handler,
+		},
+		{
 			MethodName: "ListTrustedDevices",
 			Handler:    _LocalEngineService_ListTrustedDevices_Handler,
 		},
 		{
 			MethodName: "RevokeDevice",
 			Handler:    _LocalEngineService_RevokeDevice_Handler,
+		},
+		{
+			MethodName: "RemoveDevice",
+			Handler:    _LocalEngineService_RemoveDevice_Handler,
 		},
 		{
 			MethodName: "GetClipboardStatus",

@@ -20,8 +20,8 @@ class TrustStoreTest {
         val storeFile = File(tempFolder.root, "trusted_devices.json")
         val store1 = TrustStore(storeFile)
 
-        val devId = "device-abc-123"
         val rawPub = ByteArray(32) { 0x42 }
+        val devId = CryptoUtils.fingerprint(rawPub)
 
         // 1. Initially untrusted
         assertFalse("must be untrusted initially", store1.isTrusted(devId))
@@ -67,20 +67,65 @@ class TrustStoreTest {
     }
 
     @Test
+    fun testAddTrustedRejectsMismatchedId() {
+        val store = TrustStore(File(tempFolder.root, "trusted_mismatch.json"))
+        val rawPub = ByteArray(32) { 0x11 }
+        var threw = false
+        try {
+            store.addTrusted(
+                TrustedDeviceRecord(
+                    deviceId = "not-the-fingerprint", displayName = "PC",
+                    platform = "linux", rawPublicKey = rawPub,
+                    pairedAtMs = 1L, lastSeenMs = 1L, revoked = false
+                )
+            )
+        } catch (_: IllegalArgumentException) {
+            threw = true
+        }
+        assertTrue("mismatched device_id must be rejected", threw)
+        assertEquals(0, store.list().size)
+    }
+
+    @Test
+    fun testUpsertCanonicalFoldsSameKey() {
+        val store = TrustStore(File(tempFolder.root, "trusted_fold.json"))
+        val rawPub = ByteArray(32) { 0x33 }
+        val canonical = CryptoUtils.fingerprint(rawPub)
+        store.upsertCanonical(
+            TrustedDeviceRecord(
+                deviceId = canonical, displayName = "Old", platform = "linux",
+                rawPublicKey = rawPub, pairedAtMs = 100L, lastSeenMs = 100L,
+                revoked = false
+            )
+        )
+        store.upsertCanonical(
+            TrustedDeviceRecord(
+                deviceId = canonical, displayName = "New", platform = "linux",
+                rawPublicKey = rawPub, pairedAtMs = 200L, lastSeenMs = 200L,
+                revoked = false
+            )
+        )
+        assertEquals(1, store.list().size)
+        assertEquals("New", store.get(canonical)?.displayName)
+        assertEquals(100L, store.get(canonical)?.pairedAtMs)
+    }
+
+    @Test
     fun testChangeListenerFiresOnMutations() {
         val storeFile = File(tempFolder.root, "trusted_listener.json")
         val store = TrustStore(storeFile)
         val rawPub = ByteArray(32) { 0x42 }
+        val devId = CryptoUtils.fingerprint(rawPub)
         val rec = TrustedDeviceRecord(
-            deviceId = "dev-1", displayName = "PC", platform = "linux",
+            deviceId = devId, displayName = "PC", platform = "linux",
             rawPublicKey = rawPub, pairedAtMs = 1L, lastSeenMs = 1L, revoked = false
         )
         var fires = 0
         TrustStore.changeListener = { fires++ }
         try {
             store.addTrusted(rec)
-            store.revoke("dev-1")
-            store.remove("dev-1")
+            store.revoke(devId)
+            store.remove(devId)
         } finally {
             TrustStore.changeListener = null
         }
@@ -94,16 +139,18 @@ class TrustStoreTest {
         val store2 = TrustStore(storeFile)
         assertEquals(0, store2.list().size)
 
+        val rawPub = ByteArray(32) { 0x07 }
+        val devId = CryptoUtils.fingerprint(rawPub)
         store1.addTrusted(
             TrustedDeviceRecord(
-                deviceId = "dev-2", displayName = "PC", platform = "linux",
-                rawPublicKey = ByteArray(32) { 0x07 },
+                deviceId = devId, displayName = "PC", platform = "linux",
+                rawPublicKey = rawPub,
                 pairedAtMs = 1L, lastSeenMs = 1L, revoked = false
             )
         )
         // store2 has a stale in-memory view until it reloads.
         store2.reload()
-        assertTrue(store2.isTrusted("dev-2"))
+        assertTrue(store2.isTrusted(devId))
         assertEquals(1, store2.list().size)
     }
 }

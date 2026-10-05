@@ -97,19 +97,23 @@ void main() {
 
     // Startup load: the list populated without anyone tapping Scan.
     expect(client.listDevicesCalls, greaterThanOrEqualTo(1));
-    expect(find.text('Discovered Devices (3)'), findsOneWidget);
-    expect(find.text('Trusted Devices (1)'), findsOneWidget);
+    // Canonical rows: no active session, so no connected hero; the trusted
+    // peer is available, the two untrusted browse entries pair-able.
+    expect(find.text('Connected device'), findsOneWidget);
+    expect(find.text('Your devices (1)'), findsOneWidget);
+    expect(find.text('Available to pair (2)'), findsOneWidget);
 
-    // Badges: fresh+untrusted reads UNPAIRED, the stale browse entry reads
-    // STALE (plus UNPAIRED — it is also untrusted), and the peer that is
-    // both discovered and in the trust store reads TRUSTED (with RE-PAIR available).
+    // Badges: the trusted row reads TRUSTED once (single canonical row, not
+    // once per source list); both untrusted rows read UNPAIRED; the stale
+    // browse entry reads STALE.
     expect(find.text('TRUSTED'), findsOneWidget);
     expect(find.text('UNPAIRED'), findsNWidgets(2));
     expect(find.text('STALE'), findsOneWidget);
 
-    // Pairing is offered for the fresh untrusted device; re-pairing for the trusted device.
+    // Pairing is offered for the fresh untrusted device; the trusted row
+    // connects (re-pair lives in its detail sheet).
     expect(find.widgetWithText(FilledButton, 'PAIR'), findsOneWidget);
-    expect(find.widgetWithText(OutlinedButton, 'RE-PAIR'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'CONNECT'), findsOneWidget);
 
     // The screen added no daemon subscription of its own.
     expect(client.streamEventsCalls, 1);
@@ -119,6 +123,10 @@ void main() {
       (tester) async {
     await mountDevices(tester);
 
+    // Re-pair lives in the trusted row's detail sheet now (canonical row:
+    // CONNECT on the tile, RE-PAIR in details).
+    await tester.tap(find.text('Trusted POCO'));
+    await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(OutlinedButton, 'RE-PAIR'));
     await tester.pumpAndSettle();
 
@@ -236,8 +244,140 @@ void main() {
     expect(find.text('Offline Phone'), findsOneWidget);
     expect(find.text('NOT DISCOVERED'), findsOneWidget);
     expect(
-      find.textContaining('Waiting for device / Not currently discovered'),
+      find.textContaining('Not currently discovered'),
       findsOneWidget,
     );
   });
+
+  // -------------------------------------------------------------------------
+  // Phase 2 bidirectional pairing: the receiving side.
+  // -------------------------------------------------------------------------
+
+  void seedInbound() {
+    client.inboundPairings = [
+      ipc.InboundPairingRequest(
+        pairingToken: 'tok-inbound-1',
+        remoteName: 'Linux Desktop',
+        remotePlatform: 'linux',
+        sas: '482913',
+        createdAtMs: Int64(1726000100000),
+      ),
+    ];
+  }
+
+  testWidgets(
+      'inbound pairing request renders a card and the review dialog shows the SAS',
+      (tester) async {
+  await mountDevices(tester);
+  seedInbound();
+
+  await controller.refreshInboundPairings();
+  await tester.pumpAndSettle();
+
+  expect(find.text('Pairing Request · Linux Desktop'), findsOneWidget);
+  expect(find.text('REVIEW'), findsOneWidget);
+
+  await tester.tap(find.text('REVIEW'));
+  await tester.pumpAndSettle();
+
+  expect(find.text('Pairing Request'), findsOneWidget);
+  expect(find.text('482913'), findsOneWidget);
+  expect(find.text('ACCEPT'), findsOneWidget);
+  expect(find.text('REJECT'), findsOneWidget);
+
+  // The pending sweep timer is live while a request exists; dispose in-body
+  // so the test binding's no-pending-timers invariant holds (addTearDown
+  // dispose runs after it). Idempotent with the teardown.
+  controller.dispose();
+});
+
+testWidgets('accepting an inbound request records the approval on the daemon path',
+    (tester) async {
+  await mountDevices(tester);
+  seedInbound();
+
+  await controller.refreshInboundPairings();
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('REVIEW'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('ACCEPT'));
+  await tester.pumpAndSettle();
+
+  expect(client.respondInboundPairingCallCount, 1);
+  expect(client.respondInboundPairingCalls.last.pairingToken, 'tok-inbound-1');
+  expect(client.respondInboundPairingCalls.last.approved, isTrue);
+  // The dialog closes once the decision is recorded.
+  expect(find.text('ACCEPT'), findsNothing);
+  controller.dispose();
+});
+
+testWidgets('rejecting an inbound request records the refusal',
+    (tester) async {
+  await mountDevices(tester);
+  seedInbound();
+
+  await controller.refreshInboundPairings();
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('REVIEW'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('REJECT'));
+  await tester.pumpAndSettle();
+
+  expect(client.respondInboundPairingCallCount, 1);
+  expect(client.respondInboundPairingCalls.last.approved, isFalse);
+  controller.dispose();
+});
+
+testWidgets('an inbound request that leaves the snapshot closes the open dialog',
+    (tester) async {
+  await mountDevices(tester);
+  seedInbound();
+
+  await controller.refreshInboundPairings();
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('REVIEW'));
+  await tester.pumpAndSettle();
+  expect(find.text('ACCEPT'), findsOneWidget);
+
+  // The request expired/was withdrawn natively: the next refresh empties the
+  // snapshot and the dialog must close itself instead of offering a decision
+  // the native side can no longer record.
+  client.inboundPairings = [];
+  await controller.refreshInboundPairings();
+  await tester.pumpAndSettle();
+
+  expect(find.text('ACCEPT'), findsNothing);
+});
+
+testWidgets('a pairing event pushed by the daemon refreshes the inbound snapshot',
+    (tester) async {
+  await mountDevices(tester);
+
+  client.events.add(ipc.StreamEventsResponse(
+    pairingEvent: ipc.PairingEvent(
+      type: ipc.PairingEventType.PAIRING_EVENT_TYPE_ARRIVED,
+      pairingToken: 'tok-push',
+    ),
+  ));
+  await tester.pumpAndSettle();
+
+  expect(client.listInboundPairingsCalls, greaterThanOrEqualTo(1));
+});
+
+testWidgets('an outbound pairing awaiting SAS confirmation shows PAIRING, not just UNPAIRED',
+    (tester) async {
+  await mountDevices(tester);
+
+  await tester.tap(find.widgetWithText(FilledButton, 'PAIR'));
+  await tester.pumpAndSettle();
+
+  // The SAS dialog is open; behind it the tile reports the in-flight state.
+  expect(find.text('PAIRING'), findsOneWidget);
+  expect(find.text('Confirm Pairing Code'), findsOneWidget);
+
+  // Rejecting clears the in-flight state.
+  await tester.tap(find.text('REJECT'));
+  await tester.pumpAndSettle();
+  expect(find.text('PAIRING'), findsNothing);
+});
 }

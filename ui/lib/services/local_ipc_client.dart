@@ -302,10 +302,47 @@ class LocalIpcClient {
     );
   }
 
+  /// Lists pairing requests awaiting this device's approval (Phase 2).
+  Future<ListInboundPairingsResponse> listInboundPairings() async {
+    return _callWithAuth(
+      (opts) => _service.listInboundPairings(
+        ListInboundPairingsRequest(),
+        options: opts,
+      ),
+    );
+  }
+
+  /// Records the local user's accept/reject for one inbound pairing request.
+  Future<RespondInboundPairingResponse> respondInboundPairing({
+    required String pairingToken,
+    required bool approved,
+  }) async {
+    return _callWithAuth(
+      (opts) => _service.respondInboundPairing(
+        RespondInboundPairingRequest(
+          pairingToken: pairingToken,
+          approved: approved,
+        ),
+        options: opts,
+      ),
+    );
+  }
+
   /// Revokes trust for a previously paired device.
   Future<RevokeDeviceResponse> revokeDevice(String deviceId) async {
     return _callWithAuth(
       (opts) => _service.revokeDevice(
+        RevokeDeviceRequest(deviceId: deviceId),
+        options: opts,
+      ),
+    );
+  }
+
+  /// Permanently deletes a trusted record (Forget Device). Unlike revoke,
+  /// no revoked row is preserved (Phase H).
+  Future<RevokeDeviceResponse> removeDevice(String deviceId) async {
+    return _callWithAuth(
+      (opts) => _service.removeDevice(
         RevokeDeviceRequest(deviceId: deviceId),
         options: opts,
       ),

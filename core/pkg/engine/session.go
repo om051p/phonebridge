@@ -2,9 +2,9 @@ package engine
 
 import (
 	"context"
-	"log"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -204,6 +204,10 @@ type SessionSnapshot struct {
 	Requested   MediaParams
 	Actual      MediaParams
 	ActualKnown bool
+	// AdvertisedCaps is what the device said it can do (DEC-022): absent
+	// until the peer advertised it, never guessed from previous sessions.
+	AdvertisedCaps      []MediaCapability
+	AdvertisedCapsKnown bool
 	// ReconnectAttempts counts attempts in the current recovery window.
 	ReconnectAttempts int
 }
@@ -235,6 +239,11 @@ type Session struct {
 	requested   MediaParams
 	actual      MediaParams
 	actualKnown bool
+
+	// The device's own capability advertisement from the last offer exchange
+	// (DEC-022): unknown until a peer reports it, so the UI never guesses.
+	advertisedCaps      []MediaCapability
+	advertisedCapsKnown bool
 
 	reconnecting      bool
 	reconnectAttempts int
@@ -472,6 +481,16 @@ func (s *Session) NegotiatedParams() (MediaParams, bool) {
 	return s.actual, s.actualKnown
 }
 
+// AdvertisedCapabilities returns the media capabilities the device advertised
+// during the offer exchange, and whether it advertised any at all. An absent
+// advertisement stays unknown — it must never read as "no screen support"
+// (DEC-022: the capability-aware UI gates on runtime truth).
+func (s *Session) AdvertisedCapabilities() ([]MediaCapability, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.advertisedCaps, s.advertisedCapsKnown
+}
+
 // Transition validates and applies a state transition, classifying it as
 // ReasonNone.
 func (s *Session) Transition(next SessionState, reason string) error {
@@ -615,23 +634,34 @@ func (s *Session) Snapshot() SessionSnapshot {
 		errMsg = s.lastError.Error()
 	}
 
+	// Authoritative peer: the resolved device once located, else the
+	// configured target (known from StartSession/peer-offer before discovery
+	// completes). A snapshot must never report an empty peer for a session
+	// that was started for an explicit device (Phase B).
+	target := s.targetDevice
+	if target.ID == "" && s.cfg.TargetDeviceID != "" {
+		target = discovery.Device{ID: s.cfg.TargetDeviceID}
+	}
+
 	return SessionSnapshot{
-		SessionID:         s.sessionID,
-		State:             s.state,
-		ReasonCode:        s.reasonCode,
-		TargetDevice:      s.targetDevice,
-		StartTime:         s.startTime,
-		ConnectedDuration: duration,
-		ErrorMessage:      errMsg,
-		Stats:             stats,
-		DroppedAUs:        dropped,
-		SinkKind:          s.sinkKind,
-		SinkActive:        s.sinkKind != SinkKindUnspecified && s.sink != nil && !s.sinkClosed,
-		FramesReason:      s.framesReasonLocked(),
-		Requested:         s.requested,
-		Actual:            s.actual,
-		ActualKnown:       s.actualKnown,
-		ReconnectAttempts: s.reconnectAttempts,
+		SessionID:           s.sessionID,
+		State:               s.state,
+		ReasonCode:          s.reasonCode,
+		TargetDevice:        target,
+		StartTime:           s.startTime,
+		ConnectedDuration:   duration,
+		ErrorMessage:        errMsg,
+		Stats:               stats,
+		DroppedAUs:          dropped,
+		SinkKind:            s.sinkKind,
+		SinkActive:          s.sinkKind != SinkKindUnspecified && s.sink != nil && !s.sinkClosed,
+		FramesReason:        s.framesReasonLocked(),
+		Requested:           s.requested,
+		Actual:              s.actual,
+		ActualKnown:         s.actualKnown,
+		AdvertisedCaps:      s.advertisedCaps,
+		AdvertisedCapsKnown: s.advertisedCapsKnown,
+		ReconnectAttempts:   s.reconnectAttempts,
 	}
 }
 
@@ -931,6 +961,8 @@ func (s *Session) attemptTransport(ctx context.Context) (Code, string) {
 		s.mu.Lock()
 		s.actual = resp.Actual
 		s.actualKnown = resp.ActualKnown
+		s.advertisedCaps = resp.Capabilities
+		s.advertisedCapsKnown = resp.Capabilities != nil
 		s.mu.Unlock()
 
 		// Version and capability validation happen before the SDP is consumed: a
@@ -1421,13 +1453,24 @@ func (s *Session) IsTerminal() bool {
 	}
 }
 
-// reconnectLoop re-runs the offer/answer exchange with bounded backoff until the
-// transport is back, the budget is exhausted, or the session stops.
+// reconnectLoop re-runs the offer/answer exchange with bounded backoff until
+// media is verified again, the budget is exhausted, or the session stops.
 //
 // Capture is never touched: the device keeps its MediaProjection, VirtualDisplay
 // and encoder alive, and DEC-020 records why restarting them would be wrong
 // (re-binding an encoder to a live VirtualDisplay does not resume delivery, and
 // a geometry change needs a fresh consent).
+//
+// Recovery always ends through attemptTransport — a full offer/answer exchange
+// that rebuilds the media pipeline on both ends and arms awaitTrack for the new
+// generation. ICE self-healing during the backoff window may bring the OLD
+// peer connection back first (handleTransportState then reports CONNECTED);
+// that is transport truth, not recovery: the old pipeline's decoder state was
+// lost with the link, delta frames alone can never resync it, and only the
+// device-side transport-only repair re-establishes decodable media (measured:
+// CONNECTED with delivered=0 fps indefinitely after Wi-Fi restore). So a
+// self-healed CONNECTED is folded back into RECONNECTING below instead of
+// ending the loop.
 func (s *Session) reconnectLoop() {
 	defer func() {
 		s.mu.Lock()
@@ -1442,8 +1485,8 @@ func (s *Session) reconnectLoop() {
 			return
 		}
 		switch s.State() {
-		case StateStreaming, StateConnected:
-			return // recovered
+		case StateStreaming:
+			return // recovered: media verified
 		case StateFailed, StateStopped:
 			return // terminal
 		}
@@ -1464,6 +1507,12 @@ func (s *Session) reconnectLoop() {
 		s.reconnectAttempts++
 		attempts := s.reconnectAttempts
 		s.mu.Unlock()
+
+		// A self-healed transport reports CONNECTED mid-recovery. Fold it back:
+		// only the replacement below re-establishes the media path.
+		if s.State() == StateConnected {
+			_ = s.TransitionCode(StateReconnecting, "rebuilding media pipeline", ReasonTransportFailed)
+		}
 
 		code, msg := s.attemptTransport(s.ctx)
 		if code == CodeOK {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
 	"syscall"
@@ -145,11 +146,69 @@ func main() {
 		defer sigSrv.Close()
 		log.Printf("LAN signaling server listening on port %d", sigSrv.Port())
 	}
+	// Inbound pairing requests live in the signaling server; the manager
+	// exposes them to local IPC (ListInboundPairings / RespondInboundPairing).
+	mgr.SetSignalingServer(sigSrv)
+
+	// Inbound-pairing lifecycle events (Phase 2 bidirectional pairing). The
+	// signaling server holds the state; this loop only translates diffs into
+	// StreamEvents broadcasts and, when no UI is attached, a best-effort
+	// desktop notification. Tokens and SAS values are never logged.
+	go func() {
+		const pollEvery = time.Second
+		ticker := time.NewTicker(pollEvery)
+		defer ticker.Stop()
+		seen := make(map[string]struct{})
+		notifyDesktop := func(title, body string) {
+			// Best effort only: a missing or failing notify-send must never
+			// take the daemon down. The in-app dialog remains the primary
+			// surface; this only covers the receiver-app-closed case.
+			if _, err := exec.LookPath("notify-send"); err != nil {
+				return
+			}
+			cmd := exec.Command("notify-send", "--app-name=PhoneBridge", title, body)
+			if err := cmd.Run(); err != nil {
+				log.Printf("pairing: desktop notification failed: %v", err)
+			}
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+			current := make(map[string]struct{}, len(seen))
+			for _, p := range sigSrv.PendingPairings() {
+				current[p.Token] = struct{}{}
+				if _, was := seen[p.Token]; !was {
+					srv.BroadcastPairingEvent(&phonebridgelocalipcv1.PairingEvent{
+						Type:         phonebridgelocalipcv1.PairingEventType_PAIRING_EVENT_TYPE_ARRIVED,
+						PairingToken: p.Token,
+					})
+					if !srv.HasSubscribers() {
+						// Name only: never the SAS or the token.
+						notifyDesktop("PhoneBridge — Pairing Request",
+							p.RemoteName+" wants to pair. Open PhoneBridge to accept or reject.")
+					}
+				}
+			}
+			for tok := range seen {
+				if _, is := current[tok]; !is {
+					srv.BroadcastPairingEvent(&phonebridgelocalipcv1.PairingEvent{
+						Type:         phonebridgelocalipcv1.PairingEventType_PAIRING_EVENT_TYPE_WITHDRAWN,
+						PairingToken: tok,
+					})
+				}
+			}
+			seen = current
+		}
+	}()
 
 	// Initialize mDNS discovery (advertising port and browsing LAN)
 	discCfg := discovery.Config{
 		DeviceID:        identity.DeviceID,
 		DeviceName:      identity.DisplayName,
+		Model:           identity.Platform,
 		Port:            uint16(sigSrv.Port()),
 		IncludeLoopback: true,
 		Version:         "1",

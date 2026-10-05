@@ -313,3 +313,21 @@ func TestClipboardBridgePayloadCeilingEnforcement(t *testing.T) {
 		t.Fatalf("expected OversizedCount 1 in json, got %d", unmarshaled.OversizedCount)
 	}
 }
+
+// With no WebRTC session and no registered host there is no send path; the
+// bridge must report that as an error so the pending-slot flush retains the
+// item for retry. A silent nil here loses the item while the sender believes
+// it was delivered (observed on device: a held clip was logged as "sent to
+// the peer" and never reached the desktop).
+func TestClipboardBridgeLocalCopyWithoutTransportFailsLoudly(t *testing.T) {
+	bridge := &ClipboardBridge{}
+	if err := bridge.Init(nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	defer bridge.Stop()
+
+	err := bridge.OnLocalCopy("text/plain;charset=utf-8", []byte("must survive"), time.Now().UnixMilli())
+	if err == nil {
+		t.Fatal("OnLocalCopy returned nil with no transport and no host: silent drop")
+	}
+}

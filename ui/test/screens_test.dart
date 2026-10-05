@@ -149,7 +149,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('COSMIC Workstation'), findsOneWidget);
+    expect(find.text('No active connection'), findsOneWidget);
     expect(find.text('Screen Sharing'), findsOneWidget);
     expect(find.text('START SHARING'), findsOneWidget);
 
@@ -170,7 +170,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('COSMIC Workstation'), findsOneWidget);
-    expect(find.text('Trusted Devices (1)'), findsOneWidget);
+    // Trusted but undiscovered: grouped as unavailable, never as active.
+    expect(find.text('Unavailable (1)'), findsOneWidget);
 
     await tester.tap(find.text('COSMIC Workstation'));
     await tester.pumpAndSettle();
@@ -272,13 +273,13 @@ void main() {
     await tester.pumpWidget(buildTestWidget(SettingsScreen(controller: controller)));
     await tester.pumpAndSettle();
 
-    expect(find.text('Screen Sharing'), findsOneWidget);
-    expect(find.text('Clipboard'), findsOneWidget);
+    expect(find.text('General'), findsOneWidget);
+    expect(find.text('Connection'), findsOneWidget);
     expect(find.text('Diagnostics & Developer'), findsOneWidget);
     expect(find.text('About PhoneBridge'), findsOneWidget);
 
     // Open Diagnostics
-    await tester.tap(find.widgetWithText(ListTile, 'Diagnostics & Developer'));
+    await tester.tap(find.widgetWithText(ListTile, 'Open Diagnostics Console'));
     await tester.pumpAndSettle();
 
     expect(find.byType(DiagnosticsScreen), findsOneWidget);

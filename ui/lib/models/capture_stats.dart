@@ -29,16 +29,31 @@ class CaptureStats {
     Map<dynamic, dynamic> map, {
     CaptureStats? previous,
   }) {
-    final isCapturing = map['isCapturing'] as bool? ?? false;
-    final encoded = (map['encodedFrames'] as num?)?.toInt() ?? 0;
-    final keys = (map['keyframes'] as num?)?.toInt() ?? 0;
-    final admitted = (map['admittedFrames'] as num?)?.toInt() ?? 0;
-    final dropped = (map['droppedFrames'] as num?)?.toInt() ?? 0;
-    final codec = map['codec'] as String? ?? 'None';
-    final isHardware = map['isHardwareCodec'] as bool? ?? false;
-    final durationUs = (map['durationUs'] as num?)?.toInt() ?? 0;
+    // Every event map rides this factory — including signal-only
+    // {"trustChanged": true} / {"pairingChanged": true} and transfer-only
+    // {"transfer": ...} maps. A key the event omits is "not reported", never
+    // a reset: inherit the previous snapshot so a signal map cannot flip
+    // isSharing, zero the counters, or fake a stop/start transition.
+    // lastError keeps absent-means-clear: the native tick omits it once the
+    // condition is gone, which is how errors clear.
+    final isCapturing =
+        map['isCapturing'] as bool? ?? previous?.isCapturing ?? false;
+    final encoded =
+        (map['encodedFrames'] as num?)?.toInt() ?? previous?.encodedFrames ?? 0;
+    final keys =
+        (map['keyframes'] as num?)?.toInt() ?? previous?.keyframes ?? 0;
+    final admitted =
+        (map['admittedFrames'] as num?)?.toInt() ?? previous?.admittedFrames ?? 0;
+    final dropped =
+        (map['droppedFrames'] as num?)?.toInt() ?? previous?.droppedFrames ?? 0;
+    final codec = map['codec'] as String? ?? previous?.codec ?? 'None';
+    final isHardware =
+        map['isHardwareCodec'] as bool? ?? previous?.isHardwareCodec ?? false;
+    final durationUs =
+        (map['durationUs'] as num?)?.toInt() ?? previous?.durationUs ?? 0;
     final lastError = map['lastError'] as String?;
-    final timestampMs = (map['timestampMs'] as num?)?.toInt() ?? 0;
+    final timestampMs =
+        (map['timestampMs'] as num?)?.toInt() ?? previous?.timestampMs ?? 0;
 
     double? fps;
     if (previous != null && timestampMs > previous.timestampMs && previous.isCapturing && isCapturing) {
@@ -60,7 +75,9 @@ class CaptureStats {
       durationUs: durationUs,
       lastError: lastError,
       timestampMs: timestampMs,
-      currentFps: fps,
+      // A signal map carries no new frame count: keep the last measured fps
+      // instead of blanking it.
+      currentFps: fps ?? previous?.currentFps,
     );
   }
 

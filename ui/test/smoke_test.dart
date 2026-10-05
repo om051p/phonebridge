@@ -74,9 +74,9 @@ void main() {
     // App bar + the home hero in its no-peer state (empty trust store) and
     // its pairing action.
     expect(find.text('PhoneBridge'), findsOneWidget);
-    expect(find.text('No Paired PC'), findsOneWidget);
+    expect(find.text('No paired device'), findsOneWidget);
     expect(
-      find.text('Pair with your Linux desktop to connect'),
+      find.text('Pair with your other device to connect'),
       findsOneWidget,
     );
     expect(find.text('Pair'), findsOneWidget);
@@ -98,6 +98,8 @@ void main() {
     final controller = PhoneBridgeController(
       service: LinuxBridgeService(client: client),
     );
+    // Explicit target for the tab's start control (Phase C).
+    controller.setReceiverUrl('test-peer');
     addTearDown(controller.dispose);
     addTearDown(client.events.close);
     await tester.pumpWidget(PhoneBridgeApp(

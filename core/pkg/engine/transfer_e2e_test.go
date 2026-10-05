@@ -35,7 +35,10 @@ func TestLinuxToLinux_BidirectionalFileTransferE2E(t *testing.T) {
 	defer cancel()
 
 	// 1. Mutual trust: without it the signaling server refuses the session, and
-	//    therefore no transfer channel can ever exist.
+	//    therefore no transfer channel can ever exist. Node B approves explicitly.
+	approved := make(chan struct{})
+	defer close(approved)
+	approveFirstInboundPairing(t, nodeB.sigServer, approved)
 	pairClient := crypto.NewPairingClient(3 * time.Second)
 	if _, err := pairClient.Pair(ctx, nodeB.endpoint, nodeA.identity, nodeA.trustStore, func(remoteName, sas string) bool {
 		return true

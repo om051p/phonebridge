@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -164,7 +166,9 @@ type fakeTransport struct {
 	setOfferErr error
 	connectOn   bool
 	trackDelay  time.Duration
-	trackOK     bool
+	// trackOK is read by the session's awaitTrack goroutine while tests flip
+	// it mid-recovery, so it must be atomic (plain bool raced under -race).
+	trackOK atomic.Bool
 }
 
 func (f *fakeTransport) SetRemoteOffer(offer pion.SessionDescription) (pion.SessionDescription, error) {
@@ -183,7 +187,7 @@ func (f *fakeTransport) WaitForTrack(timeout time.Duration) error {
 	if f.trackDelay > 0 {
 		time.Sleep(f.trackDelay)
 	}
-	if !f.trackOK {
+	if !f.trackOK.Load() {
 		return errors.New("fake transport: no track")
 	}
 	return nil
@@ -256,7 +260,8 @@ func newTransportProbe() *transportProbe { return &transportProbe{} }
 func (p *transportProbe) factory(cfg receiver.Config) (transport, error) {
 	p.mu.Lock()
 	id := len(p.built) + 1
-	t := &fakeTransport{id: id, cfg: cfg, probe: p, connectOn: true, trackOK: true}
+	t := &fakeTransport{id: id, cfg: cfg, probe: p, connectOn: true}
+	t.trackOK.Store(true)
 	p.built = append(p.built, t)
 	script := p.script
 	p.mu.Unlock()
@@ -541,6 +546,121 @@ func TestSession_UnknownActualIsNotBackfilled(t *testing.T) {
 
 	if _, known := h.sess.NegotiatedParams(); known {
 		t.Fatal("an unreported actual tuple must stay unknown, not be assumed equal to the request")
+	}
+}
+
+func TestSession_RecordsAdvertisedCapabilities(t *testing.T) {
+	h := newNegotiationHarness(t, func(req offerRequest) offerResponse {
+		return offerResponse{
+			Type:            "offer",
+			ProtocolVersion: signalingVersion,
+			Accepted:        boolPtr(true),
+			Actual:          &mediaParamsJSON{Width: 720, Height: 1600, FPS: 30, BitrateKbps: 4000},
+			Capabilities: []mediaCapabilityJSON{{
+				Codecs:         []string{"h264"},
+				MaxWidth:       1080,
+				MaxHeight:      2400,
+				MaxFPS:         30,
+				SupportsScreen: true,
+			}},
+		}
+	}, nil)
+
+	if err := h.connect(t); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = h.sess.Stop("done") }()
+
+	caps, known := h.sess.AdvertisedCapabilities()
+	if !known {
+		t.Fatal("expected the device-advertised capabilities to be known")
+	}
+	if len(caps) != 1 {
+		t.Fatalf("advertised capabilities: got %d entries, want 1", len(caps))
+	}
+	got := caps[0]
+	if !got.SupportsScreen {
+		t.Error("advertised capabilities must report screen support")
+	}
+	if got.MaxWidth != 1080 || got.MaxHeight != 2400 || got.MaxFPS != 30 {
+		t.Errorf("advertised bounds: got %dx%d@%d, want 1080x2400@30",
+			got.MaxWidth, got.MaxHeight, got.MaxFPS)
+	}
+	if len(got.Codecs) != 1 || got.Codecs[0] != "h264" {
+		t.Errorf("advertised codecs: got %v, want [h264]", got.Codecs)
+	}
+	// The snapshot is what the local IPC surface serves: it must carry the
+	// same advertisement so Flutter gates presets on runtime truth.
+	snap := h.sess.Snapshot()
+	if !snap.AdvertisedCapsKnown || len(snap.AdvertisedCaps) != 1 {
+		t.Fatalf("snapshot caps: known=%v entries=%d, want known with 1 entry",
+			snap.AdvertisedCapsKnown, len(snap.AdvertisedCaps))
+	}
+	if snap.AdvertisedCaps[0].MaxWidth != got.MaxWidth ||
+		snap.AdvertisedCaps[0].MaxHeight != got.MaxHeight ||
+		snap.AdvertisedCaps[0].MaxFPS != got.MaxFPS ||
+		snap.AdvertisedCaps[0].SupportsScreen != got.SupportsScreen ||
+		len(snap.AdvertisedCaps[0].Codecs) != len(got.Codecs) {
+		t.Errorf("snapshot caps = %+v, want %+v", snap.AdvertisedCaps[0], got)
+	}
+}
+
+func TestSession_AbsentCapabilitiesStayUnknown(t *testing.T) {
+	// The shared `accepted` answer carries no Capabilities list: a peer that
+	// predates capability advertisement (or a responder path with no round
+	// trip) must read as unknown, never as "no screen support".
+	h := newNegotiationHarness(t, accepted, nil)
+
+	if err := h.connect(t); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = h.sess.Stop("done") }()
+
+	if _, known := h.sess.AdvertisedCapabilities(); known {
+		t.Fatal("absent capabilities must stay unknown, not be treated as an empty advertisement")
+	}
+	if snap := h.sess.Snapshot(); snap.AdvertisedCapsKnown {
+		t.Error("snapshot must not claim capabilities the peer never reported")
+	}
+}
+
+func TestSession_CapabilitiesSurviveTerminalTransition(t *testing.T) {
+	h := newNegotiationHarness(t, func(req offerRequest) offerResponse {
+		return offerResponse{
+			Type:            "offer",
+			ProtocolVersion: signalingVersion,
+			Accepted:        boolPtr(true),
+			Actual:          &mediaParamsJSON{Width: 720, Height: 1600, FPS: 30},
+			Capabilities: []mediaCapabilityJSON{{
+				Codecs:         []string{"h264"},
+				MaxWidth:       1080,
+				MaxHeight:      2400,
+				SupportsScreen: true,
+			}},
+		}
+	}, nil)
+
+	if err := h.connect(t); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	if err := h.sess.Stop("user stopped"); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+
+	// Capabilities describe the device, not the session: unlike the sink
+	// classification they must survive teardown so the next request can
+	// still be gated on the last reported values instead of guessing.
+	snap := h.sess.Snapshot()
+	if snap.State != StateStopped {
+		t.Fatalf("state: got %s, want STOPPED", snap.State)
+	}
+	caps, known := h.sess.AdvertisedCapabilities()
+	if !known || len(caps) != 1 || caps[0].MaxWidth != 1080 {
+		t.Errorf("caps after stop: known=%v caps=%+v, want the reported advertisement",
+			known, caps)
+	}
+	if !snap.AdvertisedCapsKnown {
+		t.Error("snapshot after stop must still carry the reported capabilities")
 	}
 }
 
@@ -892,7 +1012,7 @@ func TestSession_ZeroFPSDoesNotTriggerReconnect(t *testing.T) {
 		c.ReconnectTimeout = 200 * time.Millisecond
 	})
 	h.probe.setScript(func(id int, tr *fakeTransport) {
-		tr.trackOK = false
+		tr.trackOK.Store(false)
 		tr.trackDelay = 2 * time.Second
 	})
 
@@ -955,12 +1075,17 @@ func TestSession_RevokedTrustStopsReconnect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("trust store: %v", err)
 	}
-	const deviceID = "test-phone"
+	// Canonical identity: the trust record must be keyed by the fingerprint
+	// of its key (Phase A). The session is pointed at that canonical ID via
+	// SetTargetDevice so the trust gate exercises the real path.
+	peerPub := make([]byte, 32)
+	_, _ = rand.Read(peerPub)
+	deviceID := crypto.Fingerprint(peerPub)
 	if err := ts.AddTrusted(crypto.TrustEntry{
 		DeviceID:    deviceID,
 		DisplayName: "Test Phone",
 		Platform:    "android",
-		PublicKey:   make([]byte, 32),
+		PublicKey:   peerPub,
 		PairedAt:    time.Now(),
 	}); err != nil {
 		t.Fatalf("add trusted: %v", err)
@@ -968,6 +1093,7 @@ func TestSession_RevokedTrustStopsReconnect(t *testing.T) {
 
 	h := newNegotiationHarness(t, accepted, nil)
 	h.sess.SetTrustStore(ts)
+	h.sess.SetTargetDevice(discovery.Device{ID: deviceID, Name: "Test Phone"})
 
 	if err := h.connect(t); err != nil {
 		t.Fatalf("connect: %v", err)

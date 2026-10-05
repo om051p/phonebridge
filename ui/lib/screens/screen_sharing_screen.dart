@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../controllers/phonebridge_controller.dart';
 import '../generated/phonebridge/v1/phonebridge.pb.dart' as pb;
 import '../models/link_status.dart';
+import '../models/media_capabilities.dart';
 import '../services/frame_stream.dart';
 import '../ui/link_indicator.dart';
 import '../ui/screen_frame_view.dart';
@@ -70,7 +71,7 @@ class ScreenSharingScreen extends StatelessWidget {
         return KeyEventResult.ignored;
       },
       child: ListView(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
         children: [
           _buildActiveStatusCard(theme, link, stats),
           const SizedBox(height: 16),
@@ -401,6 +402,15 @@ class ScreenSharingScreen extends StatelessWidget {
   }
 
   Widget _buildTargetDeviceCard(ThemeData theme, dynamic peer) {
+    // Human-readable identity: name + platform + trust/connection/path, never
+    // an internal "Target PC x1". Trust (shield) and connection (dot) stay
+    // separate so Trusted + Offline/Available/Connected read distinctly.
+    final hasPeer = peer != null;
+    final sessionActive = controller.session.status.isActive;
+    final connectionLabel =
+        sessionActive ? controller.linkStatus.label : 'Disconnected';
+    final connectionColor =
+        linkPhaseColor(theme, controller.linkStatus.phase);
     return Card(
       elevation: 0,
       color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
@@ -419,30 +429,88 @@ class ScreenSharingScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Target PC',
+                    hasPeer ? peer.displayName : 'Paired device',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    hasPeer
+                        ? '${peer.platform} · LAN · Direct'
+                        : 'Local Network (Auto-Discovery) · LAN · Direct',
                     style: theme.textTheme.labelMedium?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
-                  Text(
-                    peer != null ? peer.displayName : 'Local Network (Auto-Discovery)',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      if (hasPeer)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.shield_outlined,
+                                  size: 12, color: Colors.green),
+                              SizedBox(width: 4),
+                              Text(
+                                'Trusted',
+                                style: TextStyle(
+                                    color: Colors.green,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
+                        ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: connectionColor.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                              color: connectionColor.withValues(alpha: 0.3)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 7,
+                              height: 7,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: connectionColor,
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                            Text(
+                              connectionLabel,
+                              style: TextStyle(
+                                color: connectionColor,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
-            if (peer != null)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.green.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Text(
-                  'Trusted',
-                  style: TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.bold),
-                ),
-              ),
           ],
         ),
       ),
@@ -450,6 +518,20 @@ class ScreenSharingScreen extends StatelessWidget {
   }
 
   Widget _buildQualityPresetsCard(ThemeData theme, bool isCapturing) {
+    // Runtime-gated presets: each entry is checked against the advertised
+    // capabilities (Go-retained DEC-022 advertisement on Linux, encoder-read
+    // advertisement on Android). A passing gate means "worth requesting" —
+    // the phone's applied tuple, shown above, remains the final verdict.
+    final actual = controller.session.status.actual;
+    final actualLabel = actual == null
+        ? 'Applied: not reported by the phone yet'
+        : 'Applied: ${actual.width}x${actual.height} @${actual.fps} fps';
+    final caps = controller.effectiveCapabilities;
+    // DEC-022 device default is Linux-only: on Android the capture pipeline
+    // is configured from this side and never sends a session request tuple.
+    final presets = controller.service.isLinux
+        ? kScreenPresets
+        : kScreenPresets.where((p) => !p.isDeviceDefault).toList();
     return Card(
       elevation: 0,
       color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
@@ -468,58 +550,25 @@ class ScreenSharingScreen extends StatelessWidget {
                 fontWeight: FontWeight.bold,
               ),
             ),
+            const SizedBox(height: 4),
+            Text(
+              caps == null
+                  ? 'Checking device capabilities… presets unlock as the phone reports what it applies ($actualLabel).'
+                  : 'Requests only — the phone reports what it applies. See session details above ($actualLabel).',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
             const SizedBox(height: 12),
-            // DEC-022, migrated from the retired desktop session view: an
-            // all-zero tuple means "device default" — the phone answers with
-            // what it actually applies instead of a request the UI could
-            // mistake for a confirmed parameter. Desktop-only: on Android the
-            // capture pipeline is configured from this side and never sends a
-            // session request tuple.
-            if (controller.service.isLinux) ...[
+            for (var i = 0; i < presets.length; i++) ...[
+              if (i > 0) const Divider(),
               _buildPresetOption(
                 theme,
-                title: 'Device Default (Phone Chooses)',
-                subtitle: 'No requested tuple · the phone reports what it applies',
-                width: 0,
-                height: 0,
-                fps: 0,
-                bitrate: 0,
-                disabled: isCapturing,
+                preset: presets[i],
+                capabilities: caps,
+                sessionActive: isCapturing,
               ),
-              const Divider(),
             ],
-            _buildPresetOption(
-              theme,
-              title: '720p HD (Balanced)',
-              subtitle: '720x1600 @ 30 fps · Low latency, optimal stability',
-              width: 720,
-              height: 1600,
-              fps: 30,
-              bitrate: 2500,
-              disabled: isCapturing,
-            ),
-            const Divider(),
-            _buildPresetOption(
-              theme,
-              title: '1080p FHD (Sharp Text)',
-              subtitle: '1080x2400 @ 30 fps · Crisp details for reading & docs',
-              width: 1080,
-              height: 2400,
-              fps: 30,
-              bitrate: 5000,
-              disabled: isCapturing,
-            ),
-            const Divider(),
-            _buildPresetOption(
-              theme,
-              title: '1080p 60fps (Smooth Motion)',
-              subtitle: '1080x2400 @ 60 fps · High frame rate streaming',
-              width: 1080,
-              height: 2400,
-              fps: 60,
-              bitrate: 8000,
-              disabled: isCapturing,
-            ),
           ],
         ),
       ),
@@ -528,25 +577,48 @@ class ScreenSharingScreen extends StatelessWidget {
 
   Widget _buildPresetOption(
     ThemeData theme, {
-    required String title,
-    required String subtitle,
-    required int width,
-    required int height,
-    required int fps,
-    required int bitrate,
-    required bool disabled,
+    required ScreenPreset preset,
+    required pb.MediaCapabilities? capabilities,
+    required bool sessionActive,
   }) {
-    final isSelected = controller.selectedWidth == width &&
-        controller.selectedHeight == height &&
-        controller.selectedFps == fps;
+    final isSelected = controller.selectedWidth == preset.width &&
+        controller.selectedHeight == preset.height &&
+        controller.selectedFps == preset.fps;
+    final availability = availabilityOf(preset, capabilities);
+    // An unsupported mode is not offered: the tap is disabled and the reason
+    // states what the encoder actually supports. Unknown stays tappable —
+    // the peer accepts unstated limits, and its typed answer decides.
+    final disabled =
+        sessionActive || availability == CapabilityAvailability.unsupported;
+    final String badge;
+    final Color badgeColor;
+    switch (availability) {
+      case CapabilityAvailability.supported:
+        badge = preset.guidance;
+        badgeColor = theme.colorScheme.primary;
+        break;
+      case CapabilityAvailability.unknown:
+        badge = 'Checking…';
+        badgeColor = theme.colorScheme.onSurfaceVariant;
+        break;
+      case CapabilityAvailability.unsupported:
+        badge = 'Unavailable';
+        badgeColor = theme.colorScheme.error;
+        break;
+    }
+    final reason = availabilityReason(preset, capabilities);
+    final subtitle = reason.isNotEmpty &&
+            availability == CapabilityAvailability.unsupported
+        ? '${preset.subtitle}\n$reason'
+        : preset.subtitle;
 
     return InkWell(
       onTap: disabled
           ? null
           : () {
-              controller.setResolution(width, height);
-              controller.setFps(fps);
-              controller.setBitrate(bitrate);
+              controller.setResolution(preset.width, preset.height);
+              controller.setFps(preset.fps);
+              controller.setBitrate(preset.bitrateKbps);
             },
       borderRadius: BorderRadius.circular(10),
       child: Padding(
@@ -563,12 +635,36 @@ class ScreenSharingScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: disabled ? theme.disabledColor : null,
-                    ),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Text(
+                        preset.title,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: disabled ? theme.disabledColor : null,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: badgeColor
+                              .withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          isSelected ? 'Currently active' : badge,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: badgeColor,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   Text(
                     subtitle,

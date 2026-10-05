@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../controllers/phonebridge_controller.dart';
+import '../models/feature_availability.dart';
 
 /// Card guiding Android users through granting required permissions and
 /// navigating Android 13+ Restricted Settings (M-BETA-1).
@@ -82,8 +83,8 @@ class PermissionOnboardingCard extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         hasMissing
-                            ? 'Required for background service, notifications, and remote control'
-                            : 'All system services and notification access are active',
+                            ? 'Required for background service, notifications, and supported remote control'
+                            : 'All permissions granted — service state shown per item below',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
@@ -106,6 +107,11 @@ class PermissionOnboardingCard extends StatelessWidget {
               subtitle: 'Show foreground service alerts & system status',
               icon: Icons.notifications_active_outlined,
               isGranted: postNotifications,
+              // Runtime liveness of the foreground service itself: granted
+              // (POST_NOTIFICATIONS) never implies running.
+              serviceActive: controller.foregroundServiceActive,
+              serviceActiveLabel: 'Foreground service running',
+              serviceInactiveLabel: 'Foreground service not running',
               actionLabel: 'Allow',
               onAction: () => controller.requestNotificationPermission(),
             ),
@@ -114,9 +120,15 @@ class PermissionOnboardingCard extends StatelessWidget {
               context: context,
               theme: theme,
               title: 'Notification Mirroring',
-              subtitle: 'Forward incoming phone alerts to your Linux desktop',
+              subtitle: 'Forward incoming phone alerts to your paired device',
               icon: Icons.sync_outlined,
               isGranted: notifListener,
+              // Granted access is necessary but not sufficient: the listener
+              // service must actually be bound (see notificationAvailability).
+              serviceStatus: notificationAvailability(
+                granted: notifListener,
+                serviceActive: controller.notificationServiceActive,
+              ),
               actionLabel: 'Open Settings',
               onAction: () => controller.openNotificationListenerSettings(),
             ),
@@ -124,10 +136,17 @@ class PermissionOnboardingCard extends StatelessWidget {
             _buildPermissionItem(
               context: context,
               theme: theme,
+              // Accurate wording: standard AccessibilityService gestures and
+              // navigation via the configured Android accessibility mechanism —
+              // never unrestricted input injection.
               title: 'Remote Input & Accessibility',
-              subtitle: 'Inject remote touch and navigation gestures from Linux',
+              subtitle: 'Supported gestures and navigation via the Android accessibility mechanism',
               icon: Icons.accessibility_new_outlined,
               isGranted: accessibility,
+              serviceStatus: remoteInputAvailability(
+                granted: accessibility,
+                serviceActive: controller.accessibilityServiceActive,
+              ),
               actionLabel: 'Open Settings',
               onAction: () => controller.openAccessibilitySettings(),
             ),
@@ -150,7 +169,36 @@ class PermissionOnboardingCard extends StatelessWidget {
     required bool isGranted,
     required String actionLabel,
     required VoidCallback onAction,
+    // Runtime liveness, read from the service singletons (never inferred
+    // from the granted flag). Two spellings: a mapped [serviceStatus]
+    // (notification/input rows, via feature_availability.dart) or a raw
+    // [serviceActive] boolean with labels (foreground-service row). Null in
+    // either case means the native side did not report liveness (old build)
+    // and no runtime line is shown rather than a guess.
+    FeatureStatus? serviceStatus,
+    bool? serviceActive,
+    String serviceActiveLabel = 'Service active',
+    String serviceInactiveLabel = 'Service not running',
   }) {
+    // Granted means the Android setting/permission is on. It does not by
+    // itself mean the service is actively functioning — so the badge reads
+    // "Granted", never "Active", until a live service check confirms it.
+    // A `granted` mapping state means liveness was unknown: show nothing.
+    // (Kept as an explicit local so the null check below promotes.)
+    FeatureStatus? runtimeStatus;
+    if (serviceStatus != null &&
+        serviceStatus.state != FeatureState.granted) {
+      runtimeStatus = serviceStatus;
+    } else if (serviceActive != null) {
+      runtimeStatus = FeatureStatus(
+        state: serviceActive ? FeatureState.active : FeatureState.needsSetup,
+        label: serviceActive ? serviceActiveLabel : serviceInactiveLabel,
+        detail: serviceActive ? serviceActiveLabel : serviceInactiveLabel,
+      );
+    }
+    final Color runtimeColor = runtimeStatus?.state == FeatureState.active
+        ? Colors.green
+        : Colors.orange.shade800;
     return Row(
       children: [
         Icon(
@@ -178,6 +226,32 @@ class PermissionOnboardingCard extends StatelessWidget {
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
+              if (runtimeStatus != null) ...[
+                const SizedBox(height: 2),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 7,
+                      height: 7,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: runtimeColor,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Flexible(
+                      child: Text(
+                        runtimeStatus.detail,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: runtimeColor,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
@@ -193,7 +267,7 @@ class PermissionOnboardingCard extends StatelessWidget {
               ),
               const SizedBox(width: 4),
               Text(
-                'Active',
+                'Granted',
                 style: theme.textTheme.labelMedium?.copyWith(
                   color: theme.colorScheme.primary,
                   fontWeight: FontWeight.bold,

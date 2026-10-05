@@ -76,6 +76,14 @@ object AndroidNotificationManager {
     }
 
     /**
+     * Runtime liveness: true only while the platform listener service is
+     * actually bound (connected without a matching disconnect). User-granted
+     * access (Settings) is necessary but not sufficient — the UI must not
+     * read "granted" as "active".
+     */
+    fun isListenerConnected(): Boolean = listenerService != null
+
+    /**
      * Checks whether the device is currently locked.
      */
     fun isDeviceLocked(context: Context): Boolean {

@@ -47,7 +47,19 @@ type PairingStatusPayload struct {
 // PairingClient orchestrates client-side device pairing over LAN.
 type PairingClient struct {
 	client *http.Client
+	// PollInterval is how long to wait between confirm polls while the
+	// receiver reports 202 pending. Zero uses defaultConfirmPollInterval.
+	PollInterval time.Duration
 }
+
+// defaultConfirmPollInterval paces confirm polls while the receiving user
+// decides. Every poll is its own short HTTP exchange, so the 10 s transport
+// budgets are never the bound — the 5 min pairing-token TTL is.
+const defaultConfirmPollInterval = 3 * time.Second
+
+// maxConfirmPollElapsed caps the whole poll wait at the pairing-token TTL:
+// polling past it can only ever meet an expired token.
+const maxConfirmPollElapsed = 5 * time.Minute
 
 // NewPairingClient creates a pairing client with the specified timeout.
 func NewPairingClient(timeout time.Duration) *PairingClient {
@@ -147,25 +159,57 @@ func (c *PairingClient) Pair(
 	}
 
 	confirmURL := fmt.Sprintf("http://%s/pairing/confirm", endpoint)
-	confirmReq, err := http.NewRequestWithContext(ctx, http.MethodPost, confirmURL, bytes.NewReader(confirmData))
-	if err != nil {
-		return nil, fmt.Errorf("create pair confirm request: %w", err)
-	}
-	confirmReq.Header.Set("Content-Type", "application/json")
+	postConfirm := func() (int, []byte, error) {
+		confirmReq, err := http.NewRequestWithContext(ctx, http.MethodPost, confirmURL, bytes.NewReader(confirmData))
+		if err != nil {
+			return 0, nil, fmt.Errorf("create pair confirm request: %w", err)
+		}
+		confirmReq.Header.Set("Content-Type", "application/json")
 
-	confirmResp, err := c.client.Do(confirmReq)
-	if err != nil {
-		return nil, fmt.Errorf("send pair confirm to %s: %w", confirmURL, err)
+		confirmResp, err := c.client.Do(confirmReq)
+		if err != nil {
+			return 0, nil, fmt.Errorf("send pair confirm to %s: %w", confirmURL, err)
+		}
+		defer confirmResp.Body.Close()
+		body, _ := io.ReadAll(confirmResp.Body)
+		return confirmResp.StatusCode, body, nil
 	}
-	defer confirmResp.Body.Close()
 
 	if !userApproved {
+		// The requester's own rejection still reaches the receiver so its
+		// pending dialog is withdrawn instead of lingering to expiry.
+		_, _, _ = postConfirm()
 		return nil, fmt.Errorf("user rejected pairing SAS")
 	}
 
-	if confirmResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(confirmResp.Body)
-		return nil, fmt.Errorf("pairing confirm rejected (%d): %s", confirmResp.StatusCode, string(body))
+	// The receiver approves asynchronously: 202 pending means "not yet
+	// decided" — poll the identical confirm until it pairs, rejects, expires,
+	// or the wait (token TTL) / context runs out.
+	pollInterval := c.PollInterval
+	if pollInterval <= 0 {
+		pollInterval = defaultConfirmPollInterval
+	}
+	deadline := time.Now().Add(maxConfirmPollElapsed)
+	for {
+		code, body, err := postConfirm()
+		if err != nil {
+			return nil, err
+		}
+		if code == http.StatusAccepted {
+			if time.Now().After(deadline) {
+				return nil, fmt.Errorf("pairing confirm timed out waiting for receiver approval")
+			}
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("pairing confirm cancelled: %w", ctx.Err())
+			case <-time.After(pollInterval):
+			}
+			continue
+		}
+		if code != http.StatusOK {
+			return nil, fmt.Errorf("pairing confirm rejected (%d): %s", code, string(body))
+		}
+		break
 	}
 
 	// 6. Commit trusted peer to trust store

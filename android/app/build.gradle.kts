@@ -28,9 +28,11 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
-        ndk {
-            abiFilters.addAll(listOf("arm64-v8a", "x86_64"))
-        }
+        // No ndk.abiFilters here on purpose: the `splits` block below is the
+        // single ABI authority (AGP rejects both being set), and the Flutter
+        // plugin otherwise re-adds armeabi-v7a — an ABI the Go core never
+        // builds, which used to ship a libflutter.so with no matching
+        // libphonebridge_core.so.
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -75,9 +77,35 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // The Khronos validation layer is a graphics-debugging aid: it
+            // must never ship in release builds (15 MB of dead weight).
+            packaging {
+                jniLibs {
+                    excludes += "**/libVkLayer_khronos_validation.so"
+                }
+            }
         }
         debug {
             isMinifyEnabled = false
+        }
+    }
+
+    // One APK per ABI instead of a universal APK shipping every .so three
+    // times is produced at build time with
+    //   flutter build apk --split-per-abi --target-platform=android-arm64,android-x64
+    // (deliberately NOT via a `splits` block: AGP rejects `splits` together
+    // with the ndk abiFilters the Flutter plugin contributes, and splits
+    // would also change every existing artifact path and install command).
+    //
+    // The packaging excludes below are the repo-side part of the same goal:
+    // armeabi-v7a is excluded because the Go core is never built for it
+    // (core/Makefile targets arm64-v8a + x86_64 only) — shipping Flutter's
+    // v7a engine without a matching libphonebridge_core.so would install and
+    // then crash on launch, while excluding it makes PackageManager refuse
+    // with INSTALL_FAILED_NO_MATCHING_ABIS instead.
+    packaging {
+        jniLibs {
+            excludes += "lib/armeabi-v7a/*"
         }
     }
 

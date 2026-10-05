@@ -139,6 +139,7 @@ ipc.SessionEvent sessionEvent({
 
 ipc.GetSessionStateResponse sessionSnapshot({
   String sessionId = 'sess-1',
+  String deviceId = '',
   ipc.SessionState state = ipc.SessionState.SESSION_STATE_STREAMING,
   int durationMs = 0,
   int reconnectAttempts = 0,
@@ -148,6 +149,7 @@ ipc.GetSessionStateResponse sessionSnapshot({
 }) {
   return ipc.GetSessionStateResponse(
     sessionId: sessionId,
+    deviceId: deviceId,
     state: state,
     errorMessage: errorMessage,
     reasonCode: reasonCode,

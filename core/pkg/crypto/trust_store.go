@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"crypto/ed25519"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -101,6 +102,13 @@ func (s *TrustStore) Get(deviceID string) (TrustEntry, bool) {
 }
 
 // AddTrusted inserts or updates a trusted device and commits to disk.
+//
+// The device ID must be the canonical public-key fingerprint
+// (Fingerprint(public key)). An empty DeviceID is canonicalized; a
+// non-canonical DeviceID is rejected so a second logical record for the same
+// key can never be created under a mismatched ID (connection-audit Phase A).
+// Callers that reconcile a legacy or discovery-derived ID must use
+// UpsertCanonical instead.
 func (s *TrustStore) AddTrusted(entry TrustEntry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -108,12 +116,67 @@ func (s *TrustStore) AddTrusted(entry TrustEntry) error {
 	if len(entry.PublicKey) != ed25519.PublicKeySize {
 		return fmt.Errorf("invalid public key size: %d", len(entry.PublicKey))
 	}
+	canonical := Fingerprint(entry.PublicKey)
 	if entry.DeviceID == "" {
-		entry.DeviceID = Fingerprint(entry.PublicKey)
+		entry.DeviceID = canonical
+	}
+	if entry.DeviceID != canonical {
+		return fmt.Errorf("device_id %q does not match public-key fingerprint %q", entry.DeviceID, canonical)
 	}
 	if entry.PairedAt.IsZero() {
 		entry.PairedAt = time.Now()
 	}
+	entry.LastSeen = time.Now()
+	entry.Revoked = false
+
+	s.devices[entry.DeviceID] = entry
+	return s.saveLocked()
+}
+
+// UpsertCanonical stores a trusted device under its canonical public-key
+// fingerprint, folding any legacy row that holds the same public key under a
+// different (e.g. discovery-derived) device ID.
+//
+// Same-key rows are the same logical device, so the fold preserves the
+// earliest PairedAt and refreshes display metadata instead of accumulating a
+// duplicate. Rows holding a DIFFERENT public key are never touched: a
+// reinstall generates a new key and therefore a genuinely new record, which
+// is retained alongside the old one (no destructive migration).
+func (s *TrustStore) UpsertCanonical(entry TrustEntry) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(entry.PublicKey) != ed25519.PublicKeySize {
+		return fmt.Errorf("invalid public key size: %d", len(entry.PublicKey))
+	}
+	canonical := Fingerprint(entry.PublicKey)
+	earliest := entry.PairedAt
+	consider := func(t time.Time) {
+		if t.IsZero() {
+			return
+		}
+		if earliest.IsZero() || t.Before(earliest) {
+			earliest = t
+		}
+	}
+	for id, existing := range s.devices {
+		if id == canonical {
+			// Re-pairing the same canonical record must not move its
+			// original pairing time forward.
+			consider(existing.PairedAt)
+			continue
+		}
+		if len(existing.PublicKey) == len(entry.PublicKey) &&
+			subtle.ConstantTimeCompare(existing.PublicKey, entry.PublicKey) == 1 {
+			consider(existing.PairedAt)
+			delete(s.devices, id)
+		}
+	}
+	entry.DeviceID = canonical
+	if earliest.IsZero() {
+		earliest = time.Now()
+	}
+	entry.PairedAt = earliest
 	entry.LastSeen = time.Now()
 	entry.Revoked = false
 
@@ -143,6 +206,39 @@ func (s *TrustStore) Remove(deviceID string) error {
 
 	delete(s.devices, deviceID)
 	return s.saveLocked()
+}
+
+// TouchLastSeen refreshes the LastSeen timestamp of a known record without
+// altering its identity. Unlike AddTrusted it never enforces canonical IDs,
+// so legacy rows (e.g. committed under a discovery-derived ID before Phase A)
+// keep receiving presence updates instead of being frozen by validation.
+func (s *TrustStore) TouchLastSeen(deviceID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entry, ok := s.devices[deviceID]
+	if !ok {
+		return
+	}
+	entry.LastSeen = time.Now()
+	s.devices[deviceID] = entry
+	_ = s.saveLocked()
+}
+
+// FindByPublicKey returns the trust entry holding the given public key, if
+// any. Revoked entries are returned as well — the caller decides whether a
+// revoked match counts (re-pair) or not (already-trusted short-circuit).
+func (s *TrustStore) FindByPublicKey(pub []byte) (TrustEntry, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, entry := range s.devices {
+		if len(entry.PublicKey) == len(pub) && len(pub) > 0 &&
+			subtle.ConstantTimeCompare(entry.PublicKey, pub) == 1 {
+			return entry, true
+		}
+	}
+	return TrustEntry{}, false
 }
 
 // List returns a snapshot of all entries in the trust store.

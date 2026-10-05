@@ -2,15 +2,34 @@ enum ClipboardSyncState {
   stopped,
   writeOnlyDormant,
   ambientActive,
+  needsSetup,
+  restricted,
   unavailable;
 
   static ClipboardSyncState fromString(String? val) {
     switch (val?.toUpperCase()) {
       case 'AMBIENT_ACTIVE':
+      case 'READY':
+        // Linux Wayland helper bound and passively monitoring (Go
+        // AdapterStatusReady) and Android ambient IME-bound state share one
+        // canonical meaning: background sync is actually flowing.
         return ClipboardSyncState.ambientActive;
       case 'WRITE_ONLY_DORMANT':
         return ClipboardSyncState.writeOnlyDormant;
+      case 'COSMIC_FLAG_REQUIRED':
+      case 'NO_DATA_CONTROL':
+      case 'NO_BACKEND':
+      case 'WAYLAND_UNAVAILABLE':
+      case 'COMPOSITOR_DISCONNECTED':
+      case 'STARTING':
+        // The daemon is telling us setup is missing, not that sync is
+        // generically inactive. Collapsing these into STOPPED hid the fix.
+        return ClipboardSyncState.needsSetup;
+      case 'RESTRICTED':
+      case 'PERMISSION_REQUIRED':
+        return ClipboardSyncState.restricted;
       case 'UNAVAILABLE':
+      case 'CRASHED':
         return ClipboardSyncState.unavailable;
       case 'STOPPED':
       default:
@@ -24,6 +43,10 @@ enum ClipboardSyncState {
         return 'AMBIENT_ACTIVE';
       case ClipboardSyncState.writeOnlyDormant:
         return 'WRITE_ONLY_DORMANT';
+      case ClipboardSyncState.needsSetup:
+        return 'NEEDS_SETUP';
+      case ClipboardSyncState.restricted:
+        return 'RESTRICTED';
       case ClipboardSyncState.unavailable:
         return 'UNAVAILABLE';
       case ClipboardSyncState.stopped:
@@ -37,6 +60,10 @@ enum ClipboardSyncState {
         return 'Ambient Sync Active';
       case ClipboardSyncState.writeOnlyDormant:
         return 'Dormant (Manual/Tile Ready)';
+      case ClipboardSyncState.needsSetup:
+        return 'Setup Required';
+      case ClipboardSyncState.restricted:
+        return 'Restricted by System';
       case ClipboardSyncState.unavailable:
         return 'Permission Required';
       case ClipboardSyncState.stopped:
@@ -47,11 +74,15 @@ enum ClipboardSyncState {
   String get description {
     switch (this) {
       case ClipboardSyncState.ambientActive:
-        return 'PhoneBridge Companion IME is bound. Background clipboard copying and receiving are fully active.';
+        return 'Background clipboard monitoring is active. Copies are detected automatically and forwarded to the paired device.';
       case ClipboardSyncState.writeOnlyDormant:
         return 'Remote PC copies apply automatically. Use the Quick Settings Tile or the Sync Now button to push phone clips.';
+      case ClipboardSyncState.needsSetup:
+        return 'Clipboard monitoring needs setup on this device (Wayland data-control or companion keyboard). Inbound copies still apply; outbound needs the setup step below.';
+      case ClipboardSyncState.restricted:
+        return 'The system is restricting clipboard access. Open the setup step below to grant access.';
       case ClipboardSyncState.unavailable:
-        return 'Clipboard service cannot access system clipboard. Check Android system permissions.';
+        return 'Clipboard service cannot access system clipboard. Check system permissions.';
       case ClipboardSyncState.stopped:
         return 'PhoneBridge background service is not running.';
     }

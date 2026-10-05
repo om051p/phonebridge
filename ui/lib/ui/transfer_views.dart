@@ -214,22 +214,25 @@ class TransfersSection extends StatelessWidget {
   Widget _buildHeader(BuildContext context, ThemeData theme, int count) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: Row(
+      // Wrap so the SEND FILE action drops below the title on narrow phones
+      // instead of overflowing to the right.
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Icon(
             Icons.insert_drive_file_outlined,
             size: 18,
             color: theme.colorScheme.primary,
           ),
-          const SizedBox(width: 8),
           Text(
             'File Transfers',
             style: theme.textTheme.titleSmall?.copyWith(
               fontWeight: FontWeight.bold,
             ),
           ),
-          if (count > 0) ...[
-            const SizedBox(width: 8),
+          if (count > 0)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
@@ -244,8 +247,6 @@ class TransfersSection extends StatelessWidget {
                 ),
               ),
             ),
-          ],
-          const Spacer(),
           if (controller.supportsFileTransfer)
             FilledButton.tonalIcon(
               onPressed:

@@ -102,15 +102,28 @@ service LocalEngineService {
 
   // PairDevice initiates pairing with a discovered LAN device.
   rpc PairDevice(PairDeviceRequest) returns (PairDeviceResponse);
-
   // ConfirmPairing completes pairing by confirming the SAS.
+
   rpc ConfirmPairing(ConfirmPairingRequest) returns (ConfirmPairingResponse);
+
+  // ListInboundPairings returns pairing requests awaiting this device's approval.
+
+  rpc ListInboundPairings(ListInboundPairingsRequest) returns (ListInboundPairingsResponse);
+
+  // RespondInboundPairing records approval or rejection of one inbound request.
+
+  rpc RespondInboundPairing(RespondInboundPairingRequest) returns (RespondInboundPairingResponse);
 
   // ListTrustedDevices returns all trusted/paired devices.
   rpc ListTrustedDevices(ListTrustedDevicesRequest) returns (ListTrustedDevicesResponse);
 
   // RevokeDevice revokes trust for a previously paired device.
   rpc RevokeDevice(RevokeDeviceRequest) returns (RevokeDeviceResponse);
+
+  // RemoveDevice permanently deletes a trusted record (Forget Device).
+  // Unlike RevokeDevice — which preserves the revoked row for audit — this
+  // removes it. Reuses the revoke messages: no new payload shape.
+  rpc RemoveDevice(RevokeDeviceRequest) returns (RevokeDeviceResponse);
 
   // GetClipboardStatus returns the current status of the host clipboard adapter and engine.
   rpc GetClipboardStatus(GetClipboardStatusRequest) returns (GetClipboardStatusResponse);
@@ -223,6 +236,9 @@ message StreamEventsResponse {
 
   // Mirrored notification events (Phase 8, DEC-028).
   phonebridge.v1.NotificationFrame notification_event = 7;
+
+  // Inbound-pairing lifecycle transitions (Phase 2 bidirectional pairing).
+  PairingEvent pairing_event = 8;
 }
 
 // LocalEvent represents a pushed local event containing the relayed device envelope.
@@ -249,6 +265,9 @@ message LocalEvent {
 
   // Mirrored notification events (Phase 8, DEC-028).
   phonebridge.v1.NotificationFrame notification_event = 7;
+
+  // Inbound-pairing lifecycle transitions (Phase 2 bidirectional pairing).
+  PairingEvent pairing_event = 8;
 }
 
 // HealthRequest is empty.
@@ -429,6 +448,14 @@ message GetSessionStateResponse {
   // distinguish "no frames yet" from a diagnosed condition instead of
   // showing an unexplained blank surface.
   string frames_reason = 13;
+  // What the capture device advertised it can do, as reported in the DEC-022
+  // offer exchange (phonebridge.v1.MediaCapabilities from the encoder the
+  // device actually selected — Android CodecSelector, never a constant).
+  // Unset until a negotiation with this peer has reported it, and unset again
+  // for peer-started sessions whose offer carried none: an absent tuple means
+  // "not reported", which the UI renders as "Checking device capabilities…"
+  // rather than guessing availability.
+  phonebridge.v1.MediaCapabilities capabilities = 14;
 }
 
 // DiscoveredDevice models a LAN device discovered via mDNS.
@@ -476,6 +503,61 @@ message ConfirmPairingResponse {
   string device_id = 1;
   bool success = 2;
   string error_message = 3;
+}
+
+// InboundPairingRequest is one pairing request awaiting the local user's
+// explicit approval. Trust is committed only after RespondInboundPairing
+// approves AND the requester's signed confirm verifies.
+message InboundPairingRequest {
+  // Opaque token identifying the request; passed back to RespondInboundPairing.
+  string pairing_token = 1;
+  string remote_name = 2;
+  string remote_platform = 3;
+  // Short Authentication String the local user compares with the requester's
+  // screen before approving.
+  string sas = 4;
+  int64 created_at_ms = 5;
+}
+
+// ListInboundPairingsRequest is empty.
+message ListInboundPairingsRequest {}
+
+// ListInboundPairingsResponse lists inbound requests awaiting approval.
+// Expired entries are swept and omitted, so the UI auto-dismisses stale
+// dialogs by refreshing this list.
+message ListInboundPairingsResponse {
+  repeated InboundPairingRequest requests = 1;
+}
+
+// RespondInboundPairingRequest records the local user's decision.
+message RespondInboundPairingRequest {
+  string pairing_token = 1;
+  bool approved = 2;
+}
+
+// RespondInboundPairingResponse confirms the decision was recorded. Approval
+// alone never commits trust: the requester's signed confirm must still verify.
+message RespondInboundPairingResponse {
+  string pairing_token = 1;
+  bool recorded = 2;
+}
+
+// PairingEventType classifies an inbound-pairing lifecycle transition.
+enum PairingEventType {
+  PAIRING_EVENT_TYPE_UNSPECIFIED = 0;
+  // A new inbound request arrived and awaits approval.
+  PAIRING_EVENT_TYPE_ARRIVED = 1;
+  // A previously pending request is gone (withdrawn by the requester,
+  // answered locally, or expired). Refresh ListInboundPairings for truth.
+  PAIRING_EVENT_TYPE_WITHDRAWN = 2;
+}
+
+// PairingEvent pushes inbound-pairing transitions to StreamEvents subscribers.
+message PairingEvent {
+  PairingEventType type = 1;
+  // Token of the affected request; receivers refresh the list instead of
+  // tracking tokens across restarts.
+  string pairing_token = 2;
 }
 
 // TrustedDevice represents a paired device in the persistent trust store.

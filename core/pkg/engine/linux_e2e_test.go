@@ -208,7 +208,10 @@ func TestLinuxToLinux_CompleteClipboardE2E(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// 1. Establish Mutual Trust (Pairing)
+	// 1. Establish Mutual Trust (Pairing with explicit receiver approval)
+	approved := make(chan struct{})
+	defer close(approved)
+	approveFirstInboundPairing(t, nodeB.sigServer, approved)
 	pairClient := crypto.NewPairingClient(3 * time.Second)
 	_, err := pairClient.Pair(ctx, nodeB.endpoint, nodeA.identity, nodeA.trustStore, func(remoteName, sas string) bool {
 		return true

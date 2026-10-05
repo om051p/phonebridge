@@ -7,6 +7,7 @@ import dev.phonebridge.signaling.SessionOfferRequest
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -143,7 +144,9 @@ class LanSignalingSecurityTest {
         val expectedSAS = CryptoUtils.calculateSAS(clientRawPub, androidIdentity.rawPublicKey, token)
         assertEquals(expectedSAS, sas)
 
-        // 2. Client confirms pairing with signature over "$token:$sas"
+        // 2. Client confirms pairing with signature over "$token:$sas".
+        // Phase 2: before the receiving user decides, the confirm must hold
+        // as 202 pending and commit nothing.
         val sigMaterial = "$token:$sas".toByteArray(StandardCharsets.UTF_8)
         val sig = CryptoUtils.sign(clientKeyPair.private, sigMaterial)
 
@@ -154,10 +157,17 @@ class LanSignalingSecurityTest {
             put("confirmed", true)
             put("signature", CryptoUtils.toHex(sig))
         }
+        val (pendingCode, pendingBody) = executeHttp("POST", "/pairing/confirm", confirmPayload.toString().toByteArray())
+        assertEquals(202, pendingCode)
+        assertEquals("pending", JSONObject(pendingBody).getString("status"))
+        assertFalse("no trust before receiver approval", trustStore.isTrusted(clientDeviceId))
+
+        // 3. The receiving user accepts; the same confirm now pairs.
+        assertTrue(server.respondToPairing(token, true))
         val (confCode, _) = executeHttp("POST", "/pairing/confirm", confirmPayload.toString().toByteArray())
         assertEquals(200, confCode)
 
-        // 3. Verify device is now trusted in trust store
+        // 4. Verify device is now trusted in trust store
         assertTrue("client must be trusted in trust store", trustStore.isTrusted(clientDeviceId))
     }
 

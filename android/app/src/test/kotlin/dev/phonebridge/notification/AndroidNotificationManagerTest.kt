@@ -48,6 +48,13 @@ class AndroidNotificationManagerTest {
     }
 
     @Test
+    fun `listener starts disconnected until the platform binds it`() {
+        // Runtime liveness, not permission: with no service bound the UI must
+        // read "granted but not running", never "active".
+        assertFalse(AndroidNotificationManager.isListenerConnected())
+    }
+
+    @Test
     fun `screen-lock guard suppresses secret visibility notifications`() {
         val isDeviceLocked = true
         val visibilitySecret = Notification.VISIBILITY_SECRET

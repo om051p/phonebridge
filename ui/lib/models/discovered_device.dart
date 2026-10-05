@@ -60,8 +60,13 @@ class PairingResult {
   final String deviceName;
   final String sasCode;
 
+  /// The peer answered 409 already-trusted: this key is already paired, so
+  /// there is nothing to confirm and no dialog must open.
+  final bool alreadyTrusted;
+
   const PairingResult({
     required this.deviceName,
     required this.sasCode,
+    this.alreadyTrusted = false,
   });
 }

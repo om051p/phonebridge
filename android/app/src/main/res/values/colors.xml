@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- PhoneBridge brand navy sampled from the production icon (#1A237E). -->
+    <color name="ic_launcher_background">#1A237E</color>
+    <color name="phonebridge_splash_background">#1A237E</color>
+</resources>

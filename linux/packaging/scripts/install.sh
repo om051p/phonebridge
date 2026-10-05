@@ -89,11 +89,17 @@ exec "$APP_DIR/phonebridge" "$@"
 EOF
 chmod 0755 "$BIN_DIR/phonebridge"
 
-# 6. Install desktop launcher and icon
-echo "Installing desktop launcher and icon..."
-if [ -f "$PKG_ROOT/desktop/icons/hicolor/512x512/apps/dev.phonebridge.ui.png" ]; then
-    install -m 0644 "$PKG_ROOT/desktop/icons/hicolor/512x512/apps/dev.phonebridge.ui.png" "$ICON_DIR/dev.phonebridge.ui.png"
-fi
+# 6. Install desktop launcher and icons (all hicolor sizes)
+echo "Installing desktop launcher and icons..."
+ICON_BASE="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
+for size in 16 22 24 32 48 64 128 256 512; do
+    SRC_ICON="$PKG_ROOT/desktop/icons/hicolor/${size}x${size}/apps/dev.phonebridge.ui.png"
+    if [ -f "$SRC_ICON" ]; then
+        DEST_DIR="$ICON_BASE/${size}x${size}/apps"
+        mkdir -p "$DEST_DIR"
+        install -m 0644 "$SRC_ICON" "$DEST_DIR/dev.phonebridge.ui.png"
+    fi
+done
 
 cat << EOF > "$APP_DIR/dev.phonebridge.ui.desktop"
 [Desktop Entry]

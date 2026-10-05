@@ -427,7 +427,7 @@ func (d *Discovery) sendAnnouncements() {
 	}
 
 	for _, target := range targets {
-		raw, err := d.buildAnnouncementPacket(target.source)
+		raw, err := d.buildAnnouncementPacket(target.source, false)
 		if err != nil {
 			d.logf("discovery: announcement for %s could not be packed: %v", target.source, err)
 			continue
@@ -542,9 +542,17 @@ func (d *Discovery) setAnnounceInterface6(ifIndex int) error {
 // local service, resolving to announceAddr (RFC 6762 §8.3). TTLs mirror the
 // ones the pion responder puts on the same records (RFC 6762 §10): 4500 for
 // the shared PTR and the TXT, 120 for the host-scoped SRV and address records.
-func (d *Discovery) buildAnnouncementPacket(announceAddr netip.Addr) ([]byte, error) {
+// With goodbye the same records are packed with TTL 0 (RFC 6762 §10.1) so
+// peers drop their cached entries instead of trusting the browse TTL.
+func (d *Discovery) buildAnnouncementPacket(announceAddr netip.Addr, goodbye bool) ([]byte, error) {
 	if !announceAddr.IsValid() {
 		return nil, fmt.Errorf("announce: no address to advertise")
+	}
+
+	ttlBrowse := uint32(announceBrowseTTL)
+	ttlResponse := uint32(announceResponseTTL)
+	if goodbye {
+		ttlBrowse, ttlResponse = 0, 0
 	}
 
 	service, err := dnsmessage.NewName(ServiceType + "." + ServiceDomain + ".")
@@ -567,7 +575,7 @@ func (d *Discovery) buildAnnouncementPacket(announceAddr netip.Addr) ([]byte, er
 		return nil, err
 	}
 	if err := b.PTRResource(
-		dnsmessage.ResourceHeader{Name: service, Type: dnsmessage.TypePTR, Class: dnsmessage.ClassINET, TTL: announceBrowseTTL},
+		dnsmessage.ResourceHeader{Name: service, Type: dnsmessage.TypePTR, Class: dnsmessage.ClassINET, TTL: ttlBrowse},
 		dnsmessage.PTRResource{PTR: instance},
 	); err != nil {
 		return nil, err
@@ -577,13 +585,13 @@ func (d *Discovery) buildAnnouncementPacket(announceAddr netip.Addr) ([]byte, er
 		return nil, err
 	}
 	if err := b.SRVResource(
-		dnsmessage.ResourceHeader{Name: instance, Type: dnsmessage.TypeSRV, Class: announceFlushClass, TTL: announceResponseTTL},
+		dnsmessage.ResourceHeader{Name: instance, Type: dnsmessage.TypeSRV, Class: announceFlushClass, TTL: ttlResponse},
 		dnsmessage.SRVResource{Port: d.cfg.Port, Target: host},
 	); err != nil {
 		return nil, err
 	}
 	if err := b.TXTResource(
-		dnsmessage.ResourceHeader{Name: instance, Type: dnsmessage.TypeTXT, Class: announceFlushClass, TTL: announceBrowseTTL},
+		dnsmessage.ResourceHeader{Name: instance, Type: dnsmessage.TypeTXT, Class: announceFlushClass, TTL: ttlBrowse},
 		dnsmessage.TXTResource{TXT: d.txtStrings()},
 	); err != nil {
 		return nil, err
@@ -591,14 +599,14 @@ func (d *Discovery) buildAnnouncementPacket(announceAddr netip.Addr) ([]byte, er
 
 	if announceAddr.Is4() {
 		if err := b.AResource(
-			dnsmessage.ResourceHeader{Name: host, Type: dnsmessage.TypeA, Class: announceFlushClass, TTL: announceResponseTTL},
+			dnsmessage.ResourceHeader{Name: host, Type: dnsmessage.TypeA, Class: announceFlushClass, TTL: ttlResponse},
 			dnsmessage.AResource{A: announceAddr.As4()},
 		); err != nil {
 			return nil, err
 		}
 	} else {
 		if err := b.AAAAResource(
-			dnsmessage.ResourceHeader{Name: host, Type: dnsmessage.TypeAAAA, Class: announceFlushClass, TTL: announceResponseTTL},
+			dnsmessage.ResourceHeader{Name: host, Type: dnsmessage.TypeAAAA, Class: announceFlushClass, TTL: ttlResponse},
 			dnsmessage.AAAAResource{AAAA: announceAddr.As16()},
 		); err != nil {
 			return nil, err
@@ -606,6 +614,26 @@ func (d *Discovery) buildAnnouncementPacket(announceAddr netip.Addr) ([]byte, er
 	}
 
 	return b.Finish()
+}
+
+// sendGoodbyes announces the service records with TTL 0 (RFC 6762 §10.1) so
+// peers drop their cached entries as soon as this node shuts down instead of
+// advertising it as reachable until the browse TTL (75 minutes) lapses.
+func (d *Discovery) sendGoodbyes() {
+	targets := d.resolveAnnounceTargets()
+	if len(targets) == 0 {
+		return
+	}
+	for _, target := range targets {
+		raw, err := d.buildAnnouncementPacket(target.source, true)
+		if err != nil {
+			continue
+		}
+		if err := d.writeAnnouncement(target, raw); err != nil {
+			d.logf("discovery: goodbye to %s failed: %v", target.addr, err)
+		}
+	}
+	d.logf("discovery: sent goodbye for %s on %d interface(s)", d.serviceInstanceName(), len(targets))
 }
 
 // logf forwards a lifecycle diagnostic when a sink is configured.
@@ -876,6 +904,10 @@ func (d *Discovery) Close() error {
 	}
 	d.closed = true
 	close(d.stopChan)
+
+	// Tell peers this instance is gone while the announce sockets still
+	// exist; without it they cache the advertisement for the browse TTL.
+	d.sendGoodbyes()
 
 	var err error
 	if d.browseCancel != nil {

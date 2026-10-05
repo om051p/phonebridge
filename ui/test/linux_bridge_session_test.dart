@@ -159,18 +159,24 @@ void main() {
 
     test('an all-zero tuple means "device default", not zero-sized video',
         () async {
-      await service.startCapture(width: 0, height: 0, fps: 0, bitrateKbps: 0);
+      await service.startCapture(
+        receiverUrl: 'peer-auto',
+        width: 0,
+        height: 0,
+        fps: 0,
+        bitrateKbps: 0,
+      );
 
       expect(client.startCalls.single.target, 'peer-auto');
       expect(client.startCalls.single.requested, isNull);
     });
 
-    test('startCapture falls back to the active peer when no URL is given',
+    test('startCapture requires an explicit target (no peer-auto fallback)',
         () async {
-      await service.startCapture();
-
-      expect(client.startCalls.single.target, 'peer-auto');
-      expect(client.startCalls.single.requested, isNotNull);
+      // Phase C: user connects always name their device. An empty target
+      // fails before any RPC instead of silently picking a peer.
+      expect(await service.startCapture(), isFalse);
+      expect(client.startCalls, isEmpty);
     });
 
     test('control keeps the tracked session id in sync', () async {

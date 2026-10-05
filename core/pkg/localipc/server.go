@@ -75,8 +75,18 @@ type SessionOrchestrator interface {
 	ListDevices() []discovery.Device
 	PairDevice(ctx context.Context, deviceID string) (string, string, error)
 	ConfirmPairing(ctx context.Context, deviceID string, confirmed bool) error
+	// ListInboundPairings snapshots pairing requests awaiting this device's
+	// approval (Phase 2 bidirectional pairing). Nil orchestrator support is
+	// handled by the RPC layer.
+	ListInboundPairings() []engine.InboundPairing
+	// RespondInboundPairing records the local user's decision for one inbound
+	// request. False means the token is unknown or expired.
+	RespondInboundPairing(token string, approved bool) bool
 	ListTrustedDevices() []crypto.TrustEntry
 	RevokeDevice(deviceID string) error
+	// RemoveDevice permanently deletes a trust record (Forget Device),
+	// unlike RevokeDevice which preserves the revoked row.
+	RemoveDevice(deviceID string) error
 	GetClipboardStatus(ctx context.Context) (*phonebridgelocalipcv1.GetClipboardStatusResponse, error)
 	TriggerClipboardPull(ctx context.Context) error
 	// SendFile offers a local file to the active session's peer and returns the
@@ -152,6 +162,7 @@ type eventPayload struct {
 	clipboardEvent    *phonebridgelocalipcv1.ClipboardStatusEvent
 	transferEvent     *phonebridgelocalipcv1.TransferEvent
 	notificationEvent *phonebridgev1.NotificationFrame
+	pairingEvent      *phonebridgelocalipcv1.PairingEvent
 }
 
 // NewServer creates a new local IPC server with sensible defaults.
@@ -452,6 +463,7 @@ func (s *Server) StreamEvents(_ *phonebridgelocalipcv1.StreamEventsRequest, stre
 				ClipboardEvent:    item.clipboardEvent,
 				TransferEvent:     item.transferEvent,
 				NotificationEvent: item.notificationEvent,
+				PairingEvent:      item.pairingEvent,
 			}
 			if err := stream.Send(resp); err != nil {
 				return err
@@ -630,6 +642,24 @@ func (s *Server) BroadcastNotificationEvent(event *phonebridgev1.NotificationFra
 	s.broadcastItem(&eventPayload{notificationEvent: event})
 }
 
+// BroadcastPairingEvent pushes an inbound-pairing lifecycle transition to all
+// active StreamEvents streams (Phase 2 bidirectional pairing).
+func (s *Server) BroadcastPairingEvent(event *phonebridgelocalipcv1.PairingEvent) {
+	if event == nil {
+		return
+	}
+	s.broadcastItem(&eventPayload{pairingEvent: event})
+}
+
+// HasSubscribers reports whether any StreamEvents client is attached. The
+// daemon glue uses it to decide whether an inbound pairing request needs a
+// desktop notification (receiver app closed) or is already visible in the UI.
+func (s *Server) HasSubscribers() bool {
+	s.subscribersMu.RLock()
+	defer s.subscribersMu.RUnlock()
+	return len(s.subscribers) > 0
+}
+
 // StartSession initiates a session targeting the given device ID.
 func (s *Server) StartSession(ctx context.Context, req *phonebridgelocalipcv1.StartSessionRequest) (*phonebridgelocalipcv1.StartSessionResponse, error) {
 	if s.closed.Load() {
@@ -702,7 +732,10 @@ func (s *Server) GetSessionState(_ context.Context, req *phonebridgelocalipcv1.G
 		// Actual is only reported when the device stated it: an absent tuple
 		// tells the caller "not reported", which is different from a tuple that
 		// happens to equal the request (DEC-022: no silent substitution).
-		Actual:            ToProtoMediaParamsKnown(snap.Actual, snap.ActualKnown),
+		Actual: ToProtoMediaParamsKnown(snap.Actual, snap.ActualKnown),
+		// Capabilities follow the same presence rule: absent until a DEC-022
+		// offer exchange with this peer has reported them.
+		Capabilities:      ToProtoMediaCapabilitiesKnown(snap.AdvertisedCaps, snap.AdvertisedCapsKnown),
 		ReconnectAttempts: uint32(snap.ReconnectAttempts),
 		SinkKind:          ToProtoSinkKind(snap.SinkKind),
 		SinkActive:        snap.SinkActive,
@@ -846,6 +879,79 @@ func (s *Server) RevokeDevice(_ context.Context, req *phonebridgelocalipcv1.Revo
 	return &phonebridgelocalipcv1.RevokeDeviceResponse{
 		DeviceId: req.GetDeviceId(),
 		Success:  true,
+	}, nil
+}
+
+// RemoveDevice permanently deletes a trust record (Forget Device). Unlike
+// RevokeDevice it does not preserve a revoked row for audit.
+func (s *Server) RemoveDevice(_ context.Context, req *phonebridgelocalipcv1.RevokeDeviceRequest) (*phonebridgelocalipcv1.RevokeDeviceResponse, error) {
+	if s.closed.Load() {
+		return nil, status.Error(codes.Unavailable, "daemon is shutting down")
+	}
+	if s.orchestrator == nil {
+		return nil, status.Error(codes.FailedPrecondition, "session orchestrator not configured")
+	}
+
+	if err := s.orchestrator.RemoveDevice(req.GetDeviceId()); err != nil {
+		return nil, status.Errorf(codes.Internal, "remove device failed: %v", err)
+	}
+
+	return &phonebridgelocalipcv1.RevokeDeviceResponse{
+		DeviceId: req.GetDeviceId(),
+		Success:  true,
+	}, nil
+}
+
+// ListInboundPairings returns pairing requests awaiting this device's approval
+// (Phase 2 bidirectional pairing). Expired requests are swept server-side, so
+// an empty list is the truth after a timeout.
+func (s *Server) ListInboundPairings(_ context.Context, _ *phonebridgelocalipcv1.ListInboundPairingsRequest) (*phonebridgelocalipcv1.ListInboundPairingsResponse, error) {
+	if s.closed.Load() {
+		return nil, status.Error(codes.Unavailable, "daemon is shutting down")
+	}
+	if s.orchestrator == nil {
+		return nil, status.Error(codes.FailedPrecondition, "session orchestrator not configured")
+	}
+
+	resp := &phonebridgelocalipcv1.ListInboundPairingsResponse{
+		Requests: make([]*phonebridgelocalipcv1.InboundPairingRequest, 0),
+	}
+	for _, p := range s.orchestrator.ListInboundPairings() {
+		resp.Requests = append(resp.Requests, &phonebridgelocalipcv1.InboundPairingRequest{
+			PairingToken:   p.Token,
+			RemoteName:     p.RemoteName,
+			RemotePlatform: p.RemotePlatform,
+			Sas:            p.SAS,
+			CreatedAtMs:    p.CreatedAt.UnixMilli(),
+		})
+	}
+	return resp, nil
+}
+
+// RespondInboundPairing records the local user's explicit accept/reject for one
+// inbound pairing request. Approval alone never commits trust: the requester's
+// signed confirm still has to arrive (and pass verification) for that.
+func (s *Server) RespondInboundPairing(_ context.Context, req *phonebridgelocalipcv1.RespondInboundPairingRequest) (*phonebridgelocalipcv1.RespondInboundPairingResponse, error) {
+	if s.closed.Load() {
+		return nil, status.Error(codes.Unavailable, "daemon is shutting down")
+	}
+	if s.orchestrator == nil {
+		return nil, status.Error(codes.FailedPrecondition, "session orchestrator not configured")
+	}
+	if req.GetPairingToken() == "" {
+		return nil, status.Error(codes.InvalidArgument, "pairing_token cannot be empty")
+	}
+
+	ok := s.orchestrator.RespondInboundPairing(req.GetPairingToken(), req.GetApproved())
+	if !ok {
+		return &phonebridgelocalipcv1.RespondInboundPairingResponse{
+			PairingToken: req.GetPairingToken(),
+			Recorded:     false,
+		}, nil
+	}
+	return &phonebridgelocalipcv1.RespondInboundPairingResponse{
+		PairingToken: req.GetPairingToken(),
+		Recorded:     true,
 	}, nil
 }
 
@@ -1134,6 +1240,30 @@ func ToProtoMediaParamsKnown(p engine.MediaParams, known bool) *phonebridgev1.Me
 		return nil
 	}
 	return ToProtoMediaParams(p)
+}
+
+// ToProtoMediaCapabilities converts an engine capability advertisement to the
+// wire shape. Zero bounds stay zero, which the contract reads as "no stated
+// limit" rather than "unsupported".
+func ToProtoMediaCapabilities(c engine.MediaCapability) *phonebridgev1.MediaCapabilities {
+	return &phonebridgev1.MediaCapabilities{
+		Codecs:         c.Codecs,
+		MaxWidth:       uint32(max0(c.MaxWidth)),
+		MaxHeight:      uint32(max0(c.MaxHeight)),
+		MaxFps:         uint32(max0(c.MaxFPS)),
+		SupportsScreen: c.SupportsScreen,
+	}
+}
+
+// ToProtoMediaCapabilitiesKnown returns the first advertised entry, or nil
+// when the peer reported none — so a caller cannot mistake "the device did
+// not say" for "the device said nothing". The phone advertises exactly one
+// entry (its selected encoder); the first is the authoritative one.
+func ToProtoMediaCapabilitiesKnown(caps []engine.MediaCapability, known bool) *phonebridgev1.MediaCapabilities {
+	if !known || len(caps) == 0 {
+		return nil
+	}
+	return ToProtoMediaCapabilities(caps[0])
 }
 
 // FromProtoMediaParams converts a wire tuple into the engine representation.

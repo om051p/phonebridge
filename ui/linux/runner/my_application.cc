@@ -45,11 +45,11 @@ static void my_application_activate(GApplication* application) {
   if (use_header_bar) {
     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
     gtk_widget_show(GTK_WIDGET(header_bar));
-    gtk_header_bar_set_title(header_bar, "phonebridge");
+    gtk_header_bar_set_title(header_bar, "PhoneBridge");
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
   } else {
-    gtk_window_set_title(window, "phonebridge");
+    gtk_window_set_title(window, "PhoneBridge");
   }
 
   gtk_window_set_default_size(window, 1280, 720);
@@ -60,9 +60,9 @@ static void my_application_activate(GApplication* application) {
 
   FlView* view = fl_view_new(project);
   GdkRGBA background_color;
-  // Background defaults to black, override it here if necessary, e.g. #00000000
-  // for transparent.
-  gdk_rgba_parse(&background_color, "#000000");
+  // Brand-matched launch background (PhoneBridge navy #1A237E): shown until
+  // the first Flutter frame renders, so startup never flashes black/white.
+  gdk_rgba_parse(&background_color, "#1A237E");
   fl_view_set_background_color(view, &background_color);
   gtk_widget_show(GTK_WIDGET(view));
   gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));

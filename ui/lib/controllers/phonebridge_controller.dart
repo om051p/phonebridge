@@ -5,17 +5,20 @@ import 'package:flutter/foundation.dart';
 import '../models/device_state.dart';
 import '../models/capture_stats.dart';
 import '../models/trusted_device.dart';
+import '../models/device_row.dart';
 import '../models/clipboard_status.dart';
 import '../models/activity_event.dart';
 import '../generated/phonebridge/localipc/v1/local_ipc.pb.dart' as ipc;
 import '../generated/phonebridge/v1/phonebridge.pb.dart' as pb;
 import '../models/discovered_device.dart';
+import '../models/inbound_pairing.dart';
 import '../models/link_status.dart';
 import '../services/phonebridge_channel.dart';
 import '../services/platform_bridge_service.dart';
 import '../services/android_bridge_service.dart';
 import '../services/linux_bridge_service.dart' show LinuxBridgeService;
 import '../services/notification_backend.dart';
+import '../services/pairing_backend.dart';
 import '../services/session_backend.dart';
 import 'session_controller.dart';
 import 'transfer_controller.dart';
@@ -31,7 +34,9 @@ class PhoneBridgeController extends ChangeNotifier {
                 : _createDefaultService());
 
   static PlatformBridgeService _createDefaultService() {
-    if (kIsWeb || Platform.isAndroid || Platform.environment.containsKey('FLUTTER_TEST')) {
+    if (kIsWeb ||
+        Platform.isAndroid ||
+        Platform.environment.containsKey('FLUTTER_TEST')) {
       return AndroidBridgeService();
     }
     return LinuxBridgeService();
@@ -59,6 +64,14 @@ class PhoneBridgeController extends ChangeNotifier {
       NotificationController(backend: _resolveNotificationBackend(_service));
   NotificationController get notifications => _notifications;
 
+  /// Inbound-pairing seam (Phase 2): resolved structurally — null where the
+  /// platform carries no inbound-pairing state (and no test fake needs to).
+  PairingBackend? get pairingBackend {
+    final Object candidate = _service;
+    if (candidate is PairingBackend) return candidate;
+    return null;
+  }
+
   /// Connection/session state for the whole app (Phase 5). Platforms without a
   /// local session state machine report "unsupported" rather than
   /// "disconnected", so the UI never claims a session is missing on a platform
@@ -68,7 +81,8 @@ class PhoneBridgeController extends ChangeNotifier {
   SessionController get session => _session;
 
   /// The notification seam is optional per platform, so it is resolved structurally.
-  static NotificationBackend _resolveNotificationBackend(PlatformBridgeService service) {
+  static NotificationBackend _resolveNotificationBackend(
+      PlatformBridgeService service) {
     final Object candidate = service;
     if (candidate is NotificationBackend) return candidate;
     return const UnsupportedNotificationBackend();
@@ -102,8 +116,33 @@ class PhoneBridgeController extends ChangeNotifier {
   ClipboardStatus _clipboardStatus = ClipboardStatus.initial;
   List<TrustedDevice> _trustedDevices = [];
   List<DiscoveredDevice> _discoveredDevices = [];
+  List<InboundPairing> _inboundPairings = [];
   final List<ActivityEvent> _activityEvents = [];
   Map<String, dynamic> _permissionsStatus = const {};
+
+  /// Device id whose outbound pairing is awaiting SAS confirmation, or null.
+  /// Drives the "PAIRING" badge so an in-flight handshake is never rendered
+  /// as plain UNPAIRED.
+  String? _outboundPairingDeviceId;
+
+  /// Inbound request tokens this device has already surfaced a prompt for.
+  /// Tracks the one-shot dialog so the same request never re-prompts on every
+  /// notifyListeners.
+  final Set<String> _promptedInboundTokens = {};
+
+  /// Encoder-selected screen capabilities on Android (see
+  /// `AndroidBridgeService.getMediaCapabilities`). Null until fetched, and
+  /// null again when the platform cannot answer — the UI renders
+  /// "Checking…" instead of guessing. On Linux the capabilities ride the
+  /// session snapshot instead (Go retains the DEC-022 advertisement).
+  pb.MediaCapabilities? _androidCapabilities;
+  pb.MediaCapabilities? get androidCapabilities => _androidCapabilities;
+
+  /// The capabilities the quality presets gate on: the live session snapshot
+  /// where sessions are driven locally (Linux), the channel-read encoder
+  /// advertisement where capture is owned locally (Android).
+  pb.MediaCapabilities? get effectiveCapabilities =>
+      _service.isLinux ? _session.status.capabilities : _androidCapabilities;
 
   bool _isLoading = false;
   String? _lastErrorMessage;
@@ -116,20 +155,62 @@ class PhoneBridgeController extends ChangeNotifier {
 
   StreamSubscription<Map<dynamic, dynamic>>? _rawEventsSub;
 
+  /// Inbound-pairing lifecycle events where the platform pushes them
+  /// (Linux: daemon PairingEvent on the one IPC subscription).
+  StreamSubscription<dynamic>? _pairingEventsSub;
+
+  /// Sweep while requests are pending: with no events flowing (Android
+  /// foreground path, or an event gap) the dialog still expires on time.
+  Timer? _pairingSweepTimer;
+
   DeviceState get deviceState => _deviceState;
   CaptureStats get captureStats => _captureStats;
   ClipboardStatus get clipboardStatus => _clipboardStatus;
   List<TrustedDevice> get trustedDevices => List.unmodifiable(_trustedDevices);
-  List<DiscoveredDevice> get discoveredDevices => List.unmodifiable(_discoveredDevices);
+  List<DiscoveredDevice> get discoveredDevices =>
+      List.unmodifiable(_discoveredDevices);
+
+  /// Pairing requests awaiting THIS device's approval (Phase 2). Empty where
+  /// the platform carries no inbound-pairing state.
+  List<InboundPairing> get pairingRequests =>
+      List.unmodifiable(_inboundPairings);
+
+  /// The oldest inbound request not yet surfaced to the user, or null. The
+  /// app scaffold consumes this to show the one-shot Pairing Request dialog;
+  /// the token is marked prompted on read.
+  InboundPairing? consumePendingPairingPrompt() {
+    for (final r in _inboundPairings) {
+      if (_promptedInboundTokens.add(r.token)) return r;
+    }
+    return null;
+  }
+
+  /// Device id whose pairing handshake is awaiting SAS confirmation.
+  String? get outboundPairingDeviceId => _outboundPairingDeviceId;
   List<ActivityEvent> get activityEvents => List.unmodifiable(_activityEvents);
   Map<String, dynamic> get permissionsStatus => _permissionsStatus;
-  bool get postNotificationsGranted => _permissionsStatus['postNotifications'] == true;
-  bool get notificationListenerEnabled => _permissionsStatus['notificationListener'] == true;
+  bool get postNotificationsGranted =>
+      _permissionsStatus['postNotifications'] == true;
+  bool get notificationListenerEnabled =>
+      _permissionsStatus['notificationListener'] == true;
   bool get accessibilityEnabled => _permissionsStatus['accessibility'] == true;
+
+  /// Runtime liveness, distinct from the granted/configured flags above.
+  /// Null means the native side did not report it (old build) — the UI shows
+  /// no runtime line rather than guessing.
+  bool? get notificationServiceActive =>
+      _permissionsStatus['notificationServiceActive'] as bool?;
+  bool? get accessibilityServiceActive =>
+      _permissionsStatus['accessibilityServiceActive'] as bool?;
+  bool? get foregroundServiceActive =>
+      _permissionsStatus['foregroundServiceActive'] as bool?;
   bool get hasMissingPermissions {
     if (!_service.isAndroid) return false;
-    return !postNotificationsGranted || !notificationListenerEnabled || !accessibilityEnabled;
+    return !postNotificationsGranted ||
+        !notificationListenerEnabled ||
+        !accessibilityEnabled;
   }
+
   bool get isLoading => _isLoading;
   String? get lastErrorMessage => _lastErrorMessage;
 
@@ -151,16 +232,56 @@ class PhoneBridgeController extends ChangeNotifier {
       ? _session.status.state == ipc.SessionState.SESSION_STATE_STREAMING
       : _captureStats.isCapturing;
 
-  TrustedDevice? get activePeer {
-    if (_trustedDevices.isEmpty) return null;
-    final nonRevoked = _trustedDevices.where((d) => !d.revoked);
-    return nonRevoked.isNotEmpty ? nonRevoked.first : null;
+  /// Authoritative active device: the daemon session's target while a
+  /// session is live, null otherwise (Phase B).
+  ///
+  /// Linux: the session controller's peer (daemon snapshot device_id).
+  /// Android (no local session state machine; the phone owns capture):
+  /// the explicitly selected target while capture is live. Never trust
+  /// ordering, never discovery ordering, never a guess.
+  String? get activeDeviceId {
+    if (_service.isLinux) return _session.activeDeviceId;
+    if (!isSharing) return null;
+    return _androidTargetDeviceId;
   }
+
+  /// The trusted record for the authoritative active device, or null when
+  /// there is no live session peer. This REPLACES the old "first trusted"
+  /// meaning: callers must treat null as "no active device", not as
+  /// "pick another one".
+  TrustedDevice? get activePeer {
+    final id = activeDeviceId;
+    if (id == null || id.isEmpty) return null;
+    for (final d in _trustedDevices) {
+      if (d.deviceId == id) return d;
+    }
+    return null;
+  }
+
+  /// Canonical logical devices (Phase F): one row per deviceId merging
+  /// trust + discovery + the authoritative session target. Screens must
+  /// render rows, never the two raw lists side by side.
+  List<DeviceRow> get deviceRows => mergeDeviceRows(
+        trusted: _trustedDevices,
+        discovered: _discoveredDevices,
+        activeDeviceId: activeDeviceId,
+      );
+
+  /// Generation guard for atomic switch (Phase E): every switchToDevice call
+  /// takes a generation; late completions from a superseded switch are
+  /// dropped instead of overwriting the newer attempt's state.
+  int _switchGeneration = 0;
+
+  /// Last explicitly selected Android target (device id). Set on connect,
+  /// cleared on disconnect/stop. The phone has no daemon session snapshot,
+  /// so this explicit selection is the only honest Android peer.
+  String? _androidTargetDeviceId;
 
   void initialize() {
     refreshAll();
     if (_service.isAndroid) {
       unawaited(refreshPermissions());
+      unawaited(refreshCapabilities());
     }
     // Discovery is part of startup on both platforms: the Devices tab
     // populates from the mDNS results without requiring a manual scan first.
@@ -183,6 +304,17 @@ class PhoneBridgeController extends ChangeNotifier {
     // Mirrored notifications subscription and hydration (DEC-028).
     _notifications.addListener(_onChildChanged);
     _notifications.initialize();
+    // Inbound pairing (Phase 2): hydrate once, then follow pushed transitions
+    // where the platform provides them, plus a bounded sweep while anything
+    // is pending so expiry/withdrawal is seen even without events.
+    if (pairingBackend != null) {
+      unawaited(refreshInboundPairings());
+      final LinuxBridgeService? linux =
+          _service is LinuxBridgeService ? _service : null;
+      _pairingEventsSub = linux?.pairingEventStream.listen((_) {
+        unawaited(refreshInboundPairings());
+      });
+    }
   }
 
   void _onChildChanged() {
@@ -202,6 +334,8 @@ class PhoneBridgeController extends ChangeNotifier {
     if (_disposed) return;
     _disposed = true;
     _rawEventsSub?.cancel();
+    _pairingEventsSub?.cancel();
+    _pairingSweepTimer?.cancel();
     _notifications.removeListener(_onChildChanged);
     _notifications.dispose();
     _transfers.removeListener(_onChildChanged);
@@ -223,6 +357,13 @@ class PhoneBridgeController extends ChangeNotifier {
           unawaited(refreshAll());
         }
 
+        // Inbound pairing surfaced over the platform event channel (Android):
+        // the request set changed — arrived, answered, or swept. Refresh the
+        // snapshot; the dialog consumption is driven by the state change.
+        if (event['pairingChanged'] == true) {
+          unawaited(refreshInboundPairings());
+        }
+
         final prevCapturing = _captureStats.isCapturing;
         _captureStats = CaptureStats.fromMap(event, previous: _captureStats);
 
@@ -231,7 +372,9 @@ class PhoneBridgeController extends ChangeNotifier {
         final clipEnabled = event['enabled'] as bool?;
         if (rawState != null || ime != null || clipEnabled != null) {
           _clipboardStatus = _clipboardStatus.copyWith(
-            state: rawState != null ? ClipboardSyncState.fromString(rawState) : null,
+            state: rawState != null
+                ? ClipboardSyncState.fromString(rawState)
+                : null,
             imeSelected: ime,
             isEnabled: clipEnabled,
           );
@@ -264,8 +407,12 @@ class PhoneBridgeController extends ChangeNotifier {
           addActivityEvent(
             ActivityCategory.screen,
             'Screen Sharing Stopped',
-            err != null && err.isNotEmpty ? 'Stopped: $err' : 'Session ended normally',
-            err != null && err.isNotEmpty ? ActivityLevel.warning : ActivityLevel.info,
+            err != null && err.isNotEmpty
+                ? 'Stopped: $err'
+                : 'Session ended normally',
+            err != null && err.isNotEmpty
+                ? ActivityLevel.warning
+                : ActivityLevel.info,
           );
         }
 
@@ -291,6 +438,7 @@ class PhoneBridgeController extends ChangeNotifier {
       _clipboardStatus = clip;
       if (_service.isAndroid) {
         unawaited(refreshPermissions());
+        unawaited(refreshCapabilities());
       }
       // The connection status is part of "refresh": an explicit refresh must be
       // able to move the app out of a stale failed/recoverable reading.
@@ -312,11 +460,87 @@ class PhoneBridgeController extends ChangeNotifier {
     }
   }
 
+  /// Re-reads the inbound-pairing snapshot (Phase 2). Called on pushed
+  /// transitions, on the pending sweep, and by explicit refreshes.
+  Future<void> refreshInboundPairings() async {
+    final backend = pairingBackend;
+    if (backend == null) return;
+    try {
+      final prevTokens = _inboundPairings.map((r) => r.token).toSet();
+      _inboundPairings = await backend.listInboundPairings();
+      // A token that left the snapshot was withdrawn or expired: re-prompting
+      // for it later would be wrong even if the same peer asks again — that
+      // arrives as a NEW token and prompts normally.
+      _promptedInboundTokens.removeWhere(
+        (t) => !_inboundPairings.any((r) => r.token == t),
+      );
+      _updatePairingSweepTimer(prevTokens);
+      notifyListeners();
+    } catch (_) {
+      // Pairing requests are transient state; a failed read leaves the last
+      // snapshot rather than clearing visible requests on a transport blip.
+    }
+  }
+
+  void _updatePairingSweepTimer(Set<String> prevTokens) {
+    final hadPending = prevTokens.isNotEmpty;
+    final hasPending = _inboundPairings.isNotEmpty;
+    if (hasPending && _pairingSweepTimer == null) {
+      _pairingSweepTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+        unawaited(refreshInboundPairings());
+      });
+    } else if (!hasPending && hadPending) {
+      _pairingSweepTimer?.cancel();
+      _pairingSweepTimer = null;
+    }
+  }
+
+  /// Records the local user's accept/reject for one inbound pairing request.
+  /// Trust is committed natively on the requester's next signed confirm; this
+  /// only records the decision and refreshes what the UI knows.
+  Future<bool> respondPairing({
+    required InboundPairing request,
+    required bool approved,
+  }) async {
+    final backend = pairingBackend;
+    if (backend == null) return false;
+    final ok = await backend.respondInboundPairing(
+      pairingToken: request.token,
+      approved: approved,
+    );
+    addActivityEvent(
+      ActivityCategory.pairing,
+      ok
+          ? (approved ? 'Pairing Request Accepted' : 'Pairing Request Rejected')
+          : 'Pairing Request Already Gone',
+      ok
+          ? '${approved ? 'Accepted' : 'Rejected'} pairing request from ${request.remoteName}'
+          : 'Request from ${request.remoteName} expired or was withdrawn',
+      ok ? ActivityLevel.success : ActivityLevel.warning,
+    );
+    await refreshInboundPairings();
+    // On approval the requester's confirm lands shortly; trustChanged (and
+    // the next refresh) picks up the committed trust either way.
+    return ok;
+  }
+
   Future<void> refreshPermissions() async {
     final s = _service;
     if (s is AndroidBridgeService) {
       try {
         _permissionsStatus = await s.getPermissionsStatus();
+        notifyListeners();
+      } catch (_) {}
+    }
+  }
+
+  /// Reads the encoder-selected screen capabilities on Android. Safe to call
+  /// on any platform (no-op elsewhere); a null answer means unknown.
+  Future<void> refreshCapabilities() async {
+    final s = _service;
+    if (s is AndroidBridgeService) {
+      try {
+        _androidCapabilities = await s.getMediaCapabilities();
         notifyListeners();
       } catch (_) {}
     }
@@ -362,6 +586,22 @@ class PhoneBridgeController extends ChangeNotifier {
     notifyListeners();
     try {
       final res = await _service.pairDevice(deviceId);
+      if (res != null && !res.alreadyTrusted) {
+        // The request was answered by the peer's signaling server; the SAS is
+        // now awaiting the local user's confirm. The tile shows PAIRING, not
+        // UNPAIRED, for as long as that handshake is alive. An
+        // already-trusted answer opens no handshake — the badge must not
+        // come on (and a stale one from a previous flow is cleared).
+        _outboundPairingDeviceId = deviceId;
+        addActivityEvent(
+          ActivityCategory.pairing,
+          'Pairing Request Sent',
+          'Waiting for SAS confirmation with ${res.deviceName}',
+          ActivityLevel.info,
+        );
+      } else if (res != null && res.alreadyTrusted) {
+        _outboundPairingDeviceId = null;
+      }
       return res;
     } catch (e) {
       _lastErrorMessage = e.toString();
@@ -372,12 +612,14 @@ class PhoneBridgeController extends ChangeNotifier {
     }
   }
 
-  Future<bool> confirmPairing({required String deviceId, required bool confirmed}) async {
+  Future<bool> confirmPairing(
+      {required String deviceId, required bool confirmed}) async {
     _isLoading = true;
     _lastErrorMessage = null;
     notifyListeners();
     try {
-      final ok = await _service.confirmPairing(deviceId: deviceId, confirmed: confirmed);
+      final ok = await _service.confirmPairing(
+          deviceId: deviceId, confirmed: confirmed);
       if (ok) {
         if (confirmed) {
           addActivityEvent(
@@ -400,6 +642,7 @@ class PhoneBridgeController extends ChangeNotifier {
       _lastErrorMessage = e.toString();
       return false;
     } finally {
+      _outboundPairingDeviceId = null;
       _isLoading = false;
       notifyListeners();
     }
@@ -411,21 +654,51 @@ class PhoneBridgeController extends ChangeNotifier {
   /// endpoint). [receiverUrl] is the Android contract: the phone owns the
   /// session and dials the peer's signaling server directly, so it needs the
   /// discovered `http://host:port` rather than a device id.
-  Future<bool> startScreenSharing({String? targetDeviceId, String? receiverUrl}) async {
+  ///
+  /// Explicit selection only (Phase C): a user CONNECT always names its
+  /// device. There is no peer-auto fallback and no "first trusted" fallback —
+  /// an empty target fails before capture/consent, never after. The manual
+  /// Diagnostics override ([_receiverUrl]) still counts as explicit input.
+  ///
+  /// On Android a device id is therefore never passed as a receiver URL: an
+  /// explicit URL goes through untouched (Kotlin validates it), anything else
+  /// is resolved through the discovery records, and an unresolvable peer
+  /// aborts cleanly *before* capture — never after consent.
+  Future<bool> startScreenSharing(
+      {String? targetDeviceId, String? receiverUrl}) async {
     _isLoading = true;
     _lastErrorMessage = null;
     notifyListeners();
 
     try {
-      final target = (receiverUrl != null && receiverUrl.isNotEmpty)
-          ? receiverUrl
-          : (targetDeviceId != null && targetDeviceId.isNotEmpty)
-              ? targetDeviceId
-              : (_receiverUrl.trim().isNotEmpty
-                  ? _receiverUrl.trim()
-                  : (activePeer?.deviceId ?? ''));
+      final String? target;
+      if (_service.isAndroid) {
+        target = _resolveAndroidReceiver(
+          receiverUrl: receiverUrl,
+          targetDeviceId: targetDeviceId,
+        );
+        if (target == null) {
+          _lastErrorMessage = 'Select a device to connect. '
+              'The selected device is not currently reachable — '
+              'make sure it is discovered on the LAN, then try again.';
+          return false;
+        }
+      } else {
+        final explicit = (targetDeviceId != null && targetDeviceId.isNotEmpty)
+            ? targetDeviceId
+            : ((_receiverUrl.trim().isNotEmpty)
+                ? _receiverUrl.trim()
+                : ((receiverUrl != null && receiverUrl.isNotEmpty)
+                    ? receiverUrl
+                    : null));
+        if (explicit == null || explicit.isEmpty) {
+          _lastErrorMessage = 'Select a device to connect.';
+          return false;
+        }
+        target = explicit;
+      }
       final ok = await _service.startCapture(
-        receiverUrl: target.isEmpty ? null : target,
+        receiverUrl: target,
         width: _selectedWidth,
         height: _selectedHeight,
         fps: _selectedFps,
@@ -434,6 +707,13 @@ class PhoneBridgeController extends ChangeNotifier {
 
       if (!ok) {
         _lastErrorMessage = 'Failed to initiate screen capture request';
+      } else if (_service.isAndroid) {
+        // Remember the explicit peer while capture lives so activeDeviceId
+        // stays honest without guessing (cleared on stop).
+        final id = (targetDeviceId != null && targetDeviceId.isNotEmpty)
+            ? targetDeviceId
+            : _deviceIdForSignalingUrl(target);
+        _androidTargetDeviceId = id;
       }
       await refreshAll();
       return ok;
@@ -444,6 +724,116 @@ class PhoneBridgeController extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  /// Maps a resolved Android signaling URL back to its discovery device id,
+  /// or null when the URL matches no current record.
+  String? _deviceIdForSignalingUrl(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return null;
+    final host = uri.host;
+    final port = uri.hasPort ? uri.port : -1;
+    for (final dev in _discoveredDevices) {
+      if (!dev.isStale && dev.host == host && (port <= 0 || dev.port == port)) {
+        return dev.id;
+      }
+    }
+    return null;
+  }
+
+  /// Resolves what Android's `startCapture` must dial. An explicit URL is
+  /// returned untouched (endpoint validation owns it); an explicit device id
+  /// is resolved through the canonical discovery records. Null means no
+  /// usable endpoint: the caller aborts instead of launching consent for a
+  /// session that cannot establish. There is deliberately no fallback to a
+  /// remembered or "first" peer (Phase C).
+  String? _resolveAndroidReceiver({
+    String? receiverUrl,
+    String? targetDeviceId,
+  }) {
+    if (receiverUrl != null && receiverUrl.isNotEmpty) return receiverUrl;
+    final id = (targetDeviceId != null && targetDeviceId.isNotEmpty)
+        ? targetDeviceId
+        : null;
+    if (id != null && id.isNotEmpty) {
+      for (final dev in _discoveredDevices) {
+        if (dev.id == id && !dev.isStale && dev.signalingUrl.isNotEmpty) {
+          return dev.signalingUrl;
+        }
+      }
+      // An explicit device id with no discovery record is not an endpoint.
+      return null;
+    }
+    // Manual receiver override (Diagnostics) is passed through untouched —
+    // endpoint validation owns it. Empty means unresolvable: abort.
+    if (_receiverUrl.trim().isNotEmpty) return _receiverUrl.trim();
+    return null;
+  }
+
+  /// Disconnects the live session, if any (Phase D).
+  ///
+  /// Trust, discovery, and pairing state are untouched: the device remains
+  /// trusted and discoverable. Safe to call with no session (no-op success),
+  /// while failed, or during reconnect — all covered by regression tests.
+  Future<bool> disconnectActiveDevice(
+      {String reason = 'user requested disconnect from devices UI'}) async {
+    if (_service.isAndroid) {
+      _androidTargetDeviceId = null;
+    }
+    final ok = await stopScreenSharing();
+    if (_service.isAndroid) {
+      _androidTargetDeviceId = null;
+    }
+    return ok;
+  }
+
+  /// Atomically switches from the current peer to [targetDeviceId]
+  /// (Phase E): stops the live session, waits until it is terminal,
+  /// then starts the new peer explicitly.
+  ///
+  /// Never starts B while A is still live (that path is SESSION_BUSY by
+  /// design). If B fails after A stopped, the result is honestly "no active
+  /// device" — A is not resurrected. Superseded switches (a newer switch
+  /// started while this one was stopping) drop out instead of overwriting
+  /// the newer attempt's state.
+  Future<bool> switchToDevice({
+    String? targetDeviceId,
+    String? receiverUrl,
+    Duration settleTimeout = const Duration(seconds: 8),
+  }) async {
+    final generation = ++_switchGeneration;
+    bool superseded() => generation != _switchGeneration;
+
+    final needsStop =
+        _session.status.isActive || activeDeviceId != null || isSharing;
+    if (needsStop) {
+      final stopped = await disconnectActiveDevice(
+          reason: 'user switched devices from devices UI');
+      if (superseded()) return false;
+      if (!stopped) {
+        _lastErrorMessage ??= 'Could not stop the current session.';
+        return false;
+      }
+      final deadline = DateTime.now().add(settleTimeout);
+      while (DateTime.now().isBefore(deadline)) {
+        if (superseded()) return false;
+        if (!_session.status.isActive && activeDeviceId == null && !isSharing) {
+          break;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        if (superseded()) return false;
+      }
+      if (_session.status.isActive) {
+        _lastErrorMessage =
+            'The previous session did not stop in time. Try disconnecting first.';
+        return false;
+      }
+    }
+    if (superseded()) return false;
+    return startScreenSharing(
+      targetDeviceId: targetDeviceId,
+      receiverUrl: receiverUrl,
+    );
   }
 
   Future<bool> stopScreenSharing() async {

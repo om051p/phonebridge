@@ -172,6 +172,13 @@ was not modified for local IPC.
   **requested vs actual** parameters plus a typed `SessionReason`. Sharing the
   parameter *type* across the two packages is deliberate (one definition of the
   tuple); it does not make the local contract a transport for `phonebridge.v1`.
+- Advertised capabilities (runtime truth, DEC-029): `GetSessionState` also
+  returns the peer's `phonebridge.v1.MediaCapabilities` as reported in the
+  DEC-022 offer exchange (field `capabilities`, unset until a negotiation
+  reports it). The daemon retains the last report per session — including
+  across terminal transitions, because caps describe the device — and maps
+  absence to an unset field, never a guess. `SessionEvent` intentionally
+  carries no media: events are transitions, snapshots are authoritative.
 - Isolation rules: the local contract MUST NOT be exposed on a network
   listener and MUST NOT gain device-peer semantics; new device payloads go in
   `phonebridge.v1` and are relayed through `StreamEventsResponse.envelope`.
@@ -181,6 +188,13 @@ was not modified for local IPC.
   transfers plus the recent in-memory history, and `TransferEvent` is pushed on
   `StreamEventsResponse.transfer_event`. Transfer state/reason enums are local
   to this contract, mirroring the `SessionState`/`SessionReason` precedent.
+- Connection management (connection-audit follow-up): `GetSessionState`
+  reports the authoritative session peer (`device_id`, from the daemon
+  session target — never trust ordering); `RevokeDevice` preserves the
+  revoked row for audit while `RemoveDevice` permanently deletes the record
+  (Forget Device). Both stop a live session targeting the device. `RemoveDevice`
+  reuses the revoke messages (no new payload shape); generated stubs were
+  hand-applied pending the next `buf generate` (service reflection lags).
 
 ### Authentication (both gates required)
 

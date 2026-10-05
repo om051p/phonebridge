@@ -175,6 +175,36 @@ class SinkKind extends $pb.ProtobufEnum {
   const SinkKind._(super.value, super.name);
 }
 
+/// PairingEventType classifies an inbound-pairing lifecycle transition.
+class PairingEventType extends $pb.ProtobufEnum {
+  static const PairingEventType PAIRING_EVENT_TYPE_UNSPECIFIED =
+      PairingEventType._(
+          0, _omitEnumNames ? '' : 'PAIRING_EVENT_TYPE_UNSPECIFIED');
+
+  /// A new inbound request arrived and awaits approval.
+  static const PairingEventType PAIRING_EVENT_TYPE_ARRIVED =
+      PairingEventType._(1, _omitEnumNames ? '' : 'PAIRING_EVENT_TYPE_ARRIVED');
+
+  /// A previously pending request is gone (withdrawn by the requester,
+  /// answered locally, or expired). Refresh ListInboundPairings for truth.
+  static const PairingEventType PAIRING_EVENT_TYPE_WITHDRAWN =
+      PairingEventType._(
+          2, _omitEnumNames ? '' : 'PAIRING_EVENT_TYPE_WITHDRAWN');
+
+  static const $core.List<PairingEventType> values = <PairingEventType>[
+    PAIRING_EVENT_TYPE_UNSPECIFIED,
+    PAIRING_EVENT_TYPE_ARRIVED,
+    PAIRING_EVENT_TYPE_WITHDRAWN,
+  ];
+
+  static final $core.List<PairingEventType?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 2);
+  static PairingEventType? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const PairingEventType._(super.value, super.name);
+}
+
 /// TransferDirection states which way the bytes flow for this device.
 class TransferDirection extends $pb.ProtobufEnum {
   static const TransferDirection TRANSFER_DIRECTION_UNSPECIFIED =

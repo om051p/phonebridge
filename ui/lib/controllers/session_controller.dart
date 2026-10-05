@@ -27,6 +27,7 @@ import 'package:flutter/foundation.dart';
 
 import '../generated/phonebridge/localipc/v1/local_ipc.pb.dart' as ipc;
 import '../generated/phonebridge/v1/phonebridge.pb.dart' as pb;
+import '../models/media_capabilities.dart';
 import '../models/session_status.dart';
 import '../services/session_backend.dart';
 
@@ -66,6 +67,16 @@ class SessionController extends ChangeNotifier {
   bool get supportsSessions => _backend.supportsSessions;
 
   String get activeSessionId => _status.sessionId ?? '';
+
+  /// Authoritative active peer: the daemon session's target device while the
+  /// session is live, null otherwise. This is the ONLY active-device source
+  /// the UI may use (Phase B) — never trust ordering.
+  String? get activeDeviceId {
+    if (!supportsSessions) return null;
+    if (!_status.isActive) return null;
+    final id = _status.deviceId;
+    return (id == null || id.isEmpty) ? null : id;
+  }
 
   bool? get daemonReachable => _daemonReachable;
 
@@ -108,7 +119,10 @@ class SessionController extends ChangeNotifier {
     if (!_backend.supportsSessions) return false;
 
     final id = event.sessionId;
-    if (_status.isActive && id.isNotEmpty && _status.sessionId != null && id != _status.sessionId) {
+    if (_status.isActive &&
+        id.isNotEmpty &&
+        _status.sessionId != null &&
+        id != _status.sessionId) {
       // A different session while one is live: late event from the replaced one.
       _ignoredStaleUpdates++;
       return false;
@@ -133,7 +147,9 @@ class SessionController extends ChangeNotifier {
       // Not active: a genuinely new session is being reported, so adopt its id.
     }
 
-    if (_status.isTerminal && _isActiveState(snapshot.state) && id == _status.sessionId) {
+    if (_status.isTerminal &&
+        _isActiveState(snapshot.state) &&
+        id == _status.sessionId) {
       _ignoredStaleUpdates++;
       return false;
     }
@@ -149,7 +165,8 @@ class SessionController extends ChangeNotifier {
   /// [requested] is passed to the backend untouched: the media tuple a caller
   /// asks for must reach the daemon exactly as given (a dropped tuple is a
   /// silent capability loss — the phone would apply its own defaults instead).
-  Future<bool> start({required String target, pb.MediaParams? requested}) async {
+  Future<bool> start(
+      {required String target, pb.MediaParams? requested}) async {
     if (!_backend.supportsSessions) {
       _lastError = 'This platform has no local session state machine.';
       _notify();
@@ -172,10 +189,13 @@ class SessionController extends ChangeNotifier {
       if (_disposed) return false;
       _streamStats = null;
       // A new session starts from a clean slate: the previous failure and the
-      // previous negotiated tuple must not leak into it.
+      // previous negotiated tuple must not leak into it. The requested target
+      // is the authoritative peer from this moment until a snapshot says
+      // otherwise (the daemon snapshot carries the same device_id).
       _setStatus(SessionStatus(
         state: resp.state,
         sessionId: resp.sessionId,
+        deviceId: deviceId,
         reasonDetail: 'session initiated',
         requested: requested,
         actual: null,
@@ -191,7 +211,8 @@ class SessionController extends ChangeNotifier {
 
   /// Terminates the live session. Returns true when there was nothing to stop or
   /// the backend confirmed it, so a caller can treat "already stopped" as fine.
-  Future<bool> stop({String reason = 'user requested stop from desktop UI'}) async {
+  Future<bool> stop(
+      {String reason = 'user requested stop from desktop UI'}) async {
     final id = activeSessionId;
     if (id.isEmpty) return true;
     if (!_backend.supportsSessions) return false;
@@ -287,6 +308,7 @@ class SessionController extends ChangeNotifier {
   bool _isSameAs(SessionStatus other) =>
       other.state == _status.state &&
       other.sessionId == _status.sessionId &&
+      other.deviceId == _status.deviceId &&
       other.reasonCode == _status.reasonCode &&
       other.reasonDetail == _status.reasonDetail &&
       other.errorMessage == _status.errorMessage &&
@@ -295,7 +317,8 @@ class SessionController extends ChangeNotifier {
       other.requested == _status.requested &&
       other.sinkKind == _status.sinkKind &&
       other.sinkActive == _status.sinkActive &&
-      other.actual == _status.actual;
+      other.actual == _status.actual &&
+      mediaCapabilitiesEqual(other.capabilities, _status.capabilities);
 
   @override
   void dispose() {

@@ -69,7 +69,11 @@ func TestSignalingServer_HealthAndPairing(t *testing.T) {
 		t.Fatalf("expected 200 OK for /health, got %d", resp.StatusCode)
 	}
 
-	// 2. Test PairingClient against SignalingServer
+	// 2. Test PairingClient against SignalingServer. Pairing now requires the
+	// receiving user's explicit approval: simulate the tap on Accept.
+	done := make(chan struct{})
+	defer close(done)
+	approveFirstInboundPairing(t, srv, done)
 	pairClient := crypto.NewPairingClient(3 * time.Second)
 	sasVerified := false
 	entry, err := pairClient.Pair(ctx, endpoint, clientIdent, clientTrust, func(remoteName, sas string) bool {
@@ -313,6 +317,10 @@ func TestSignalingServer_PairingDuplicateConfirmSingleRecord(t *testing.T) {
 		remotePub: clientIdent.PublicKey, sas: sas, createdAt: time.Now(),
 	}
 	srv.mu.Unlock()
+	// The crafted request still needs the receiving user's approval.
+	if !srv.ApprovePairing(token, true) {
+		t.Fatal("approval of crafted pending request failed")
+	}
 
 	if code := postPairingConfirm(t, endpoint, token, sas, clientIdent); code != http.StatusOK {
 		t.Fatalf("expected 200 for first confirm, got %d", code)

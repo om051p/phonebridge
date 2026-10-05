@@ -368,6 +368,7 @@ class StreamEventsResponse extends $pb.GeneratedMessage {
     ClipboardStatusEvent? clipboardEvent,
     TransferEvent? transferEvent,
     $1.NotificationFrame? notificationEvent,
+    PairingEvent? pairingEvent,
   }) {
     final result = StreamEventsResponse._();
     if (seq != null) result.seq = seq;
@@ -377,6 +378,7 @@ class StreamEventsResponse extends $pb.GeneratedMessage {
     if (clipboardEvent != null) result.clipboardEvent = clipboardEvent;
     if (transferEvent != null) result.transferEvent = transferEvent;
     if (notificationEvent != null) result.notificationEvent = notificationEvent;
+    if (pairingEvent != null) result.pairingEvent = pairingEvent;
     return result;
   }
 
@@ -409,6 +411,8 @@ class StreamEventsResponse extends $pb.GeneratedMessage {
         subBuilder: TransferEvent.$_createMessage)
     ..aOM<$1.NotificationFrame>(7, _omitFieldNames ? '' : 'notificationEvent',
         subBuilder: $1.NotificationFrame.$_createMessage)
+    ..aOM<PairingEvent>(8, _omitFieldNames ? '' : 'pairingEvent',
+        subBuilder: PairingEvent.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -520,6 +524,18 @@ class StreamEventsResponse extends $pb.GeneratedMessage {
   void clearNotificationEvent() => $_clearField(7);
   @$pb.TagNumber(7)
   $1.NotificationFrame ensureNotificationEvent() => $_ensure(6);
+
+  /// Inbound-pairing lifecycle transitions (Phase 2 bidirectional pairing).
+  @$pb.TagNumber(8)
+  PairingEvent get pairingEvent => $_getN(7);
+  @$pb.TagNumber(8)
+  set pairingEvent(PairingEvent value) => $_setField(8, value);
+  @$pb.TagNumber(8)
+  $core.bool hasPairingEvent() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearPairingEvent() => $_clearField(8);
+  @$pb.TagNumber(8)
+  PairingEvent ensurePairingEvent() => $_ensure(7);
 }
 
 /// LocalEvent represents a pushed local event containing the relayed device envelope.
@@ -534,6 +550,7 @@ class LocalEvent extends $pb.GeneratedMessage {
     ClipboardStatusEvent? clipboardEvent,
     TransferEvent? transferEvent,
     $1.NotificationFrame? notificationEvent,
+    PairingEvent? pairingEvent,
   }) {
     final result = LocalEvent._();
     if (seq != null) result.seq = seq;
@@ -543,6 +560,7 @@ class LocalEvent extends $pb.GeneratedMessage {
     if (clipboardEvent != null) result.clipboardEvent = clipboardEvent;
     if (transferEvent != null) result.transferEvent = transferEvent;
     if (notificationEvent != null) result.notificationEvent = notificationEvent;
+    if (pairingEvent != null) result.pairingEvent = pairingEvent;
     return result;
   }
 
@@ -575,6 +593,8 @@ class LocalEvent extends $pb.GeneratedMessage {
         subBuilder: TransferEvent.$_createMessage)
     ..aOM<$1.NotificationFrame>(7, _omitFieldNames ? '' : 'notificationEvent',
         subBuilder: $1.NotificationFrame.$_createMessage)
+    ..aOM<PairingEvent>(8, _omitFieldNames ? '' : 'pairingEvent',
+        subBuilder: PairingEvent.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -676,6 +696,18 @@ class LocalEvent extends $pb.GeneratedMessage {
   void clearNotificationEvent() => $_clearField(7);
   @$pb.TagNumber(7)
   $1.NotificationFrame ensureNotificationEvent() => $_ensure(6);
+
+  /// Inbound-pairing lifecycle transitions (Phase 2 bidirectional pairing).
+  @$pb.TagNumber(8)
+  PairingEvent get pairingEvent => $_getN(7);
+  @$pb.TagNumber(8)
+  set pairingEvent(PairingEvent value) => $_setField(8, value);
+  @$pb.TagNumber(8)
+  $core.bool hasPairingEvent() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearPairingEvent() => $_clearField(8);
+  @$pb.TagNumber(8)
+  PairingEvent ensurePairingEvent() => $_ensure(7);
 }
 
 /// HealthRequest is empty.
@@ -1494,6 +1526,7 @@ class GetSessionStateResponse extends $pb.GeneratedMessage {
     SinkKind? sinkKind,
     $core.bool? sinkActive,
     $core.String? framesReason,
+    $1.MediaCapabilities? capabilities,
   }) {
     final result = GetSessionStateResponse._();
     if (sessionId != null) result.sessionId = sessionId;
@@ -1510,6 +1543,7 @@ class GetSessionStateResponse extends $pb.GeneratedMessage {
     if (sinkKind != null) result.sinkKind = sinkKind;
     if (sinkActive != null) result.sinkActive = sinkActive;
     if (framesReason != null) result.framesReason = framesReason;
+    if (capabilities != null) result.capabilities = capabilities;
     return result;
   }
 
@@ -1549,6 +1583,8 @@ class GetSessionStateResponse extends $pb.GeneratedMessage {
         enumValues: SinkKind.values)
     ..aOB(12, _omitFieldNames ? '' : 'sinkActive')
     ..aOS(13, _omitFieldNames ? '' : 'framesReason')
+    ..aOM<$1.MediaCapabilities>(14, _omitFieldNames ? '' : 'capabilities',
+        subBuilder: $1.MediaCapabilities.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1714,6 +1750,24 @@ class GetSessionStateResponse extends $pb.GeneratedMessage {
   $core.bool hasFramesReason() => $_has(12);
   @$pb.TagNumber(13)
   void clearFramesReason() => $_clearField(13);
+
+  /// What the capture device advertised it can do, as reported in the DEC-022
+  /// offer exchange (phonebridge.v1.MediaCapabilities from the encoder the
+  /// device actually selected — Android CodecSelector, never a constant).
+  /// Unset until a negotiation with this peer has reported it, and unset again
+  /// for peer-started sessions whose offer carried none: an absent tuple means
+  /// "not reported", which the UI renders as "Checking device capabilities…"
+  /// rather than guessing availability.
+  @$pb.TagNumber(14)
+  $1.MediaCapabilities get capabilities => $_getN(13);
+  @$pb.TagNumber(14)
+  set capabilities($1.MediaCapabilities value) => $_setField(14, value);
+  @$pb.TagNumber(14)
+  $core.bool hasCapabilities() => $_has(13);
+  @$pb.TagNumber(14)
+  void clearCapabilities() => $_clearField(14);
+  @$pb.TagNumber(14)
+  $1.MediaCapabilities ensureCapabilities() => $_ensure(13);
 }
 
 /// DiscoveredDevice models a LAN device discovered via mDNS.
@@ -2274,6 +2328,459 @@ class ConfirmPairingResponse extends $pb.GeneratedMessage {
   $core.bool hasErrorMessage() => $_has(2);
   @$pb.TagNumber(3)
   void clearErrorMessage() => $_clearField(3);
+}
+
+/// InboundPairingRequest is one pairing request awaiting the local user's
+/// explicit approval. Trust is committed only after RespondInboundPairing
+/// approves AND the requester's signed confirm verifies.
+class InboundPairingRequest extends $pb.GeneratedMessage {
+  factory InboundPairingRequest({
+    $core.String? pairingToken,
+    $core.String? remoteName,
+    $core.String? remotePlatform,
+    $core.String? sas,
+    $fixnum.Int64? createdAtMs,
+  }) {
+    final result = InboundPairingRequest._();
+    if (pairingToken != null) result.pairingToken = pairingToken;
+    if (remoteName != null) result.remoteName = remoteName;
+    if (remotePlatform != null) result.remotePlatform = remotePlatform;
+    if (sas != null) result.sas = sas;
+    if (createdAtMs != null) result.createdAtMs = createdAtMs;
+    return result;
+  }
+
+  InboundPairingRequest._();
+
+  factory InboundPairingRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      InboundPairingRequest()..mergeFromBuffer(data, registry);
+  factory InboundPairingRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      InboundPairingRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'InboundPairingRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: InboundPairingRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'pairingToken')
+    ..aOS(2, _omitFieldNames ? '' : 'remoteName')
+    ..aOS(3, _omitFieldNames ? '' : 'remotePlatform')
+    ..aOS(4, _omitFieldNames ? '' : 'sas')
+    ..aInt64(5, _omitFieldNames ? '' : 'createdAtMs')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  InboundPairingRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  InboundPairingRequest copyWith(
+          void Function(InboundPairingRequest) updates) =>
+      super.copyWith((message) => updates(message as InboundPairingRequest))
+          as InboundPairingRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use InboundPairingRequest() / InboundPairingRequest.new instead')
+  static InboundPairingRequest create() => InboundPairingRequest._();
+  static $pb.GeneratedMessage $_createMessage() => InboundPairingRequest._();
+  @$core.override
+  InboundPairingRequest createEmptyInstance() => InboundPairingRequest._();
+  @$core.pragma('dart2js:noInline')
+  static InboundPairingRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<InboundPairingRequest>(
+          InboundPairingRequest.$_createMessage);
+  static InboundPairingRequest? _defaultInstance;
+
+  /// Opaque token identifying the request; passed back to RespondInboundPairing.
+  @$pb.TagNumber(1)
+  $core.String get pairingToken => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set pairingToken($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPairingToken() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPairingToken() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get remoteName => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set remoteName($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasRemoteName() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearRemoteName() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get remotePlatform => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set remotePlatform($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasRemotePlatform() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearRemotePlatform() => $_clearField(3);
+
+  /// Short Authentication String the local user compares with the requester's
+  /// screen before approving.
+  @$pb.TagNumber(4)
+  $core.String get sas => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set sas($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasSas() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearSas() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $fixnum.Int64 get createdAtMs => $_getI64(4);
+  @$pb.TagNumber(5)
+  set createdAtMs($fixnum.Int64 value) => $_setInt64(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasCreatedAtMs() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearCreatedAtMs() => $_clearField(5);
+}
+
+/// ListInboundPairingsRequest is empty.
+class ListInboundPairingsRequest extends $pb.GeneratedMessage {
+  factory ListInboundPairingsRequest() => ListInboundPairingsRequest._();
+
+  ListInboundPairingsRequest._();
+
+  factory ListInboundPairingsRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListInboundPairingsRequest()..mergeFromBuffer(data, registry);
+  factory ListInboundPairingsRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListInboundPairingsRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListInboundPairingsRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: ListInboundPairingsRequest.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListInboundPairingsRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListInboundPairingsRequest copyWith(
+          void Function(ListInboundPairingsRequest) updates) =>
+      super.copyWith(
+              (message) => updates(message as ListInboundPairingsRequest))
+          as ListInboundPairingsRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListInboundPairingsRequest() / ListInboundPairingsRequest.new instead')
+  static ListInboundPairingsRequest create() => ListInboundPairingsRequest._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      ListInboundPairingsRequest._();
+  @$core.override
+  ListInboundPairingsRequest createEmptyInstance() =>
+      ListInboundPairingsRequest._();
+  @$core.pragma('dart2js:noInline')
+  static ListInboundPairingsRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListInboundPairingsRequest>(
+          ListInboundPairingsRequest.$_createMessage);
+  static ListInboundPairingsRequest? _defaultInstance;
+}
+
+/// ListInboundPairingsResponse lists inbound requests awaiting approval.
+/// Expired entries are swept and omitted, so the UI auto-dismisses stale
+/// dialogs by refreshing this list.
+class ListInboundPairingsResponse extends $pb.GeneratedMessage {
+  factory ListInboundPairingsResponse({
+    $core.Iterable<InboundPairingRequest>? requests,
+  }) {
+    final result = ListInboundPairingsResponse._();
+    if (requests != null) result.requests.addAll(requests);
+    return result;
+  }
+
+  ListInboundPairingsResponse._();
+
+  factory ListInboundPairingsResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListInboundPairingsResponse()..mergeFromBuffer(data, registry);
+  factory ListInboundPairingsResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListInboundPairingsResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListInboundPairingsResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: ListInboundPairingsResponse.$_createMessage)
+    ..pPM<InboundPairingRequest>(1, _omitFieldNames ? '' : 'requests',
+        subBuilder: InboundPairingRequest.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListInboundPairingsResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListInboundPairingsResponse copyWith(
+          void Function(ListInboundPairingsResponse) updates) =>
+      super.copyWith(
+              (message) => updates(message as ListInboundPairingsResponse))
+          as ListInboundPairingsResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListInboundPairingsResponse() / ListInboundPairingsResponse.new instead')
+  static ListInboundPairingsResponse create() =>
+      ListInboundPairingsResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      ListInboundPairingsResponse._();
+  @$core.override
+  ListInboundPairingsResponse createEmptyInstance() =>
+      ListInboundPairingsResponse._();
+  @$core.pragma('dart2js:noInline')
+  static ListInboundPairingsResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListInboundPairingsResponse>(
+          ListInboundPairingsResponse.$_createMessage);
+  static ListInboundPairingsResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $pb.PbList<InboundPairingRequest> get requests => $_getList(0);
+}
+
+/// RespondInboundPairingRequest records the local user's decision.
+class RespondInboundPairingRequest extends $pb.GeneratedMessage {
+  factory RespondInboundPairingRequest({
+    $core.String? pairingToken,
+    $core.bool? approved,
+  }) {
+    final result = RespondInboundPairingRequest._();
+    if (pairingToken != null) result.pairingToken = pairingToken;
+    if (approved != null) result.approved = approved;
+    return result;
+  }
+
+  RespondInboundPairingRequest._();
+
+  factory RespondInboundPairingRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      RespondInboundPairingRequest()..mergeFromBuffer(data, registry);
+  factory RespondInboundPairingRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      RespondInboundPairingRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'RespondInboundPairingRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: RespondInboundPairingRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'pairingToken')
+    ..aOB(2, _omitFieldNames ? '' : 'approved')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RespondInboundPairingRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RespondInboundPairingRequest copyWith(
+          void Function(RespondInboundPairingRequest) updates) =>
+      super.copyWith(
+              (message) => updates(message as RespondInboundPairingRequest))
+          as RespondInboundPairingRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use RespondInboundPairingRequest() / RespondInboundPairingRequest.new instead')
+  static RespondInboundPairingRequest create() =>
+      RespondInboundPairingRequest._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      RespondInboundPairingRequest._();
+  @$core.override
+  RespondInboundPairingRequest createEmptyInstance() =>
+      RespondInboundPairingRequest._();
+  @$core.pragma('dart2js:noInline')
+  static RespondInboundPairingRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<RespondInboundPairingRequest>(
+          RespondInboundPairingRequest.$_createMessage);
+  static RespondInboundPairingRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get pairingToken => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set pairingToken($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPairingToken() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPairingToken() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.bool get approved => $_getBF(1);
+  @$pb.TagNumber(2)
+  set approved($core.bool value) => $_setBool(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasApproved() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearApproved() => $_clearField(2);
+}
+
+/// RespondInboundPairingResponse confirms the decision was recorded. Approval
+/// alone never commits trust: the requester's signed confirm must still verify.
+class RespondInboundPairingResponse extends $pb.GeneratedMessage {
+  factory RespondInboundPairingResponse({
+    $core.String? pairingToken,
+    $core.bool? recorded,
+  }) {
+    final result = RespondInboundPairingResponse._();
+    if (pairingToken != null) result.pairingToken = pairingToken;
+    if (recorded != null) result.recorded = recorded;
+    return result;
+  }
+
+  RespondInboundPairingResponse._();
+
+  factory RespondInboundPairingResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      RespondInboundPairingResponse()..mergeFromBuffer(data, registry);
+  factory RespondInboundPairingResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      RespondInboundPairingResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'RespondInboundPairingResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: RespondInboundPairingResponse.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'pairingToken')
+    ..aOB(2, _omitFieldNames ? '' : 'recorded')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RespondInboundPairingResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RespondInboundPairingResponse copyWith(
+          void Function(RespondInboundPairingResponse) updates) =>
+      super.copyWith(
+              (message) => updates(message as RespondInboundPairingResponse))
+          as RespondInboundPairingResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use RespondInboundPairingResponse() / RespondInboundPairingResponse.new instead')
+  static RespondInboundPairingResponse create() =>
+      RespondInboundPairingResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      RespondInboundPairingResponse._();
+  @$core.override
+  RespondInboundPairingResponse createEmptyInstance() =>
+      RespondInboundPairingResponse._();
+  @$core.pragma('dart2js:noInline')
+  static RespondInboundPairingResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<RespondInboundPairingResponse>(
+          RespondInboundPairingResponse.$_createMessage);
+  static RespondInboundPairingResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get pairingToken => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set pairingToken($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPairingToken() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPairingToken() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.bool get recorded => $_getBF(1);
+  @$pb.TagNumber(2)
+  set recorded($core.bool value) => $_setBool(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasRecorded() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearRecorded() => $_clearField(2);
+}
+
+/// PairingEvent pushes inbound-pairing transitions to StreamEvents subscribers.
+class PairingEvent extends $pb.GeneratedMessage {
+  factory PairingEvent({
+    PairingEventType? type,
+    $core.String? pairingToken,
+  }) {
+    final result = PairingEvent._();
+    if (type != null) result.type = type;
+    if (pairingToken != null) result.pairingToken = pairingToken;
+    return result;
+  }
+
+  PairingEvent._();
+
+  factory PairingEvent.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PairingEvent()..mergeFromBuffer(data, registry);
+  factory PairingEvent.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PairingEvent()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'PairingEvent',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: PairingEvent.$_createMessage)
+    ..aE<PairingEventType>(1, _omitFieldNames ? '' : 'type',
+        enumValues: PairingEventType.values)
+    ..aOS(2, _omitFieldNames ? '' : 'pairingToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PairingEvent clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PairingEvent copyWith(void Function(PairingEvent) updates) =>
+      super.copyWith((message) => updates(message as PairingEvent))
+          as PairingEvent;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use PairingEvent() / PairingEvent.new instead')
+  static PairingEvent create() => PairingEvent._();
+  static $pb.GeneratedMessage $_createMessage() => PairingEvent._();
+  @$core.override
+  PairingEvent createEmptyInstance() => PairingEvent._();
+  @$core.pragma('dart2js:noInline')
+  static PairingEvent getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<PairingEvent>(
+          PairingEvent.$_createMessage);
+  static PairingEvent? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  PairingEventType get type => $_getN(0);
+  @$pb.TagNumber(1)
+  set type(PairingEventType value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasType() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearType() => $_clearField(1);
+
+  /// Token of the affected request; receivers refresh the list instead of
+  /// tracking tokens across restarts.
+  @$pb.TagNumber(2)
+  $core.String get pairingToken => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set pairingToken($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPairingToken() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPairingToken() => $_clearField(2);
 }
 
 /// TrustedDevice represents a paired device in the persistent trust store.

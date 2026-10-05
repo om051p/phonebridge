@@ -51,7 +51,9 @@ void main() {
     );
     await tester.tap(find.text('Devices'));
     await tester.pumpAndSettle();
-    expect(find.text('Trusted Devices (1)'), findsOneWidget);
+    // Trusted but undiscovered: grouped as unavailable (canonical rows),
+    // never as an active or connectable device.
+    expect(find.text('Unavailable (1)'), findsOneWidget);
 
     await service.rawEvents.close();
   });

@@ -120,14 +120,21 @@ func TestDualLinuxNodes_DiscoveryAndPairing(t *testing.T) {
 	if discoveredDev == nil {
 		t.Logf("mDNS loopback discovery skipped/timed out (expected in some CI/multicast environments), falling back to direct endpoint")
 	} else {
-		t.Logf("Node 1 successfully discovered Node 2 on mDNS: %+v", discoveredDev)
+		// Log immutable scalar fields only: the registry's Upsert reuses the
+		// Addresses backing array, so formatting a snapshot's slice races the
+		// discovery goroutine while this test reads.
+		t.Logf("Node 1 successfully discovered Node 2 on mDNS: id=%s name=%q",
+			discoveredDev.ID, discoveredDev.Name)
 		if discoveredDev.Name != "Linux Desktop Beta" {
 			t.Errorf("expected device name 'Linux Desktop Beta', got %q", discoveredDev.Name)
 		}
 	}
 
-	// --- 2. Validate Peer-to-Peer SAS Pairing ---
+	// --- 2. Validate Peer-to-Peer SAS Pairing (receiver approves explicitly) ---
 	endpoint := fmt.Sprintf("127.0.0.1:%d", node2Sig.Port())
+	approved := make(chan struct{})
+	defer close(approved)
+	approveFirstInboundPairing(t, node2Sig, approved)
 	pairClient := crypto.NewPairingClient(3 * time.Second)
 	sasChecked := false
 

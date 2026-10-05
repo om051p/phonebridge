@@ -72,6 +72,11 @@ void main() {
       (tester) async {
     await mountScreen(tester);
 
+    // Explicit target for this tab (Phase C): the Screen tab is a session
+    // control surface, not device selection — the manual override stands in
+    // for the Devices-tab selection in these tests.
+    controller.setReceiverUrl('test-peer');
+
     // The DEC-022 device-default option migrated from the retired view: it
     // must request *no* tuple, so the phone reports what it actually applies.
     expect(find.text('Device Default (Phone Chooses)'), findsOneWidget);
@@ -81,15 +86,15 @@ void main() {
     await tester.tap(find.text('MIRROR PHONE SCREEN'));
     await settle(tester);
     expect(client.startCalls, hasLength(1));
-    // Daemon-side auto-selection remains the default target.
-    expect(client.startCalls.single.target, 'peer-auto');
+    // The explicit target travels untouched (no peer-auto guessing).
+    expect(client.startCalls.single.target, 'test-peer');
     // The zero selection travelled as "unset", never as a zero-sized video.
     expect(client.startCalls.single.requested, isNull);
 
     // A concrete preset must travel as the exact tuple the user picked: a
     // dropped preset here is the silent capability loss this slice exists to
     // prevent.
-    await tester.tap(find.text('1080p 60fps (Smooth Motion)'));
+    await tester.tap(find.text('1080p High Frame Rate'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('MIRROR PHONE SCREEN'));
     await settle(tester);
@@ -111,6 +116,7 @@ void main() {
       'start and stop run through the shared controller and its session model',
       (tester) async {
     await mountScreen(tester);
+    controller.setReceiverUrl('test-peer');
 
     // Start: the control reaches the shared seam exactly once, and until the
     // daemon pushes a rung the shared model has not moved — the screen holds
@@ -145,6 +151,7 @@ void main() {
   testWidgets('a failed start surfaces on the Screen tab instead of vanishing',
       (tester) async {
     await mountScreen(tester);
+    controller.setReceiverUrl('test-peer');
 
     client.startError = StateError('peer refused the offer');
 

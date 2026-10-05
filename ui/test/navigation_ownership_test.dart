@@ -40,13 +40,14 @@ void main() {
     expect(client.streamEventsCalls, 1);
 
     // Home opens first, no-peer on the fake daemon.
-    expect(find.text('No Paired PC'), findsOneWidget);
+    expect(find.text('No paired device'), findsOneWidget);
 
     // Devices tab: empty trust store + empty discovery, from the service.
+    // Canonical rows: connected hero empty, no trusted rows, no unpaired.
     await tester.tap(find.text('Devices'));
     await tester.pumpAndSettle();
-    expect(find.text('Trusted Devices (0)'), findsOneWidget);
-    expect(find.text('Discovered Devices (0)'), findsOneWidget);
+    expect(find.text('Connected device'), findsOneWidget);
+    expect(find.text('Your devices (0)'), findsOneWidget);
     expect(find.text('This Device (Linux Desktop)'), findsOneWidget);
 
     // Screen tab: the Linux service path (isLinux) owns the mirror action.
@@ -71,9 +72,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('About PhoneBridge'), findsOneWidget);
     expect(find.text('Diagnostics & Developer'), findsOneWidget);
+    expect(find.widgetWithText(ListTile, 'Open Diagnostics Console'),
+        findsOneWidget);
 
     // Diagnostics route, pushed from Settings.
-    await tester.tap(find.widgetWithText(ListTile, 'Diagnostics & Developer'));
+    await tester.tap(find.widgetWithText(ListTile, 'Open Diagnostics Console'));
     await tester.pumpAndSettle();
     expect(find.text('Live Telemetry (DEC-020/021)'), findsOneWidget);
     expect(find.text('Local Engine IPC (DEC-018)'), findsOneWidget);

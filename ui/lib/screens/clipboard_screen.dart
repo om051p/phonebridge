@@ -26,7 +26,7 @@ class ClipboardScreen extends StatelessWidget {
     final isLinux = controller.service.isLinux;
 
     return ListView(
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
       children: [
         _buildMasterToggleCard(theme, isEnabled),
         const SizedBox(height: 16),
@@ -82,6 +82,12 @@ class ClipboardScreen extends StatelessWidget {
         break;
       case ClipboardSyncState.writeOnlyDormant:
         statusColor = Colors.amber.shade700;
+        break;
+      case ClipboardSyncState.needsSetup:
+        statusColor = Colors.orange.shade800;
+        break;
+      case ClipboardSyncState.restricted:
+        statusColor = theme.colorScheme.error;
         break;
       case ClipboardSyncState.unavailable:
         statusColor = theme.colorScheme.error;
@@ -197,13 +203,17 @@ class ClipboardScreen extends StatelessWidget {
               children: [
                 Icon(Icons.keyboard_outlined, color: theme.colorScheme.primary, size: 20),
                 const SizedBox(width: 8),
-                Text(
-                  'Companion Input Method',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
+                Expanded(
+                  child: Text(
+                    'Companion Input Method',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
                 ),
-                const Spacer(),
+                const SizedBox(width: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
@@ -301,7 +311,9 @@ class ClipboardScreen extends StatelessWidget {
   }
 
   Widget _buildLinuxWaylandGuidanceCard(ThemeData theme, ClipboardStatus clipboard) {
-    final isUnavailable = clipboard.state == ClipboardSyncState.unavailable;
+    final needsSetup = clipboard.state == ClipboardSyncState.needsSetup ||
+        clipboard.state == ClipboardSyncState.unavailable ||
+        clipboard.state == ClipboardSyncState.restricted;
     return Card(
       elevation: 0,
       color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.25),
@@ -318,25 +330,29 @@ class ClipboardScreen extends StatelessWidget {
               children: [
                 Icon(Icons.desktop_windows_outlined, color: theme.colorScheme.primary, size: 20),
                 const SizedBox(width: 8),
-                Text(
-                  'Wayland Data Control',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
+                Expanded(
+                  child: Text(
+                    'Wayland Data Control',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
                 ),
-                const Spacer(),
+                const SizedBox(width: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: !isUnavailable
+                    color: !needsSetup
                         ? Colors.green.withValues(alpha: 0.15)
                         : Colors.orange.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    !isUnavailable ? 'Active' : 'Setup Required',
+                    !needsSetup ? 'Active' : 'Setup Required',
                     style: TextStyle(
-                      color: !isUnavailable ? Colors.green : Colors.orange.shade800,
+                      color: !needsSetup ? Colors.green : Colors.orange.shade800,
                       fontWeight: FontWeight.bold,
                       fontSize: 11,
                     ),
@@ -346,7 +362,7 @@ class ClipboardScreen extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              isUnavailable
+              needsSetup
                   ? 'Linux Wayland clipboard synchronization requires compositor support for '
                       'wlr-data-control-unstable-v1.\n\n'
                       '• COSMIC Desktop: Set COSMIC_DATA_CONTROL_ENABLED=1 in /etc/environment or your session profile.\n'
@@ -398,10 +414,21 @@ class ClipboardScreen extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          Expanded(
+            child: Text(label,
+                style: TextStyle(
+                    color: theme.colorScheme.onSurfaceVariant, fontSize: 13)),
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(value,
+                textAlign: TextAlign.end,
+                overflow: TextOverflow.ellipsis,
+                maxLines: 2,
+                style:
+                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          ),
         ],
       ),
     );

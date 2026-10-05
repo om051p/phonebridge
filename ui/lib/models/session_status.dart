@@ -18,12 +18,14 @@ class SessionStatus {
   const SessionStatus({
     required this.state,
     this.sessionId,
+    this.deviceId,
     this.reasonCode = SessionReason.SESSION_REASON_UNSPECIFIED,
     this.reasonDetail = '',
     this.errorMessage = '',
     this.durationMs = 0,
     this.requested,
     this.actual,
+    this.capabilities,
     this.reconnectAttempts = 0,
     this.sinkKind = SinkKind.SINK_KIND_UNSPECIFIED,
     this.sinkActive = false,
@@ -31,6 +33,11 @@ class SessionStatus {
 
   final SessionState state;
   final String? sessionId;
+
+  /// Authoritative session peer (daemon Session.targetDeviceId).
+  /// Null/empty means no active target: the UI must render disconnected and
+  /// must never fall back to trust ordering (Phase B).
+  final String? deviceId;
   final SessionReason reasonCode;
   final String reasonDetail;
   final String errorMessage;
@@ -42,6 +49,11 @@ class SessionStatus {
   /// What the phone reported applying. Null means *not reported* — never
   /// assumed to equal [requested].
   final pb.MediaParams? actual;
+
+  /// What the phone advertised it can do (DEC-022 offer exchange, retained by
+  /// the Go session). Null means *not reported* — the UI renders "Checking
+  /// device capabilities…" instead of guessing availability.
+  final pb.MediaCapabilities? capabilities;
 
   final int reconnectAttempts;
 
@@ -58,6 +70,10 @@ class SessionStatus {
   /// daemon runs a null sink and says so).
   bool get hasReportedSink => sinkKind != SinkKind.SINK_KIND_UNSPECIFIED;
 
+  /// True once the peer has advertised its capture capabilities — gates the
+  /// quality presets so "Available" is never rendered on assumption.
+  bool get hasCapabilities => capabilities != null;
+
   static const SessionStatus idle = SessionStatus(
     state: SessionState.SESSION_STATE_DISCONNECTED,
   );
@@ -72,20 +88,31 @@ class SessionStatus {
     // Entering an idle or terminal state ends the session's sink, so the model
     // clears it right here: a stale classification must not outlive its
     // session even between snapshot polls.
-    final eventClearsSink =
-        event.state == SessionState.SESSION_STATE_STOPPED ||
+    final eventClearsSink = event.state == SessionState.SESSION_STATE_STOPPED ||
         event.state == SessionState.SESSION_STATE_FAILED ||
         event.state == SessionState.SESSION_STATE_DISCONNECTED;
     return SessionStatus(
       state: event.state,
-      sessionId: event.sessionId.isNotEmpty ? event.sessionId : previous?.sessionId,
+      sessionId:
+          event.sessionId.isNotEmpty ? event.sessionId : previous?.sessionId,
+      // Events carry no peer field: the target set at start (or from the
+      // last snapshot) survives across transitions. A terminal event clears
+      // it so no stale peer outlives its session.
+      deviceId: eventClearsSink ? null : previous?.deviceId,
       reasonCode: event.reasonCode,
-      reasonDetail: event.reason.isNotEmpty ? event.reason : (previous?.reasonDetail ?? ''),
-      errorMessage:
-          event.errorMessage.isNotEmpty ? event.errorMessage : (previous?.errorMessage ?? ''),
+      reasonDetail: event.reason.isNotEmpty
+          ? event.reason
+          : (previous?.reasonDetail ?? ''),
+      errorMessage: event.errorMessage.isNotEmpty
+          ? event.errorMessage
+          : (previous?.errorMessage ?? ''),
       durationMs: previous?.durationMs ?? 0,
       requested: previous?.requested,
       actual: previous?.actual,
+      // Capabilities describe the device, not the session: an event carries
+      // no advertisement, so the last reported one is preserved — including
+      // across terminal transitions, where the snapshot keeps serving it.
+      capabilities: previous?.capabilities,
       reconnectAttempts: previous?.reconnectAttempts ?? 0,
       // Events do not carry sink state: non-terminal transitions preserve
       // the previous classification.
@@ -107,8 +134,19 @@ class SessionStatus {
     final hasActual = snapshot.hasActual();
     return SessionStatus(
       state: snapshot.state,
-      sessionId:
-          snapshot.sessionId.isNotEmpty ? snapshot.sessionId : previous?.sessionId,
+      sessionId: snapshot.sessionId.isNotEmpty
+          ? snapshot.sessionId
+          : previous?.sessionId,
+      // The snapshot is authoritative for the peer: a non-empty device_id
+      // adopts it, an empty one preserves the previous target (early
+      // DISCOVERING snapshots), and a terminal snapshot clears it.
+      deviceId: snapshot.deviceId.isNotEmpty
+          ? snapshot.deviceId
+          : (snapshot.state == SessionState.SESSION_STATE_STOPPED ||
+                  snapshot.state == SessionState.SESSION_STATE_FAILED ||
+                  snapshot.state == SessionState.SESSION_STATE_DISCONNECTED
+              ? null
+              : previous?.deviceId),
       reasonCode: snapshot.reasonCode,
       reasonDetail: previous?.reasonDetail ?? '',
       errorMessage: snapshot.errorMessage,
@@ -116,6 +154,9 @@ class SessionStatus {
       requested: hasRequested ? snapshot.requested : previous?.requested,
       // An unreported tuple must stay unreported; a stale one would be a lie.
       actual: hasActual ? snapshot.actual : null,
+      // An unreported advertisement must stay unreported: the UI renders
+      // "Checking device capabilities…" instead of guessing availability.
+      capabilities: snapshot.hasCapabilities() ? snapshot.capabilities : null,
       reconnectAttempts: snapshot.reconnectAttempts,
       // The snapshot is authoritative for sink state — the daemon clears both
       // fields itself on terminal transitions.
@@ -127,6 +168,7 @@ class SessionStatus {
   SessionStatus copyWith({
     SessionState? state,
     String? sessionId,
+    String? deviceId,
     SessionReason? reasonCode,
     String? reasonDetail,
     String? errorMessage,
@@ -134,28 +176,35 @@ class SessionStatus {
     pb.MediaParams? requested,
     pb.MediaParams? actual,
     bool clearActual = false,
+    pb.MediaCapabilities? capabilities,
     bool clearError = false,
     int? reconnectAttempts,
     SinkKind? sinkKind,
     bool? sinkActive,
+    bool clearDeviceId = false,
   }) {
     final nextState = state ?? this.state;
     // An idle/terminal state owns no sink: copyWith must never be a path for
     // a stale classification to survive a stop or failure (the controller's
     // stop goes through here).
-    final sinkGone =
-        nextState == SessionState.SESSION_STATE_STOPPED ||
+    final sinkGone = nextState == SessionState.SESSION_STATE_STOPPED ||
         nextState == SessionState.SESSION_STATE_FAILED ||
         nextState == SessionState.SESSION_STATE_DISCONNECTED;
     return SessionStatus(
       state: nextState,
       sessionId: sessionId ?? this.sessionId,
+      // A terminal state owns no peer either: clearing here keeps a stale
+      // target from outliving its session even between snapshot polls.
+      deviceId: clearDeviceId || sinkGone ? null : (deviceId ?? this.deviceId),
       reasonCode: reasonCode ?? this.reasonCode,
       reasonDetail: reasonDetail ?? this.reasonDetail,
       errorMessage: clearError ? '' : (errorMessage ?? this.errorMessage),
       durationMs: durationMs ?? this.durationMs,
       requested: requested ?? this.requested,
       actual: clearActual ? null : (actual ?? this.actual),
+      // Capabilities describe the device, not the session, so they survive
+      // terminal transitions (the snapshot keeps serving the last report).
+      capabilities: capabilities ?? this.capabilities,
       reconnectAttempts: reconnectAttempts ?? this.reconnectAttempts,
       sinkKind: sinkKind ??
           (sinkGone ? SinkKind.SINK_KIND_UNSPECIFIED : this.sinkKind),
@@ -243,7 +292,9 @@ class SessionStatus {
     final req = requested;
     final act = actual;
     if (req == null || act == null) return false;
-    return req.width != act.width || req.height != act.height || req.fps != act.fps;
+    return req.width != act.width ||
+        req.height != act.height ||
+        req.fps != act.fps;
   }
 
   /// The one-line negotiation summary shown under the state banner.

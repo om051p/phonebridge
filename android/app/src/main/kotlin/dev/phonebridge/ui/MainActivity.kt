@@ -11,9 +11,12 @@ import dev.phonebridge.clipboard.AndroidClipboardAdapter
 import dev.phonebridge.clipboard.CLIPBOARD_STARTUP_MAX_STEPS
 import dev.phonebridge.clipboard.CLIPBOARD_STARTUP_STEP_MS
 import dev.phonebridge.clipboard.shouldWaitForAdapterStartup
+import dev.phonebridge.input.PhoneBridgeAccessibilityService
+import dev.phonebridge.notification.AndroidNotificationManager
 import dev.phonebridge.service.PhoneBridgeService
 import dev.phonebridge.signaling.DesktopSession
 import dev.phonebridge.signaling.DesktopSessionException
+import dev.phonebridge.signaling.DeviceMediaCapabilities
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -33,7 +36,15 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
 
     private var eventSink: EventChannel.EventSink? = null
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var pendingReceiverUrl: String? = null
+
+    /**
+     * The current phone-initiated session attempt's identity and pending
+     * desktop endpoint. Replaces the bare nullable URL: a failure consumes
+     * the attempt exactly once (generation-guarded), so a failure
+     * notification can never re-arm the same dial and stale callbacks can
+     * never clear a newer attempt.
+     */
+    private val sessionAttempt = SessionAttemptState()
 
     /// Steps already spent waiting for a cold-started service to bring the
     /// clipboard adapter up during the current foreground transition.
@@ -75,6 +86,13 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
     private val transferFingerprints = HashMap<String, String>()
 
     private var methodChannel: MethodChannel? = null
+
+    /// Serial executor for pairing HTTP (request/confirm). The confirm call
+    /// legitimately blocks polling on the receiver's 202 pending for up to the
+    /// token TTL, so it must never run on the platform channel thread.
+    private val pairingExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "phonebridge-pairing").apply { isDaemon = true }
+    }
 
     private val navReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
@@ -134,6 +152,8 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
             registerReceiver(navReceiver, filter)
         }
         requestNotificationPermission()
+        // Cold-start entry from the Pairing Request notification.
+        handlePairingIntent(intent)
     }
 
     override fun onStart() {
@@ -219,8 +239,11 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
                 }
             }
 
-            if (isCapturing && !pendingReceiverUrl.isNullOrBlank()) {
-                initiateDesktopSession(pendingReceiverUrl!!)
+            // A capture signal dials at most what the current attempt holds:
+            // a consumed (failed) or invalidated (stopped) attempt dials
+            // nothing, so a failure notification can never re-arm this path.
+            sessionAttempt.dialForCaptureStart(isCapturing)?.let { (url, attemptGen) ->
+                initiateDesktopSession(url, attemptGen)
             }
         }
 
@@ -250,6 +273,53 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
                 } catch (e: Exception) {
                     Log.w(TAG, "trustChanged emission failed: ${e.message}")
                 }
+            }
+        }
+
+        // Inbound pairing (Phase 2): a request arrived at this device's
+        // signaling server. Same dual push as trustChanged — the Flutter side
+        // refreshes its inbound snapshot and (via AppScaffold) prompts the
+        // Pairing Request dialog exactly once per request.
+        PhoneBridgeService.pairingListener = { info ->
+            mainHandler.post {
+                try {
+                    methodChannel?.invokeMethod("pairingChanged", null)
+                } catch (e: Exception) {
+                    Log.w(TAG, "pairingChanged invoke failed: ${e.message}")
+                }
+                try {
+                    eventSink?.success(mapOf("pairingChanged" to true))
+                } catch (e: Exception) {
+                    Log.w(TAG, "pairingChanged emission failed: ${e.message}")
+                }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        handlePairingIntent(intent)
+    }
+
+    /**
+     * The Pairing Request notification opens the app with the pending token;
+     * this routes to the Devices tab and refreshes the inbound snapshot so
+     * the dialog is the first thing the user sees. Tapping a notification
+     * NEVER accepts anything — the decision stays in the dialog.
+     */
+    private fun handlePairingIntent(intent: android.content.Intent?) {
+        val token = intent?.getStringExtra(dev.phonebridge.pairing.PairingNotifier.EXTRA_PAIRING_TOKEN) ?: return
+        dev.phonebridge.pairing.PairingNotifier.cancel(applicationContext)
+        mainHandler.post {
+            try {
+                methodChannel?.invokeMethod("onNavigateTab", mapOf("tab" to 1))
+            } catch (e: Exception) {
+                Log.w(TAG, "pairing intent navigate failed: ${e.message}")
+            }
+            try {
+                methodChannel?.invokeMethod("pairingChanged", null)
+            } catch (e: Exception) {
+                Log.w(TAG, "pairingChanged invoke failed: ${e.message}")
             }
         }
     }
@@ -307,6 +377,12 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
             "postNotifications" to isNotificationPermissionGranted(),
             "notificationListener" to isNotificationListenerEnabled(),
             "accessibility" to isAccessibilityEnabled(),
+            // Runtime liveness, distinct from the granted/configured flags
+            // above: permission granted != service running. Each reads the
+            // existing service singleton, so no new manager is introduced.
+            "notificationServiceActive" to AndroidNotificationManager.isListenerConnected(),
+            "accessibilityServiceActive" to (PhoneBridgeAccessibilityService.getInstance() != null),
+            "foregroundServiceActive" to PhoneBridgeService.isRunning,
             "sdkInt" to Build.VERSION.SDK_INT
         )
     }
@@ -409,6 +485,95 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
                     result.error("INVALID_ARGUMENT", "deviceId is required", null)
                 }
             }
+            // ---- Bidirectional pairing (Phase 2) ---------------------------
+            // Requester half: PairingClient performs the HTTP exchange off the
+            // main thread (a confirm poll can legally wait minutes on the
+            // receiver's 202 pending) and replies when it finishes.
+            "pairDevice" -> {
+                val endpoint = call.argument<String>("endpoint")
+                val identity = identityManager
+                if (endpoint.isNullOrEmpty() || identity == null) {
+                    result.error("INVALID_ARGUMENT", "endpoint is required", null)
+                } else {
+                    pairingExecutor.execute {
+                        val outcome = dev.phonebridge.signaling.PairingClient.requestPairing(
+                            endpoint, identity, trustStore
+                        )
+                        mainHandler.post {
+                            when (outcome) {
+                                is dev.phonebridge.signaling.PairingClient.PairingOutcome.Ready ->
+                                    result.success(mapOf(
+                                        "status" to "ready",
+                                        "token" to outcome.token,
+                                        "deviceName" to outcome.remoteName,
+                                        "sas" to outcome.sas,
+                                    ))
+                                is dev.phonebridge.signaling.PairingClient.PairingOutcome.AlreadyTrusted ->
+                                    result.success(mapOf("status" to "alreadyTrusted"))
+                                is dev.phonebridge.signaling.PairingClient.PairingOutcome.Failed ->
+                                    result.success(mapOf("status" to "failed", "message" to outcome.message))
+                            }
+                        }
+                    }
+                }
+            }
+            "confirmPairing" -> {
+                val token = call.argument<String>("token")
+                val confirmed = call.argument<Boolean>("confirmed") ?: false
+                val identity = identityManager
+                if (token.isNullOrEmpty() || identity == null) {
+                    result.error("INVALID_ARGUMENT", "token is required", null)
+                } else {
+                    pairingExecutor.execute {
+                        val ok = dev.phonebridge.signaling.PairingClient.confirmPairing(
+                            token, identity, trustStore, confirmed
+                        )
+                        mainHandler.post {
+                            result.success(ok)
+                            // A pairing commit (or revoke elsewhere) changed
+                            // trust; refresh Flutter's devices view.
+                            if (ok && confirmed) {
+                                try {
+                                    methodChannel?.invokeMethod("trustChanged", null)
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "trustChanged invoke failed: ${e.message}")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Receiver half: the pending inbound requests live in the
+            // signaling server owned by the service; the UI reads and answers.
+            // A response NEVER pairs by itself — the requester's signed
+            // confirm must still arrive and verify.
+            "listInboundPairings" -> {
+                val server = PhoneBridgeService.activeSignalingServer
+                result.success(server?.listPendingPairings()?.map { info ->
+                    mapOf(
+                        "token" to info.token,
+                        "remoteName" to info.remoteName,
+                        "remotePlatform" to info.remotePlatform,
+                        "sas" to info.sas,
+                        "createdAtMs" to info.createdAtMs,
+                    )
+                } ?: emptyList<Map<String, Any?>>())
+            }
+            "respondInboundPairing" -> {
+                val token = call.argument<String>("token")
+                val approved = call.argument<Boolean>("approved") ?: false
+                if (token.isNullOrEmpty()) {
+                    result.error("INVALID_ARGUMENT", "token is required", null)
+                } else {
+                    val ok = PhoneBridgeService.activeSignalingServer?.respondToPairing(token, approved) ?: false
+                    if (ok) {
+                        // The request was answered (or is gone): the
+                        // "Pairing Request" notification has served its purpose.
+                        dev.phonebridge.pairing.PairingNotifier.cancel(applicationContext)
+                    }
+                    result.success(ok)
+                }
+            }
             "getClipboardStatus" -> {
                 val isImeSelected = dev.phonebridge.clipboard.AndroidClipboardAdapter.checkImeSelected(this)
                 val state = dev.phonebridge.clipboard.AndroidClipboardAdapter.state.name
@@ -476,7 +641,10 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
                     val fps = call.argument<Int>("fps") ?: 60
                     val bitrateKbps = call.argument<Int>("bitrateKbps") ?: 8000
 
-                    pendingReceiverUrl = receiverUrl
+                    // An explicit start retires any prior attempt (including a
+                    // failed one): only this attempt's callbacks may dial or
+                    // consume.
+                    sessionAttempt.beginAttempt(receiverUrl)
 
                     val config = CaptureConfig(
                         width = width,
@@ -496,8 +664,8 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
             "stopCapture" -> {
                 try {
                     Log.i(TAG, "Stopping capture via PhoneBridgeService")
-                    val stoppingPeer = pendingReceiverUrl
-                    pendingReceiverUrl = null
+                    val stoppingPeer = sessionAttempt.pendingUrl
+                    sessionAttempt.invalidate()
                     // Release the desktop's side of the session now rather than
                     // leaving it to time out as SESSION_BUSY for the next offer.
                     notifySessionStop(stoppingPeer)
@@ -510,6 +678,20 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
             }
             "getMediaStats" -> {
                 result.success(collectStats())
+            }
+            // ---- Screen capabilities (runtime truth for the quality presets) --
+            // The same advertisement the signaling server serves
+            // (PhoneBridgeService.currentMediaCapabilities, CodecSelector-read),
+            // so the UI gates presets on the encoder that will actually run.
+            // An empty map means "could not be determined" (unknown), never
+            // "unsupported": the UI renders "Checking…" instead of guessing.
+            "getMediaCapabilities" -> {
+                try {
+                    result.success(mediaCapabilitiesMap(PhoneBridgeService.currentMediaCapabilities()))
+                } catch (e: Exception) {
+                    Log.w(TAG, "getMediaCapabilities failed: ${e.message}")
+                    result.success(emptyMap<String, Any?>())
+                }
             }
             // ---- File transfers (DEC-024, Phase 4 Step 4/5 wiring) ----------
             // Low-frequency request/response over the existing control channel,
@@ -766,28 +948,28 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
      * what makes the desktop's trust check able to authorize it. Runs off the
      * main thread: offer creation blocks up to ~2 s for ICE gathering.
      */
-    private fun initiateDesktopSession(receiverUrl: String) {
+    private fun initiateDesktopSession(receiverUrl: String, attemptGeneration: Long) {
         val base = DesktopSession.normaliseEndpoint(receiverUrl)
         if (base == null) {
-            reportSessionFailure("The desktop address is not usable: $receiverUrl")
+            failSessionAttempt(attemptGeneration, "The desktop address is not usable: $receiverUrl")
             return
         }
         Thread {
             try {
                 if (!GoBridge.loaded) {
-                    reportSessionFailure("Native transport is not loaded")
+                    failSessionAttempt(attemptGeneration, "Native transport is not loaded")
                     return@Thread
                 }
                 val identity = identityManager
                 if (identity == null) {
-                    reportSessionFailure("Device identity is unavailable, so the session cannot be authenticated")
+                    failSessionAttempt(attemptGeneration, "Device identity is unavailable, so the session cannot be authenticated")
                     return@Thread
                 }
 
                 val offerSdp = try {
                     DesktopSession.sdpFromOfferBlob(GoBridge.mediaCreateOffer())
                 } catch (t: Throwable) {
-                    reportSessionFailure("Screen capture produced no SDP offer")
+                    failSessionAttempt(attemptGeneration, "Screen capture produced no SDP offer")
                     return@Thread
                 }
 
@@ -807,17 +989,31 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
             } catch (e: DesktopSessionException) {
                 // Typed refusal: [message] is already the desktop's own
                 // human-readable description of the wire code.
-                reportSessionFailure(e.message ?: "The desktop refused the session (HTTP ${e.httpStatus})")
+                failSessionAttempt(attemptGeneration, e.message ?: "The desktop refused the session (HTTP ${e.httpStatus})")
             } catch (t: Throwable) {
-                reportSessionFailure("Could not start the session: ${t.message ?: t.javaClass.simpleName}")
+                failSessionAttempt(attemptGeneration, "Could not start the session: ${t.message ?: t.javaClass.simpleName}")
             }
         }.start()
     }
 
     /**
-     * Surfaces a failed session start to the UI. The Flutter layer reads
-     * `lastError` from the next stats event, which is how every other native
-     * failure is reported, so this stays on the existing channel.
+     * Ends one failed attempt, exactly once. Consuming the pending endpoint
+     * (when this failure is still current — not a duplicate, not stale from
+     * an attempt a newer start or stop already retired) is what breaks the
+     * re-entry cycle: the failure notification below re-invokes the capture
+     * listener, but with nothing pending it dials nothing. Reporting itself
+     * is unchanged: the Flutter layer reads `lastError` from the next stats
+     * event, which is how every other native failure is reported.
+     */
+    private fun failSessionAttempt(attemptGeneration: Long, reason: String) {
+        sessionAttempt.consumeOnFailure(attemptGeneration)
+        reportSessionFailure(reason)
+    }
+
+    /**
+     * Surfaces a failed session start to the UI. Report-only by contract: it
+     * must never start (or re-arm) a session — the dial lives solely in the
+     * capture-state listener, gated on a pending attempt.
      */
     private fun reportSessionFailure(reason: String) {
         Log.w(TAG, "Session start failed: $reason")
@@ -871,7 +1067,9 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
     override fun onDestroy() {
         mainHandler.removeCallbacks(statsRunnable)
         PhoneBridgeService.stateListener = null
+        PhoneBridgeService.pairingListener = null
         dev.phonebridge.security.TrustStore.changeListener = null
+        pairingExecutor.shutdownNow()
         try {
             unregisterReceiver(navReceiver)
         } catch (_: Exception) {}
@@ -903,4 +1101,75 @@ internal fun statsFingerprintOf(stats: Map<String, Any?>): String = buildString 
     append('|'); append(stats["imeSelected"])
     append('|'); append(stats["enabled"])
     append('|'); append(stats["lastError"])
+}
+
+/**
+ * Projects a [DeviceMediaCapabilities] advertisement onto the channel map
+ * shape Flutter parses. Pure (no Android types) so it is unit-testable on
+ * the host JVM; zero bounds pass through as 0 ("no stated limit", never
+ * "unsupported" — that judgement belongs to the UI's capability model).
+ */
+internal fun mediaCapabilitiesMap(caps: DeviceMediaCapabilities): Map<String, Any?> = mapOf(
+    "codecs" to caps.codecs,
+    "maxWidth" to caps.maxWidth,
+    "maxHeight" to caps.maxHeight,
+    "maxFps" to caps.maxFps,
+    "supportsScreen" to caps.supportsScreen,
+)
+
+/**
+ * One phone-initiated session attempt's identity and pending endpoint.
+ *
+ * The capture-state listener dials the desktop when capture is up; a failure
+ * must consume the attempt exactly once so the failure notification can
+ * never re-arm the same dial (the hardware-observed ~300/s re-entry loop).
+ * A newer attempt — or a stop — retires the generation, so duplicate and
+ * stale failure callbacks are harmless no-ops and can never clear a newer
+ * attempt's endpoint. Reading the dial is idempotent (stop needs the URL
+ * later for the desktop stop notice); only failure consumes.
+ *
+ * All members are synchronized: starts land on the main thread while failure
+ * reports arrive from the session thread.
+ */
+internal class SessionAttemptState {
+    private var generation: Long = 0
+
+    @Volatile
+    internal var pendingUrl: String? = null
+        private set
+
+    /** An explicit start (or Tech stop, via [invalidate]) retires any prior attempt. */
+    @Synchronized
+    fun beginAttempt(url: String?): Long {
+        generation++
+        pendingUrl = url
+        return generation
+    }
+
+    /** A stop retires the attempt and drops its endpoint. */
+    @Synchronized
+    fun invalidate() {
+        generation++
+        pendingUrl = null
+    }
+
+    /**
+     * Consumes the failed attempt exactly once. Returns true only for the
+     * first failure of the current generation; duplicates and stale
+     * generations return false and change nothing.
+     */
+    @Synchronized
+    fun consumeOnFailure(failedGeneration: Long): Boolean {
+        if (failedGeneration != generation) return false
+        generation++
+        pendingUrl = null
+        return true
+    }
+
+    /** The dial for a capture signal, or null when there is nothing to dial. */
+    @Synchronized
+    fun dialForCaptureStart(isCapturing: Boolean): Pair<String, Long>? {
+        val url = pendingUrl
+        return if (isCapturing && !url.isNullOrBlank()) url to generation else null
+    }
 }

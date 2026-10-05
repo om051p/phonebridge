@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../controllers/phonebridge_controller.dart';
 import '../models/link_status.dart';
 import '../ui/link_indicator.dart';
+import '../ui/pairing_request_dialog.dart';
 import 'package:flutter/services.dart';
 import 'home_screen.dart';
 import 'devices_screen.dart';
@@ -35,6 +36,28 @@ class _AppScaffoldState extends State<AppScaffold> {
     _currentIndex = widget.initialIndex;
     widget.controller.initialize();
     widget.controller.service.setNativeCallHandler(_handleNativeCall);
+    widget.controller.addListener(_onControllerChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onControllerChanged);
+    super.dispose();
+  }
+
+  /// The one-shot Pairing Request dialog (Phase 2): when a new inbound
+  /// request appears, surface it exactly once. The request stays visible on
+  /// the Devices tab until answered or expired; the dialog is only the
+  /// immediate prompt.
+  void _onControllerChanged() {
+    if (!mounted) return;
+    final request = widget.controller.consumePendingPairingPrompt();
+    if (request == null) return;
+    PairingRequestDialog.show(
+      context,
+      controller: widget.controller,
+      request: request,
+    );
   }
 
   Future<dynamic> _handleNativeCall(dynamic rawCall) async {
@@ -45,6 +68,12 @@ class _AppScaffoldState extends State<AppScaffold> {
         // Native trust-store mutation (pairing commit, revoke, remove),
         // including background responder commits with no dialog open.
         await widget.controller.refreshAll();
+        break;
+      case 'pairingChanged':
+        // Inbound-pairing state changed natively (Phase 2): a request
+        // arrived, was answered elsewhere, or expired. Refresh the snapshot;
+        // the listener below prompts the dialog for any new request.
+        await widget.controller.refreshInboundPairings();
         break;
       case 'onNavigateTab':
         final tab = call.arguments['tab'] as int? ?? 0;
@@ -160,54 +189,57 @@ class _AppScaffoldState extends State<AppScaffold> {
                   ),
                 ],
               ),
-              body: isWide
-                  ? Row(
-                      children: [
-                        NavigationRail(
-                          selectedIndex: _currentIndex,
-                          onDestinationSelected: _onDestinationSelected,
-                          labelType: NavigationRailLabelType.all,
-                          destinations: const [
-                            NavigationRailDestination(
-                              icon: Icon(Icons.home_outlined),
-                              selectedIcon: Icon(Icons.home),
-                              label: Text('Home'),
-                            ),
-                            NavigationRailDestination(
-                              icon: Icon(Icons.devices_outlined),
-                              selectedIcon: Icon(Icons.devices),
-                              label: Text('Devices'),
-                            ),
-                            NavigationRailDestination(
-                              icon: Icon(Icons.screen_share_outlined),
-                              selectedIcon: Icon(Icons.screen_share),
-                              label: Text('Screen'),
-                            ),
-                            NavigationRailDestination(
-                              icon: Icon(Icons.content_paste_outlined),
-                              selectedIcon: Icon(Icons.content_paste),
-                              label: Text('Clipboard'),
-                            ),
-                            NavigationRailDestination(
-                              icon: Icon(Icons.history_outlined),
-                              selectedIcon: Icon(Icons.history),
-                              label: Text('Activity'),
-                            ),
-                          ],
-                        ),
-                        const VerticalDivider(thickness: 1, width: 1),
-                        Expanded(
-                          child: IndexedStack(
-                            index: _currentIndex,
-                            children: screens,
+              body: SafeArea(
+                bottom: true,
+                child: isWide
+                    ? Row(
+                        children: [
+                          NavigationRail(
+                            selectedIndex: _currentIndex,
+                            onDestinationSelected: _onDestinationSelected,
+                            labelType: NavigationRailLabelType.all,
+                            destinations: const [
+                              NavigationRailDestination(
+                                icon: Icon(Icons.home_outlined),
+                                selectedIcon: Icon(Icons.home),
+                                label: Text('Home'),
+                              ),
+                              NavigationRailDestination(
+                                icon: Icon(Icons.devices_outlined),
+                                selectedIcon: Icon(Icons.devices),
+                                label: Text('Devices'),
+                              ),
+                              NavigationRailDestination(
+                                icon: Icon(Icons.screen_share_outlined),
+                                selectedIcon: Icon(Icons.screen_share),
+                                label: Text('Screen'),
+                              ),
+                              NavigationRailDestination(
+                                icon: Icon(Icons.content_paste_outlined),
+                                selectedIcon: Icon(Icons.content_paste),
+                                label: Text('Clipboard'),
+                              ),
+                              NavigationRailDestination(
+                                icon: Icon(Icons.history_outlined),
+                                selectedIcon: Icon(Icons.history),
+                                label: Text('Activity'),
+                              ),
+                            ],
                           ),
-                        ),
-                      ],
-                    )
-                  : IndexedStack(
-                      index: _currentIndex,
-                      children: screens,
-                    ),
+                          const VerticalDivider(thickness: 1, width: 1),
+                          Expanded(
+                            child: IndexedStack(
+                              index: _currentIndex,
+                              children: screens,
+                            ),
+                          ),
+                        ],
+                      )
+                    : IndexedStack(
+                        index: _currentIndex,
+                        children: screens,
+                      ),
+              ),
               bottomNavigationBar: isWide
                   ? null
                   : NavigationBar(

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -165,15 +166,19 @@ func TestSession_LocateTargetPeerAuto(t *testing.T) {
 		ID:   "random-phone",
 		Name: "Random Device",
 	})
+
+	peerPub := make([]byte, 32)
+	_, _ = rand.Read(peerPub)
+	peerID := crypto.Fingerprint(peerPub)
 	reg.Upsert(discovery.Device{
-		ID:   "trusted-poco",
+		ID:   peerID,
 		Name: "POCO F5",
 	})
 
 	err = ts.AddTrusted(crypto.TrustEntry{
-		DeviceID:    "trusted-poco",
+		DeviceID:    peerID,
 		DisplayName: "POCO F5",
-		PublicKey:   []byte("test-pub-key-32-bytes-long-12345"),
+		PublicKey:   peerPub,
 	})
 	if err != nil {
 		t.Fatalf("add trusted: %v", err)
@@ -191,11 +196,11 @@ func TestSession_LocateTargetPeerAuto(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to locate peer-auto target: %v", err)
 	}
-	if dev.ID != "trusted-poco" {
-		t.Fatalf("expected trusted-poco, got %s", dev.ID)
+	if dev.ID != peerID {
+		t.Fatalf("expected %s, got %s", peerID, dev.ID)
 	}
-	if sess.TargetDeviceID() != "trusted-poco" {
-		t.Fatalf("expected session TargetDeviceID to be updated to trusted-poco, got %s", sess.TargetDeviceID())
+	if sess.TargetDeviceID() != peerID {
+		t.Fatalf("expected session TargetDeviceID to be updated to %s, got %s", peerID, sess.TargetDeviceID())
 	}
 }
 
@@ -254,12 +259,14 @@ func TestSession_TrustedDeviceConnect(t *testing.T) {
 		t.Fatalf("create trust store: %v", err)
 	}
 
-	targetID := "trusted-device-id-456"
+	targetPub := make([]byte, 32)
+	_, _ = rand.Read(targetPub)
+	targetID := crypto.Fingerprint(targetPub)
 	trustedDev := crypto.TrustEntry{
 		DeviceID:    targetID,
 		DisplayName: "Pixel 7 Pro",
 		Platform:    "android",
-		PublicKey:   make([]byte, 32),
+		PublicKey:   targetPub,
 		PairedAt:    time.Now(),
 	}
 	if err := ts.AddTrusted(trustedDev); err != nil {

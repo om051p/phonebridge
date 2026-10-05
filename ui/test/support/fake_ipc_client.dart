@@ -38,6 +38,14 @@ class RecordedConfirmPairing {
   final bool userConfirmed;
 }
 
+/// One recorded inbound-pairing decision (Phase 2).
+class RecordedInboundPairingResponse {
+  const RecordedInboundPairingResponse({required this.pairingToken, required this.approved});
+
+  final String pairingToken;
+  final bool approved;
+}
+
 class FakeIpcClient extends LocalIpcClient {
   FakeIpcClient({this.connected = true})
       : super(socketPath: '/nonexistent.sock', tokenPath: '/nonexistent.token');
@@ -234,6 +242,46 @@ class FakeIpcClient extends LocalIpcClient {
   Future<ipc.RevokeDeviceResponse> revokeDevice(String deviceId) async {
     revokeDeviceCalls.add(deviceId);
     return ipc.RevokeDeviceResponse(success: true);
+  }
+
+  /// Device ids permanently deleted through this client (Forget Device).
+  final List<String> removeDeviceCalls = <String>[];
+
+  @override
+  Future<ipc.RevokeDeviceResponse> removeDevice(String deviceId) async {
+    removeDeviceCalls.add(deviceId);
+    return ipc.RevokeDeviceResponse(success: true);
+  }
+
+  /// Inbound pairing (Phase 2): requests the daemon reports as pending and
+  /// the decisions the UI recorded through this client.
+  List<ipc.InboundPairingRequest> inboundPairings = <ipc.InboundPairingRequest>[];
+  int listInboundPairingsCalls = 0;
+  int respondInboundPairingCallCount = 0;
+  final List<RecordedInboundPairingResponse> respondInboundPairingCalls =
+      <RecordedInboundPairingResponse>[];
+  bool respondInboundPairingResult = true;
+
+  @override
+  Future<ipc.ListInboundPairingsResponse> listInboundPairings() async {
+    listInboundPairingsCalls++;
+    return ipc.ListInboundPairingsResponse(requests: inboundPairings);
+  }
+
+  @override
+  Future<ipc.RespondInboundPairingResponse> respondInboundPairing({
+    required String pairingToken,
+    required bool approved,
+  }) async {
+    respondInboundPairingCallCount++;
+    respondInboundPairingCalls.add(RecordedInboundPairingResponse(
+      pairingToken: pairingToken,
+      approved: approved,
+    ));
+    return ipc.RespondInboundPairingResponse(
+      pairingToken: pairingToken,
+      recorded: respondInboundPairingResult,
+    );
   }
 
   @override

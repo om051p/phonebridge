@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import '../models/device_state.dart';
 import '../models/capture_stats.dart';
+import '../models/inbound_pairing.dart';
 import '../models/trusted_device.dart';
 import '../models/clipboard_status.dart';
 import '../models/transfer_item.dart';
@@ -145,6 +146,24 @@ class PhoneBridgeChannel {
     return const [];
   }
 
+  /// Reads the encoder-selected screen capabilities (Android
+  /// `CodecSelector` via `getMediaCapabilities`). Null when the platform
+  /// cannot answer (missing plugin, old build, read failure) — Flutter
+  /// renders "Checking…" instead of guessing.
+  Future<Map<String, dynamic>?> getMediaCapabilities() async {
+    try {
+      final res = await _control.invokeMethod<Map<dynamic, dynamic>>('getMediaCapabilities');
+      if (res != null) {
+        return res.cast<String, dynamic>();
+      }
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
+    return null;
+  }
+
   /// Opens the platform screen where the companion IME is enabled. Ambient
   /// clipboard observation is impossible without it (Spike 05 / DEC-023).
   Future<bool> openInputMethodSettings() async {
@@ -178,19 +197,51 @@ class PhoneBridgeChannel {
     }
   }
 
+  // One subscription to the native events channel, fanned out to every
+  // consumer. Calling receiveBroadcastStream() per getter/access registers a
+  // fresh binary-message handler per subscription: the last subscriber wins
+  // the native sink and the first cancellation removes it for everyone, so
+  // session/stats events were silently lost while a transfer subscription was
+  // live (measured on device: the screen tab froze at "READY — No session
+  // running" during an active stream). The controller below keeps exactly one
+  // native subscription: it opens on the first consumer, closes when the last
+  // consumer leaves (native sink released — no leaks), drops events while
+  // nobody listens (no queue growth), and every consumer receives its own
+  // copy of each event.
+  StreamController<Map<dynamic, dynamic>>? _fanout;
+  StreamSubscription<Map<dynamic, dynamic>>? _nativeEventsSub;
+
+  Stream<Map<dynamic, dynamic>> get _eventFanout {
+    final existing = _fanout;
+    if (existing != null) {
+      return existing.stream;
+    }
+    final controller = StreamController<Map<dynamic, dynamic>>.broadcast(
+      onCancel: () {
+        _nativeEventsSub?.cancel();
+        _nativeEventsSub = null;
+        _fanout = null;
+      },
+    );
+    _fanout = controller;
+    _nativeEventsSub = _events
+        .receiveBroadcastStream()
+        .where((event) => event is Map)
+        .cast<Map<dynamic, dynamic>>()
+        .listen(controller.add, onError: controller.addError);
+    return controller.stream;
+  }
+
   Stream<CaptureStats> get statsStream {
-    return _events.receiveBroadcastStream().map((event) {
-      if (event is Map) {
-        _lastStats = CaptureStats.fromMap(event, previous: _lastStats);
-        return _lastStats;
-      }
-      return _lastStats;
+    CaptureStats previous = _lastStats;
+    return _eventFanout.map((event) {
+      previous = CaptureStats.fromMap(event, previous: previous);
+      _lastStats = previous;
+      return previous;
     });
   }
 
-  Stream<Map<dynamic, dynamic>> get rawEventsStream {
-    return _events.receiveBroadcastStream().where((event) => event is Map).cast<Map<dynamic, dynamic>>();
-  }
+  Stream<Map<dynamic, dynamic>> get rawEventsStream => _eventFanout;
 
   // -------------------------------------------------------------------------
   // File transfers (DEC-024, Phase 4)
@@ -203,7 +254,7 @@ class PhoneBridgeChannel {
   /// Native-pushed transfer transitions. MainActivity emits the same event-map
   /// shape as the other events (key `transfer`) on dev.phonebridge/events; the
   /// stream stays silent while no transfer activity is being reported.
-  Stream<TransferItem> get transferStream => rawEventsStream
+  Stream<TransferItem> get transferStream => _eventFanout
       .where((event) => event['transfer'] != null)
       .map((event) => _toTransferItem(event['transfer']))
       .where((item) => item != null)
@@ -246,6 +297,77 @@ class PhoneBridgeChannel {
     try {
       final res = await _control.invokeMethod<bool>('cancelTransfer', {
         'transferId': transferId,
+      });
+      return res ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Bidirectional pairing (Phase 2)
+  // -------------------------------------------------------------------------
+
+  /// Requests pairing with the peer at [endpoint] ("host:port"). Returns the
+  /// native outcome map: `{status: ready, token, deviceName, sas}` leads to
+  /// the SAS dialog; `{status: alreadyTrusted}` means the peer already trusts
+  /// this device; `{status: failed, message}` is a refusal.
+  Future<Map<dynamic, dynamic>?> requestPairing({required String endpoint}) async {
+    try {
+      return await _control.invokeMethod<Map<dynamic, dynamic>>(
+        'pairDevice',
+        {'endpoint': endpoint},
+      );
+    } on MissingPluginException {
+      return {'status': 'failed', 'message': 'Pairing is unavailable on this build'};
+    } on PlatformException catch (e) {
+      return {'status': 'failed', 'message': e.message ?? e.code};
+    }
+  }
+
+  /// Confirms (or rejects) a pending outbound pairing identified by [token].
+  /// Runs the full confirm/poll exchange natively; true only on 200 paired.
+  Future<bool> confirmPairingToken({required String token, required bool confirmed}) async {
+    try {
+      final res = await _control.invokeMethod<bool>(
+        'confirmPairing',
+        {'token': token, 'confirmed': confirmed},
+      );
+      return res ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  /// Pairing requests awaiting THIS device's approval. Empty on any failure —
+  /// the list is transient state, not truth worth an error banner.
+  Future<List<InboundPairing>> listInboundPairings() async {
+    try {
+      final res = await _control.invokeMethod<List<dynamic>>('listInboundPairings');
+      if (res != null) {
+        return res
+            .whereType<Map<dynamic, dynamic>>()
+            .map(InboundPairing.fromMap)
+            .toList();
+      }
+    } on MissingPluginException {
+      // Old build or unit-test host: no inbound surface.
+    } on PlatformException {
+      // Fall through to empty.
+    }
+    return [];
+  }
+
+  /// Records the local user's decision on an inbound pairing request.
+  Future<bool> respondInboundPairing({required String token, required bool approved}) async {
+    try {
+      final res = await _control.invokeMethod<bool>('respondInboundPairing', {
+        'token': token,
+        'approved': approved,
       });
       return res ?? false;
     } on MissingPluginException {

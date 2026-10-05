@@ -735,7 +735,7 @@ func TestDiscovery_AnnouncementPacketCarriesServiceRecords(t *testing.T) {
 	}
 
 	addr := netip.MustParseAddr("192.168.0.236")
-	raw, err := d.buildAnnouncementPacket(addr)
+	raw, err := d.buildAnnouncementPacket(addr, false)
 	if err != nil {
 		t.Fatalf("build announcement: %v", err)
 	}
@@ -968,4 +968,48 @@ func TestDiscovery_AnnouncementsAreOffByDefault(t *testing.T) {
 
 func trimDot(name string) string {
 	return strings.TrimSuffix(name, ".")
+}
+
+// On shutdown the node must announce its records with TTL 0 (RFC 6762 §10.1):
+// browsing peers otherwise keep the instance in their cache — and their UI —
+// as reachable until the 75-minute browse TTL lapses.
+func TestDiscovery_GoodbyePacketCarriesZeroTTLs(t *testing.T) {
+	const deviceID = "aa67e88a629d12dd914f64da225b74946cd66ce7fd6970ebc0423a00679f2b8a"
+
+	d, err := NewDiscovery(Config{
+		DeviceID:     deviceID,
+		DeviceName:   "Linux Host",
+		Model:        "x1",
+		Port:         7804,
+		Version:      "1",
+		Capabilities: []string{"SCREEN", "CLIPBOARD"},
+		State:        "ready",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := d.buildAnnouncementPacket(netip.MustParseAddr("192.168.0.236"), true)
+	if err != nil {
+		t.Fatalf("build goodbye: %v", err)
+	}
+
+	var msg dnsmessage.Message
+	if err := msg.Unpack(raw); err != nil {
+		t.Fatalf("goodbye does not parse as DNS: %v", err)
+	}
+
+	records := 0
+	for _, ans := range append(append([]dnsmessage.Resource{}, msg.Answers...), msg.Additionals...) {
+		switch ans.Header.Type {
+		case dnsmessage.TypePTR, dnsmessage.TypeSRV, dnsmessage.TypeTXT, dnsmessage.TypeA, dnsmessage.TypeAAAA:
+			records++
+			if ans.Header.TTL != 0 {
+				t.Fatalf("%s record in goodbye has TTL %d, want 0", dnsmessage.Type(ans.Header.Type), ans.Header.TTL)
+			}
+		}
+	}
+	if records < 4 {
+		t.Fatalf("goodbye carries %d service records, want the PTR/SRV/TXT/address set", records)
+	}
 }

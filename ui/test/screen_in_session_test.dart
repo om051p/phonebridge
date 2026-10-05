@@ -59,6 +59,10 @@ void main() {
     controller = PhoneBridgeController(
       service: LinuxBridgeService(client: client),
     );
+    // Explicit target for the tab's start control (Phase C): the Screen tab
+    // is a session control surface, not device selection — the manual
+    // override stands in for the Devices-tab selection in these tests.
+    controller.setReceiverUrl('test-peer');
     controller.initialize();
     addTearDown(controller.dispose);
     addTearDown(client.events.close);
@@ -81,7 +85,9 @@ void main() {
 
     expect(find.text('MIRROR PHONE SCREEN'), findsOneWidget);
     expect(find.text('720p HD (Balanced)'), findsOneWidget);
-    expect(find.text('Target PC'), findsOneWidget);
+    // Human-readable device identity (name + platform + trust/connection),
+    // never an internal "Target PC" label.
+    expect(find.text('Paired device'), findsOneWidget);
 
     // Nothing in-session: no banner, no telemetry, no stop control.
     expect(find.textContaining('Session ID:'), findsNothing);

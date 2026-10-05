@@ -72,6 +72,15 @@ class PhoneBridgeService : Service() {
         var stateListener: ((Boolean, String?) -> Unit)? = null
 
         /**
+         * Runtime liveness of the foreground service itself. True between
+         * onCreate and onDestroy; the UI reads it instead of assuming the
+         * service runs because it was once started.
+         */
+        @Volatile
+        var isRunning: Boolean = false
+            private set
+
+        /**
          * Supplies the running service's platform browse snapshot, or null when
          * no browse is live. Set by the service so the UI asks one place for
          * LAN peers: the platform NSD stack, which is the only browse that can
@@ -90,6 +99,24 @@ class PhoneBridgeService : Service() {
          * brought LAN services up.
          */
         fun platformBrowser(): NsdBrowser? = browserProvider?.invoke()
+
+        /**
+         * Set by the UI: fired when an inbound pairing request arrives at this
+         * device's signaling server (Phase 2). The receiver of this callback
+         * must only SURFACE the request — acceptance happens exclusively
+         * through the in-app dialog after the user decides.
+         */
+        @Volatile
+        var pairingListener: ((LanSignalingServer.PairingRequestInfo) -> Unit)? = null
+
+        /**
+         * The live signaling server, for the UI's inbound-pairing reads
+         * (ListInboundPairings / RespondInboundPairing). Null while LAN
+         * services are down.
+         */
+        @Volatile
+        var activeSignalingServer: LanSignalingServer? = null
+            private set
 
         fun startService(context: Context) {
             val intent = Intent(context, PhoneBridgeService::class.java).apply {
@@ -138,6 +165,38 @@ class PhoneBridgeService : Service() {
             }
             context.startService(intent)
         }
+
+        /**
+         * What this device can capture, taken from the encoder the selector
+         * actually picks (DEC-020: hardware H.264, Surface input). Values stay
+         * at 0 where the platform does not report a bound, which negotiation
+         * treats as "no stated limit" rather than "unsupported".
+         *
+         * Companion scope (no service instance needed) so the UI channel can
+         * report the same advertisement the signaling server serves — one
+         * detection path (CodecSelector), two readers.
+         */
+        fun currentMediaCapabilities(): DeviceMediaCapabilities {
+            return try {
+                val selection = CodecSelector.select(CaptureConfig())
+                val caps = selection.candidate?.caps?.videoCapabilities
+                val codecName = if (selection.candidate != null) "h264" else ""
+                DeviceMediaCapabilities(
+                    codecs = if (codecName.isEmpty()) emptyList() else listOf(codecName),
+                    maxWidth = caps?.supportedWidths?.upper ?: 0,
+                    maxHeight = caps?.supportedHeights?.upper ?: 0,
+                    maxFps = caps?.supportedFrameRates?.upper?.toInt() ?: 0,
+                    widthAlignment = caps?.widthAlignment ?: 0,
+                    heightAlignment = caps?.heightAlignment ?: 0,
+                    supportsScreen = selection.candidate != null,
+                )
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed to read encoder capabilities: ${t.message}")
+                // Undisclosed capabilities must not become a false refusal: report
+                // screen support and no bounds so the platform check decides.
+                DeviceMediaCapabilities()
+            }
+        }
     }
 
     private var captureEngine: ScreenCaptureEngine? = null
@@ -158,6 +217,7 @@ class PhoneBridgeService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
         createNotificationChannel()
         registerNetworkRecovery()
         startLanServices()
@@ -196,8 +256,24 @@ class PhoneBridgeService : Service() {
                     identityManager = identityManager,
                     trustStore = trustStore
                 )
+                // Inbound pairing (Phase 2): raise the Pairing Request
+                // notification (opening it never accepts) and tell the UI. A
+                // throwing listener must not break the signaling server.
+                server.onPairingRequest = { info ->
+                    try {
+                        dev.phonebridge.pairing.PairingNotifier.notifyPairingRequest(applicationContext, info)
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "pairing notification failed: ${t.message}")
+                    }
+                    try {
+                        pairingListener?.invoke(info)
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "pairing listener failed: ${t.message}")
+                    }
+                }
                 if (server.start()) {
                     signalingServer = server
+                    activeSignalingServer = server
                     Log.i(TAG, "LanSignalingServer started on port ${server.port} with deviceId=${identityManager.deviceId}")
                 }
             } else {
@@ -338,32 +414,11 @@ class PhoneBridgeService : Service() {
     }
 
     /**
-     * Advertises what this device can capture, taken from the encoder the
-     * selector actually picks (DEC-020: hardware H.264, Surface input). Values
-     * stay at 0 where the platform does not report a bound, which the
-     * negotiation treats as "no stated limit" rather than "unsupported".
+     * The advertisement the signaling server serves. Delegates to the shared
+     * companion reader so the wire and the UI channel can never disagree.
      */
-    private fun deviceMediaCapabilities(): DeviceMediaCapabilities {
-        return try {
-            val selection = CodecSelector.select(CaptureConfig())
-            val caps = selection.candidate?.caps?.videoCapabilities
-            val codecName = if (selection.candidate != null) "h264" else ""
-            DeviceMediaCapabilities(
-                codecs = if (codecName.isEmpty()) emptyList() else listOf(codecName),
-                maxWidth = caps?.supportedWidths?.upper ?: 0,
-                maxHeight = caps?.supportedHeights?.upper ?: 0,
-                maxFps = caps?.supportedFrameRates?.upper?.toInt() ?: 0,
-                widthAlignment = caps?.widthAlignment ?: 0,
-                heightAlignment = caps?.heightAlignment ?: 0,
-                supportsScreen = selection.candidate != null,
-            )
-        } catch (t: Throwable) {
-            Log.w(TAG, "Failed to read encoder capabilities: ${t.message}")
-            // Undisclosed capabilities must not become a false refusal: report
-            // screen support and no bounds so the platform check decides.
-            DeviceMediaCapabilities()
-        }
-    }
+    private fun deviceMediaCapabilities(): DeviceMediaCapabilities =
+        currentMediaCapabilities()
 
     private fun stopLanServices() {
         try {
@@ -377,6 +432,7 @@ class PhoneBridgeService : Service() {
             browserProvider = null
             signalingServer?.stop()
             signalingServer = null
+            activeSignalingServer = null
         } catch (t: Throwable) {
             Log.w(TAG, "Error stopping LAN services: ${t.message}")
         }
@@ -437,6 +493,7 @@ class PhoneBridgeService : Service() {
     }
 
     override fun onDestroy() {
+        isRunning = false
         stopCaptureInternal("service_destroyed")
         unregisterNetworkRecovery()
         stopLanServices()

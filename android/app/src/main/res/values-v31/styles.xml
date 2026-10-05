@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ SplashScreen API. Same brand navy + launcher icon, short
+         400ms icon animation, then straight into the activity window (which
+         Flutter swaps to NormalTheme on the first frame). No branding image
+         and no artificial hold time: startup stays fast.
+         Note: android:postSplashScreenTheme is an AndroidX SplashScreen-library
+         attribute, not a framework one — the framework needs no equivalent
+         because the activity theme itself continues after the splash. -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowSplashScreenBackground">@color/phonebridge_splash_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="android:windowSplashScreenAnimationDuration">400</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/phonebridge_splash_background</item>
+        <item name="android:windowBackground">@drawable/launch_background</item>
+    </style>
+</resources>

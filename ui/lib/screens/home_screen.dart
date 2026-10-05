@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../controllers/phonebridge_controller.dart';
+import '../models/feature_availability.dart';
 import '../models/link_status.dart';
 import '../ui/link_indicator.dart';
 import '../models/activity_event.dart';
@@ -30,7 +31,6 @@ class HomeScreen extends StatelessWidget {
     // One connection status for the app (Phase 5): the hero card no longer asks
     // "is capturing?" and infers a connection from it.
     final link = controller.linkStatus;
-    final isSharing = controller.isSharing;
     final peer = controller.activePeer;
     final stats = controller.captureStats;
     final clipboard = controller.clipboardStatus;
@@ -39,7 +39,7 @@ class HomeScreen extends StatelessWidget {
     return RefreshIndicator(
       onRefresh: controller.refreshAll,
       child: ListView(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
         children: [
           if (controller.service.isAndroid && controller.hasMissingPermissions) ...[
             PermissionOnboardingCard(controller: controller),
@@ -47,7 +47,7 @@ class HomeScreen extends StatelessWidget {
           ],
           _buildConnectionCard(context, theme, peer, link),
           const SizedBox(height: 16),
-          _buildScreenShareHeroCard(context, theme, isSharing, stats, link),
+          _buildScreenShareHeroCard(context, theme, link, stats),
           const SizedBox(height: 16),
           _buildClipboardQuickCard(context, theme, clipboard),
           const SizedBox(height: 16),
@@ -68,7 +68,11 @@ class HomeScreen extends StatelessWidget {
     dynamic peer,
     LinkStatus link,
   ) {
+    // peer is the AUTHORITATIVE session peer (null when idle). Pairing state
+    // is separate: trusted-but-idle is "paired, not connected", not "no
+    // paired device".
     final hasPeer = peer != null;
+    final hasTrusted = controller.trustedDevices.any((d) => !d.revoked);
 
     return Card(
       elevation: 0,
@@ -100,19 +104,32 @@ class HomeScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    hasPeer ? peer.displayName : 'No Paired PC',
+                    hasPeer
+                        ? peer.displayName
+                        : (hasTrusted
+                            ? 'No active connection'
+                            : 'No paired device'),
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
                   const SizedBox(height: 2),
                   Text(
                     hasPeer
-                        ? '${peer.platform.toUpperCase()} · Trusted Device'
-                        : 'Pair with your Linux desktop to connect',
+                        // Trust (shield) is separate from connection (dot
+                        // below): "Trusted" never means "Online". The peer
+                        // shown here is the live session target.
+                        ? '${peer.platform} · Connected · LAN · Direct'
+                        : (hasTrusted
+                            ? 'Paired · select a device to connect'
+                            : 'Pair with your other device to connect'),
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
                   const SizedBox(height: 6),
                   Tooltip(
@@ -164,7 +181,7 @@ class HomeScreen extends StatelessWidget {
                 visualDensity: VisualDensity.compact,
                 padding: const EdgeInsets.symmetric(horizontal: 12),
               ),
-              child: Text(hasPeer ? 'Manage' : 'Pair'),
+              child: Text(hasPeer ? 'Manage' : (hasTrusted ? 'Connect' : 'Pair')),
             ),
           ],
         ),
@@ -175,17 +192,21 @@ class HomeScreen extends StatelessWidget {
   Widget _buildScreenShareHeroCard(
     BuildContext context,
     ThemeData theme,
-    bool isCapturing,
-    dynamic stats,
     LinkStatus link,
+    dynamic stats,
   ) {
-    final primaryColor = isCapturing ? Colors.green : theme.colorScheme.primary;
+    // Canonical with Screen tab: a live session (any active state) means the
+    // control reads STOP; streaming is the narrower "video flowing" fact.
+    final sessionActive = controller.session.status.isActive;
+    final isStreaming = controller.isSharing;
+    final showStop = sessionActive || isStreaming;
+    final primaryColor = isStreaming ? Colors.green : theme.colorScheme.primary;
 
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
-        side: isCapturing
+        side: showStop
             ? const BorderSide(color: Colors.green, width: 2)
             : BorderSide.none,
       ),
@@ -197,19 +218,20 @@ class HomeScreen extends StatelessWidget {
             Row(
               children: [
                 Icon(
-                  isCapturing ? Icons.screen_share : Icons.screen_share_outlined,
+                  isStreaming ? Icons.screen_share : Icons.screen_share_outlined,
                   color: primaryColor,
                   size: 28,
                 ),
                 const SizedBox(width: 10),
-                Text(
-                  'Screen Sharing',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
+                Expanded(
+                  child: Text(
+                    'Screen Sharing',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
-                const Spacer(),
-                if (isCapturing)
+                if (isStreaming)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
@@ -223,6 +245,24 @@ class HomeScreen extends StatelessWidget {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
+                  )
+                else if (sessionActive)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary
+                          .withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      link.label.toUpperCase(),
+                      style: TextStyle(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
                   ),
               ],
             ),
@@ -230,17 +270,27 @@ class HomeScreen extends StatelessWidget {
             Text(
               // A failure or a recovery in progress is worth more than the
               // marketing line: it is the reason the button did not work.
+              // When a session is active but not streaming, say so instead of
+              // claiming "No session running" on one page and streaming on
+              // another.
               link.actionHint.isNotEmpty
                   ? link.actionHint
-                  : (isCapturing
-                      ? 'Your screen is currently streaming to your connected PC.'
-                      : 'Mirror your Android screen to your desktop in real-time with low latency.'),
+                  : (isStreaming
+                      ? 'Your screen is currently streaming to your connected device.'
+                      : (sessionActive
+                          ? 'Session ${link.label.toLowerCase()} — ${link.description}'
+                          : 'Mirror your screen to the paired device in real-time. Uses the same session as the Screen tab.')),
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: 8),
-            Row(
+            // Wrap, not Row+Spacer: narrow phones stack chips above the
+            // Configure action instead of overflowing to the right.
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Chip(
                   // A zero selection is the DEC-022 "device default"
@@ -250,14 +300,11 @@ class HomeScreen extends StatelessWidget {
                       : '${controller.selectedWidth}x${controller.selectedHeight}'),
                   visualDensity: VisualDensity.compact,
                 ),
-                if (controller.selectedFps > 0) ...[
-                  const SizedBox(width: 8),
+                if (controller.selectedFps > 0)
                   Chip(
                     label: Text('${controller.selectedFps} fps'),
                     visualDensity: VisualDensity.compact,
                   ),
-                ],
-                const Spacer(),
                 TextButton(
                   onPressed: () => onNavigateToTab(2), // Go to Screen tab
                   child: const Text('Configure'),
@@ -270,7 +317,7 @@ class HomeScreen extends StatelessWidget {
               height: 52,
               child: FilledButton.icon(
                 style: FilledButton.styleFrom(
-                  backgroundColor: isCapturing ? theme.colorScheme.error : null,
+                  backgroundColor: showStop ? theme.colorScheme.error : null,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
                   ),
@@ -278,15 +325,15 @@ class HomeScreen extends StatelessWidget {
                 onPressed: controller.isLoading
                     ? null
                     : () {
-                        if (isCapturing) {
+                        if (showStop) {
                           controller.stopScreenSharing();
                         } else {
                           controller.startScreenSharing();
                         }
                       },
-                icon: Icon(isCapturing ? Icons.stop : Icons.play_arrow),
+                icon: Icon(showStop ? Icons.stop : Icons.play_arrow),
                 label: Text(
-                  isCapturing ? 'STOP SHARING' : 'START SHARING',
+                  showStop ? 'STOP SHARING' : 'START SHARING',
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                 ),
               ),
@@ -302,9 +349,16 @@ class HomeScreen extends StatelessWidget {
     ThemeData theme,
     dynamic clipboard,
   ) {
-    final state = clipboard.state;
-    final isEnabled = clipboard.isEnabled;
-
+    // Feature-level availability (Active/Manual/Needs setup/…) rather than
+    // the adapter's detailed state: one coherent feature reading across
+    // Android and Linux. The Clipboard tab keeps the detailed states.
+    final availability = clipboardAvailability(clipboard);
+    final Color availabilityColor = switch (availability.state) {
+      FeatureState.active => Colors.green,
+      FeatureState.manual => Colors.amber.shade700,
+      FeatureState.needsSetup || FeatureState.restricted => Colors.orange.shade800,
+      _ => Colors.grey,
+    };
     return Card(
       elevation: 0,
       color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
@@ -332,9 +386,9 @@ class HomeScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        isEnabled ? state.label : 'Disabled',
+                        'Clipboard · ${availability.label}',
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: isEnabled ? Colors.green : Colors.grey,
+                          color: availabilityColor,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
