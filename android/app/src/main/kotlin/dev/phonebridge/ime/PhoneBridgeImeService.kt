@@ -44,6 +44,21 @@ class PhoneBridgeImeService : InputMethodService() {
             val ic = instance.currentInputConnection ?: return false
             return ic.commitText(text, 1)
         }
+
+        /**
+         * Dispatches a key event through the active InputConnection.
+         */
+        fun sendKeyEvent(keyCode: Int): Boolean {
+            val instance = activeInstance ?: return false
+            val ic = instance.currentInputConnection ?: return false
+            return try {
+                val down = ic.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, keyCode))
+                val up = ic.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, keyCode))
+                down || up
+            } catch (t: Throwable) {
+                false
+            }
+        }
     }
 
     private var clipboardManager: ClipboardManager? = null

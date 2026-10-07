@@ -88,6 +88,7 @@ class PendingSlotDeliveryTest {
         }
 
         override fun onOversizedPayload(size: Int) {}
+        override fun onClipboardTransportOpen() {}
     }
 
     /** TEST A — the peer's reconnect-sync item must never reach the slot. */

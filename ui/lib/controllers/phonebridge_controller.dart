@@ -1022,10 +1022,36 @@ class PhoneBridgeController extends ChangeNotifier {
     notifyListeners();
   }
 
+  bool _remoteControlEnabled = true;
+  bool get remoteControlEnabled => _remoteControlEnabled;
+
+  void setRemoteControlEnabled(bool value) {
+    if (_remoteControlEnabled != value) {
+      _remoteControlEnabled = value;
+      notifyListeners();
+    }
+  }
+
+  void toggleRemoteControl() {
+    setRemoteControlEnabled(!_remoteControlEnabled);
+  }
+
+  bool get isRemoteControlAvailable {
+    if (!service.isLinux) return false;
+    if (!_session.status.isActive) return false;
+    final peer = activePeer;
+    if (peer != null && !peer.isTrusted) return false;
+    return true;
+  }
+
   /// Dispatches an input frame to the active device session (DEC-027).
   Future<bool> sendInput(pb.InputFrame frame) async {
     final linux = linuxService;
     if (linux == null) return false;
+    if (!_remoteControlEnabled) return false;
+    if (!_session.status.isActive) return false;
+    final peer = activePeer;
+    if (peer != null && !peer.isTrusted) return false;
     final activeId = _session.activeSessionId;
     return linux.sendInput(frame, sessionId: activeId);
   }
@@ -1035,6 +1061,18 @@ class PhoneBridgeController extends ChangeNotifier {
     final frame = pb.InputFrame(
       timestampMs: Int64(DateTime.now().millisecondsSinceEpoch),
       action: pb.GlobalActionEvent(type: actionType),
+    );
+    return sendInput(frame);
+  }
+
+  /// Dispatches a discrete key event (e.g. Backspace, Enter).
+  Future<bool> sendKeyCode(int keyCode, {pb.KeyEvent_Action action = pb.KeyEvent_Action.ACTION_DOWN}) async {
+    final frame = pb.InputFrame(
+      timestampMs: Int64(DateTime.now().millisecondsSinceEpoch),
+      key: pb.KeyEvent(
+        action: action,
+        keyCode: keyCode,
+      ),
     );
     return sendInput(frame);
   }

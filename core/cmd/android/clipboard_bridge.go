@@ -21,6 +21,7 @@ type ClipboardHost interface {
 	WritePlatformClipboard(mimeType string, payload []byte) bool
 	SendClipboardUpdate(wireBytes []byte) bool
 	OnOversizedPayload(size int)
+	OnClipboardTransportOpen()
 }
 
 // ClipboardStats holds runtime diagnostics counters for clipboard synchronization.
@@ -196,6 +197,9 @@ func (b *ClipboardBridge) OnRemoteBytes(data []byte) error {
 func (b *ClipboardBridge) OnDataChannelOpen() {
 	if !b.initialized.Load() || b.engine == nil {
 		return
+	}
+	if b.host != nil {
+		b.host.OnClipboardTransportOpen()
 	}
 	_ = b.engine.OnDataChannelOpen(context.Background())
 }

@@ -12,6 +12,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
 import android.util.Log
+import android.view.Display
 import android.view.Surface
 import dev.phonebridge.bridge.GoBridge
 import dev.phonebridge.signaling.LiveCapture
@@ -81,6 +82,8 @@ class ScreenCaptureEngine(
         private set
     var isHardwareCodec: Boolean = false
         private set
+    var actualBitrate: Int = config.bitrate
+        private set
 
     val isCapturing: Boolean
         get() = isRunning.get()
@@ -114,7 +117,7 @@ class ScreenCaptureEngine(
         return LiveCapture(
             width = config.width,
             height = config.height,
-            bitrateKbps = config.bitrate / 1000,
+            bitrateKbps = actualBitrate / 1000,
             codec = if (config.mime == "video/avc") "h264" else config.mime,
             encodedFps = encodedFps,
             gopAus = gopAus,
@@ -212,6 +215,7 @@ class ScreenCaptureEngine(
             drainThread = dt
 
             Log.i(TAG, "ScreenCaptureEngine started: ${config.width}x${config.height} @ ${config.fps}fps")
+            dev.phonebridge.input.PhoneBridgeAccessibilityService.setCaptureDimensions(config.width, config.height)
             listener?.onCaptureStarted()
             return true
         } catch (t: Throwable) {
@@ -352,12 +356,34 @@ class ScreenCaptureEngine(
     private fun buildMediaFormat(candidate: CodecSelector.CodecCandidate): MediaFormat {
         val f = MediaFormat.createVideoFormat(config.mime, config.width, config.height)
         f.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-        f.setInteger(MediaFormat.KEY_BIT_RATE, config.bitrate)
+
+        // Device-adapted bitrate: high-refresh displays (90Hz, 120Hz) drive
+        // encoders at panel rate, starving per-frame budgets under standard allocations.
+        val refreshRate = runCatching {
+            val dm = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
+            val display = dm?.getDisplay(Display.DEFAULT_DISPLAY)
+            display?.mode?.refreshRate ?: 60.0f
+        }.getOrDefault(60.0f)
+
+        val effectiveBitrate = BitratePolicy.adaptBitrate(config.bitrate, refreshRate)
+        actualBitrate = effectiveBitrate
+        f.setInteger(MediaFormat.KEY_BIT_RATE, effectiveBitrate)
+
         f.setInteger(MediaFormat.KEY_FRAME_RATE, config.keyFrameRate)
         f.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, config.keyIntervalSec)
 
         if (Build.VERSION.SDK_INT >= 23) {
             f.setInteger(MediaFormat.KEY_PRIORITY, 0) // Realtime priority
+        }
+
+        // Enable AVCProfileHigh and Level 4.1 for Codec 2.0 (c2.*) encoders
+        val profileLevels = candidate.caps?.profileLevels
+        val supportsHigh = profileLevels?.any {
+            it.profile == MediaCodecInfo.CodecProfileLevel.AVCProfileHigh
+        } ?: false
+        if (BitratePolicy.shouldEnableHighProfile(candidate.name, supportsHigh)) {
+            f.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileHigh)
+            f.setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel41)
         }
 
         // Apply bitrate mode if supported
@@ -370,6 +396,7 @@ class ScreenCaptureEngine(
             }
         }
 
+        Log.i(TAG, "Configured MediaFormat: bitrate=$effectiveBitrate (base=${config.bitrate}, refreshRate=${refreshRate}Hz) highProfile=${BitratePolicy.shouldEnableHighProfile(candidate.name, supportsHigh)}")
         return f
     }
 

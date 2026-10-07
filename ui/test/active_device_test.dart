@@ -92,6 +92,44 @@ void main() {
       expect(controller.activeDeviceId, isNull);
       expect(backend.startCalls, isEmpty);
     });
+
+    test('inbound session from remote peer adopts authoritative peer deviceId',
+        () async {
+      backend.snapshot = sessionSnapshot(
+        sessionId: 'sess-inbound',
+        deviceId: 'phone-inbound',
+        state: ipc.SessionState.SESSION_STATE_STREAMING,
+      );
+      controller.initialize();
+
+      // Inbound event arrives over event stream without deviceId (DEC-022 wire format)
+      await backend.push(sessionEvent(
+        sessionId: 'sess-inbound',
+        state: ipc.SessionState.SESSION_STATE_STREAMING,
+      ));
+      await controller.refresh();
+
+      expect(controller.activeDeviceId, equals('phone-inbound'));
+      expect(controller.status.sessionId, equals('sess-inbound'));
+      expect(controller.status.state,
+          equals(ipc.SessionState.SESSION_STATE_STREAMING));
+    });
+
+    test('initialize() hydrates pre-existing active session from daemon',
+        () async {
+      backend.snapshot = sessionSnapshot(
+        sessionId: 'sess-preexisting',
+        deviceId: 'phone-preexisting',
+        state: ipc.SessionState.SESSION_STATE_STREAMING,
+      );
+
+      controller.initialize();
+      // Allow async unawaited(refresh()) to run
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.activeDeviceId, equals('phone-preexisting'));
+      expect(controller.status.sessionId, equals('sess-preexisting'));
+    });
   });
 
   group('DeviceRow merge (Phase F)', () {
@@ -394,6 +432,45 @@ void main() {
 
       await controller.revokeDevice('phone-Y');
       expect(client.revokeDeviceCalls, equals(['phone-Y']));
+    });
+
+    test('inbound session from remote phone updates deviceRows with isActiveTarget',
+        () async {
+      controller.initialize();
+      client.trustedDevices = [
+        ipc.TrustedDevice(
+          deviceId: 'phone-inbound',
+          displayName: 'Inbound Phone',
+          platform: 'android',
+        ),
+      ];
+      await controller.refreshAll();
+      expect(controller.deviceRows.single.isActiveTarget, isFalse);
+
+      // Daemon now tracks inbound streaming session
+      client.snapshot = ipc.GetSessionStateResponse(
+        sessionId: 'sess-inbound-1',
+        deviceId: 'phone-inbound',
+        state: ipc.SessionState.SESSION_STATE_STREAMING,
+      );
+
+      // Event arrives over event stream
+      client.events.add(ipc.StreamEventsResponse(
+        sessionEvent: ipc.SessionEvent(
+          sessionId: 'sess-inbound-1',
+          state: ipc.SessionState.SESSION_STATE_STREAMING,
+        ),
+      ));
+
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await controller.session.refresh();
+
+      expect(controller.activeDeviceId, equals('phone-inbound'));
+      final activeRow = controller.deviceRows.singleWhere(
+        (r) => r.deviceId == 'phone-inbound',
+      );
+      expect(activeRow.isActiveTarget, isTrue);
+      expect(activeRow.group, equals(DeviceRowGroup.connected));
     });
   });
 }

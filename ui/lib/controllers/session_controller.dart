@@ -110,8 +110,8 @@ class SessionController extends ChangeNotifier {
     final id = _backend.activeSessionId;
     if (id.isNotEmpty) {
       _status = _status.copyWith(sessionId: id);
-      unawaited(refresh());
     }
+    unawaited(refresh());
   }
 
   /// Applies one pushed transition. Returns true when the status changed.
@@ -242,7 +242,6 @@ class SessionController extends ChangeNotifier {
   Future<bool> refresh() async {
     if (!_backend.supportsSessions || _disposed) return false;
     final id = activeSessionId;
-    if (id.isEmpty) return false;
     try {
       final snapshot = await _backend.getSessionSnapshot(id);
       if (_disposed) return false;

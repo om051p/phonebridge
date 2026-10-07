@@ -64,6 +64,8 @@ class GoBridgeClipboardTest {
         override fun onOversizedPayload(size: Int) {
             oversizedEvents.incrementAndGet()
         }
+
+        override fun onClipboardTransportOpen() {}
     }
 
     @Test

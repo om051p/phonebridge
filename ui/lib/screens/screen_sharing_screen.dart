@@ -187,9 +187,82 @@ class ScreenSharingScreen extends StatelessWidget {
     ProvidesFrameStream provider,
     String stateLabel,
   ) {
+    final isControlActive = controller.remoteControlEnabled && controller.isRemoteControlAvailable;
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
+        // Top status and control bar
+        Material(
+          color: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // Status Pill
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: (isControlActive ? Colors.green : Colors.amber).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: (isControlActive ? Colors.green : Colors.amber).withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: isControlActive ? Colors.green : Colors.amber,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        isControlActive ? 'REMOTE CONTROL ACTIVE' : 'VIEW ONLY',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                          color: isControlActive ? Colors.green : Colors.amber.shade800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Control Toggle
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Remote Control',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Switch(
+                      value: controller.remoteControlEnabled,
+                      onChanged: (val) => controller.setRemoteControlEnabled(val),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
         Card(
           elevation: 0,
           color: Colors.black,
@@ -201,9 +274,10 @@ class ScreenSharingScreen extends StatelessWidget {
           ),
           clipBehavior: Clip.antiAlias,
           child: SizedBox(
-            height: 360,
+            height: 520,
             child: ScreenFrameView(
               provider: provider,
+              enabled: isControlActive,
               onInput: (frame) => controller.sendInput(frame),
               // Fallback: the existing presentation state (shared session model)
               // until the first frame arrives or after the stream stops.

@@ -309,6 +309,57 @@ class LanSignalingSecurityTest {
     }
 
     @Test
+    fun testTrustCommittedByAnotherInstanceIsHonored() {
+        // Physical BUG-1: the server's verifier holds a long-lived TrustStore
+        // instance while pairing approvals land through the UI instance
+        // sharing the same file. The verifier must re-read before
+        // authenticating, or a freshly paired peer is rejected with 403 while
+        // re-pairing is short-circuited with 409 (no recovery path).
+        // Here the server starts with an empty (stale) view; the trust commit
+        // arrives via a second instance, exactly like a UI approval.
+        TrustStore(File(tempFolder.root, "trusted_devices.json")).addTrusted(
+            TrustedDeviceRecord(
+                deviceId = clientDeviceId,
+                displayName = "Linux Host",
+                platform = "linux",
+                rawPublicKey = clientRawPub,
+                pairedAtMs = System.currentTimeMillis(),
+                lastSeenMs = System.currentTimeMillis(),
+                revoked = false
+            )
+        )
+
+        val headers = signRequest("POST", "/session/offer", ByteArray(0))
+        val (code, resp) = executeHttp("POST", "/session/offer", ByteArray(0), headers)
+        assertEquals("trust committed by another instance must authenticate", 200, code)
+        assertTrue(resp.contains("mock-sdp-offer"))
+    }
+
+    @Test
+    fun testRevocationByAnotherInstanceIsEnforced() {
+        // Converse direction: a revocation committed through the UI instance
+        // must take effect on the next authenticated request, not on the next
+        // process restart — otherwise a revoked peer keeps session access.
+        trustStore.addTrusted(
+            TrustedDeviceRecord(
+                deviceId = clientDeviceId,
+                displayName = "Linux Host",
+                platform = "linux",
+                rawPublicKey = clientRawPub,
+                pairedAtMs = System.currentTimeMillis(),
+                lastSeenMs = System.currentTimeMillis(),
+                revoked = false
+            )
+        )
+        TrustStore(File(tempFolder.root, "trusted_devices.json")).revoke(clientDeviceId)
+
+        val headers = signRequest("POST", "/session/offer", ByteArray(0))
+        val (code, resp) = executeHttp("POST", "/session/offer", ByteArray(0), headers)
+        assertEquals("revocation by another instance must be enforced", 403, code)
+        assertTrue(resp.contains("has been revoked"))
+    }
+
+    @Test
     fun testTamperedSignatureRejected() {
         trustStore.addTrusted(
             TrustedDeviceRecord(

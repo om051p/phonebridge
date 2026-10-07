@@ -161,14 +161,17 @@ class AndroidTransferHost(private val context: Context) : TransferHostCallback {
 
     private fun commitMediaStore(entry: MediaStoreEntry): String? {
         val resolver = context.contentResolver
-        val name = queryDisplayName(entry.uri)
         val values = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
         val updated = resolver.update(entry.uri, values, null, null) > 0
         if (!updated) {
             Log.w(TAG, "MediaStore publish (IS_PENDING=0) failed for $entry.uri")
             return null
         }
-        return name
+        // Read the name AFTER publishing: the provider resolves a colliding
+        // DISPLAY_NAME into "name (n)" at publish time, so a pre-publish read
+        // reports the requested name while the file on disk carries the
+        // suffixed one (history showed the wrong saved_name on duplicates).
+        return queryDisplayName(entry.uri)
     }
 
     private fun commitFallback(entry: FallbackEntry): String? {

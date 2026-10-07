@@ -91,10 +91,37 @@ object AndroidInputManager : InputHostCallback {
 
     override fun onKey(action: Int, keyCode: Int, metaState: Int): Boolean {
         if (!isDeviceUnlocked()) return false
-        Log.d(TAG, "onKey action=$action")
-        if (keyCode == KeyEvent.KEYCODE_BACK && (action == KEY_ACTION_UP || action == KeyEvent.ACTION_UP)) {
-            val acc = PhoneBridgeAccessibilityService.getInstance()
-            return acc?.onGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK) ?: false
+        Log.d(TAG, "onKey action=$action keyCode=$keyCode")
+        val acc = PhoneBridgeAccessibilityService.getInstance()
+        if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
+            if (action == KEY_ACTION_UP || action == KeyEvent.ACTION_UP) {
+                return acc?.onGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK) ?: false
+            }
+            return true
+        }
+        if (keyCode == KeyEvent.KEYCODE_HOME) {
+            if (action == KEY_ACTION_UP || action == KeyEvent.ACTION_UP) {
+                return acc?.onGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME) ?: false
+            }
+            return true
+        }
+        if (keyCode == KeyEvent.KEYCODE_DEL) {
+            if (action == KEY_ACTION_DOWN || action == KeyEvent.ACTION_DOWN) {
+                if (PhoneBridgeImeService.sendKeyEvent(KeyEvent.KEYCODE_DEL)) {
+                    return true
+                }
+                return acc?.deleteLastChar() ?: false
+            }
+            return true
+        }
+        if (keyCode == KeyEvent.KEYCODE_ENTER) {
+            if (action == KEY_ACTION_DOWN || action == KeyEvent.ACTION_DOWN) {
+                if (PhoneBridgeImeService.sendKeyEvent(KeyEvent.KEYCODE_ENTER)) {
+                    return true
+                }
+                return acc?.performEnterAction() ?: false
+            }
+            return true
         }
         return false
     }
@@ -102,7 +129,11 @@ object AndroidInputManager : InputHostCallback {
     override fun onText(text: String): Boolean {
         if (!isDeviceUnlocked()) return false
         Log.d(TAG, "onText commit length=${text.length}")
-        return PhoneBridgeImeService.commitText(text)
+        if (PhoneBridgeImeService.commitText(text)) {
+            return true
+        }
+        val acc = PhoneBridgeAccessibilityService.getInstance()
+        return acc?.appendText(text) ?: false
     }
 
     override fun onScroll(normX: Float, normY: Float, deltaX: Float, deltaY: Float): Boolean {

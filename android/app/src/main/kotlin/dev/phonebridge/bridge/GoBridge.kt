@@ -518,5 +518,6 @@ interface ClipboardHostCallback {
     fun onWritePlatformClipboard(mimeType: String, payload: ByteArray): Boolean
     fun onSendClipboardUpdate(payload: ByteArray): Boolean
     fun onOversizedPayload(size: Int)
+    fun onClipboardTransportOpen()
 }
 

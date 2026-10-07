@@ -73,15 +73,22 @@ class LinuxBridgeService
 
         if (resp.hasSessionEvent()) {
           final se = resp.sessionEvent;
-          _activeSessionId = se.sessionId;
+          final isStopped =
+              se.state == ipc.SessionState.SESSION_STATE_STOPPED ||
+                  se.state == ipc.SessionState.SESSION_STATE_FAILED ||
+                  se.state == ipc.SessionState.SESSION_STATE_DISCONNECTED;
+          if (isStopped) {
+            if (_activeSessionId == se.sessionId) {
+              _activeSessionId = null;
+            }
+          } else if (se.sessionId.isNotEmpty) {
+            _activeSessionId = se.sessionId;
+          }
           if (!_sessionEventsController.isClosed) {
             _sessionEventsController.add(se);
           }
           final isStreaming =
               se.state == ipc.SessionState.SESSION_STATE_STREAMING;
-          final isStopped =
-              se.state == ipc.SessionState.SESSION_STATE_STOPPED ||
-                  se.state == ipc.SessionState.SESSION_STATE_FAILED;
 
           map['isCapturing'] = isStreaming;
           if (isStopped) {
@@ -525,8 +532,21 @@ class LinuxBridgeService
       _sessionEventsController.stream;
 
   @override
-  Future<ipc.GetSessionStateResponse> getSessionSnapshot(String sessionId) =>
-      _client.getSessionState(sessionId: sessionId);
+  Future<ipc.GetSessionStateResponse> getSessionSnapshot(String sessionId) async {
+    final resp = await _client.getSessionState(sessionId: sessionId);
+    final isTerminalOrDisconnected =
+        resp.state == ipc.SessionState.SESSION_STATE_STOPPED ||
+            resp.state == ipc.SessionState.SESSION_STATE_FAILED ||
+            resp.state == ipc.SessionState.SESSION_STATE_DISCONNECTED;
+    if (isTerminalOrDisconnected) {
+      if (_activeSessionId == resp.sessionId || sessionId.isEmpty) {
+        _activeSessionId = null;
+      }
+    } else if (resp.sessionId.isNotEmpty) {
+      _activeSessionId = resp.sessionId;
+    }
+    return resp;
+  }
 
   @override
   Future<ipc.StartSessionResponse> startSession({

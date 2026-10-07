@@ -255,11 +255,7 @@ func (m *SessionManager) TriggerClipboardPull(ctx context.Context) error {
 		return errors.New("clipboard engine not configured")
 	}
 
-	cur := eng.CurrentItem()
-	if cur != nil {
-		return eng.OnLocalClipboard(ctx, cur)
-	}
-	return nil
+	return eng.OnDataChannelOpen(ctx)
 }
 
 // SendFile offers a local file to the peer of the active session (DEC-024).
@@ -317,6 +313,7 @@ func (m *SessionManager) ListTransfers() []transfer.Info {
 func (m *SessionManager) SendInput(ctx context.Context, sessionID string, frame *phonebridgev1.InputFrame) error {
 	m.mu.RLock()
 	sess := m.activeSess
+	ts := m.trustStore
 	m.mu.RUnlock()
 
 	if sess == nil {
@@ -324,6 +321,9 @@ func (m *SessionManager) SendInput(ctx context.Context, sessionID string, frame 
 	}
 	if sessionID != "" && sess.SessionID() != sessionID {
 		return fmt.Errorf("session %s is not the active session (%s)", sessionID, sess.SessionID())
+	}
+	if ts != nil && sess.cfg.TargetDeviceID != "" && !ts.IsTrusted(sess.cfg.TargetDeviceID) {
+		return fmt.Errorf("device %s is not trusted: remote input rejected", sess.cfg.TargetDeviceID)
 	}
 	return sess.SendInput(frame)
 }

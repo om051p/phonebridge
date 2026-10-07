@@ -232,7 +232,12 @@ class TrustStore(private val storeFile: File) {
     /**
      * Re-reads the store file. Separate in-process instances (service vs UI)
      * share the file but not memory; readers call this when notified of a
-     * change made by another instance.
+     * change made by another instance. Callers that authenticate against
+     * long-lived instances (notably the LAN signaling verifier) must reload
+     * before every trust decision: a pairing committed through the UI
+     * instance is invisible to the service instance otherwise, and a
+     * revocation committed elsewhere must take effect on the next request,
+     * never on the next process restart.
      */
     fun reload() {
         load()

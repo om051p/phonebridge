@@ -20,6 +20,7 @@ type mockClipboardHost struct {
 	platformWrites []mockPlatformWrite
 	sentUpdates    [][]byte
 	oversizedSizes []int
+	transportOpens int
 
 	writeReturn bool
 	sendReturn  bool
@@ -59,6 +60,18 @@ func (m *mockClipboardHost) OnOversizedPayload(size int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.oversizedSizes = append(m.oversizedSizes, size)
+}
+
+func (m *mockClipboardHost) OnClipboardTransportOpen() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.transportOpens++
+}
+
+func (m *mockClipboardHost) getTransportOpens() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.transportOpens
 }
 
 func (m *mockClipboardHost) getPlatformWrites() []mockPlatformWrite {
@@ -329,5 +342,20 @@ func TestClipboardBridgeLocalCopyWithoutTransportFailsLoudly(t *testing.T) {
 	err := bridge.OnLocalCopy("text/plain;charset=utf-8", []byte("must survive"), time.Now().UnixMilli())
 	if err == nil {
 		t.Fatal("OnLocalCopy returned nil with no transport and no host: silent drop")
+	}
+}
+
+func TestClipboardBridgeOnDataChannelOpenNotifiesHost(t *testing.T) {
+	bridge := &ClipboardBridge{}
+	host := newMockClipboardHost()
+	if err := bridge.Init(host); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	defer bridge.Stop()
+
+	bridge.OnDataChannelOpen()
+
+	if host.getTransportOpens() != 1 {
+		t.Fatalf("expected 1 OnClipboardTransportOpen call, got %d", host.getTransportOpens())
 	}
 }

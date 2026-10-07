@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/om051p/phonebridge/core/pkg/crypto"
 	"github.com/om051p/phonebridge/core/pkg/input"
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgev1"
 	"github.com/om051p/phonebridge/core/pkg/rtpmedia"
@@ -213,5 +214,22 @@ func TestSessionManager_SendInput_Scoping(t *testing.T) {
 	// 4. Empty session ID accepts active session
 	if err := mgr.SendInput(ctx, "", frame); err != nil {
 		t.Fatalf("expected success with empty session ID defaulting to active, got %v", err)
+	}
+
+	// 5. Untrusted device is rejected
+	ts, _ := crypto.NewTrustStore("")
+	mgr.trustStore = ts
+	sess.cfg.TargetDeviceID = "untrusted-dev"
+	if err := mgr.SendInput(ctx, "sess-active", frame); err == nil {
+		t.Fatal("expected error for untrusted device")
+	}
+
+	// 6. Trusted device is accepted
+	pub := make([]byte, 32)
+	devID := crypto.Fingerprint(pub)
+	_ = ts.AddTrusted(crypto.TrustEntry{PublicKey: pub})
+	sess.cfg.TargetDeviceID = devID
+	if err := mgr.SendInput(ctx, "sess-active", frame); err != nil {
+		t.Fatalf("expected success for trusted device, got %v", err)
 	}
 }

@@ -387,6 +387,13 @@ class LanSignalingServer(
 
             method == "POST" && (path == "/session/offer" || path == "/session/answer" || path == "/session/stop") -> {
                 if (authValidator != null) {
+                    // The verifier's TrustStore instance is long-lived while
+                    // trust commits (pairing approvals, revokes) can land
+                    // through the UI instance sharing the same file. Re-read
+                    // first — the same reload the pairing-request path does —
+                    // so a freshly paired peer is not rejected with 403 and a
+                    // freshly revoked peer is not still accepted.
+                    trustStore?.reload()
                     val authResult = authValidator.verify(method, path, body) { headerName ->
                         headers[headerName.lowercase()]
                     }
@@ -399,6 +406,18 @@ class LanSignalingServer(
                         }
                         is AuthValidator.AuthResult.Success -> {
                             trustStore?.touchLastSeen(authResult.deviceId)
+                            // Attribute this session's transfers to the
+                            // authenticated peer. The transfer plane learns
+                            // its peer id here — nothing else on the
+                            // receiver side sets it, so without this every
+                            // inbound row renders "Unknown device".
+                            try {
+                                dev.phonebridge.transfer.AndroidTransferHostRegistry.setPeerDeviceId(
+                                    authResult.deviceId,
+                                )
+                            } catch (_: Throwable) {
+                                // Attribution must never break signaling.
+                            }
                         }
                     }
                 }

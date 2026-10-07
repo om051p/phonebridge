@@ -188,7 +188,15 @@ class FakeIpcClient extends LocalIpcClient {
     final error = snapshotError;
     if (error != null) throw error;
     final value = snapshot;
-    if (value == null) throw StateError('no snapshot configured');
+    if (value == null) {
+      if (sessionId.isEmpty) {
+        return ipc.GetSessionStateResponse(
+          sessionId: '',
+          state: ipc.SessionState.SESSION_STATE_DISCONNECTED,
+        );
+      }
+      throw StateError('no snapshot configured');
+    }
     return value;
   }
 

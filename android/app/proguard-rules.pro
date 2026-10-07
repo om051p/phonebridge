@@ -28,6 +28,7 @@
     boolean onWritePlatformClipboard(java.lang.String, byte[]);
     boolean onSendClipboardUpdate(byte[]);
     void onOversizedPayload(int);
+    void onClipboardTransportOpen();
 }
 -keep class * implements dev.phonebridge.bridge.ClipboardHostCallback {
     *;

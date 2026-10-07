@@ -139,6 +139,20 @@ static void callClipboardOversized(JNIEnv *env, jobject host, jmethodID mid, int
     (*env)->CallVoidMethod(env, host, mid, (jint)size);
 }
 
+static jmethodID resolveClipboardTransportOpenMethod(JNIEnv *env, jobject host) {
+    if (!env || !host) return NULL;
+    jclass cls = (*env)->GetObjectClass(env, host);
+    if (!cls) return NULL;
+    jmethodID mid = (*env)->GetMethodID(env, cls, "onClipboardTransportOpen", "()V");
+    (*env)->DeleteLocalRef(env, cls);
+    return mid;
+}
+
+static void callClipboardTransportOpen(JNIEnv *env, jobject host, jmethodID mid) {
+    if (!env || !host || !mid) return;
+    (*env)->CallVoidMethod(env, host, mid);
+}
+
 
 static void deleteLocalRef(JNIEnv *env, jobject obj) {
     if (env && obj) (*env)->DeleteLocalRef(env, obj);
@@ -710,10 +724,11 @@ var (
 )
 
 type jniClipboardHost struct {
-	callbackObj  C.jobject
-	writeMid     C.jmethodID
-	sendMid      C.jmethodID
-	oversizedMid C.jmethodID
+	callbackObj      C.jobject
+	writeMid         C.jmethodID
+	sendMid          C.jmethodID
+	oversizedMid     C.jmethodID
+	transportOpenMid C.jmethodID
 }
 
 func (h *jniClipboardHost) WritePlatformClipboard(mimeType string, payload []byte) bool {
@@ -782,6 +797,23 @@ func (h *jniClipboardHost) OnOversizedPayload(size int) {
 	C.callClipboardOversized(env, h.callbackObj, h.oversizedMid, C.int(size))
 }
 
+func (h *jniClipboardHost) OnClipboardTransportOpen() {
+	if jvm == nil || C.isNull(h.callbackObj) == 1 || C.isNullMethod(h.transportOpenMid) == 1 {
+		return
+	}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	var env *C.JNIEnv
+	var didAttach C.int
+	if C.getOrAttachEnv(jvm, &env, &didAttach) != 0 || env == nil {
+		return
+	}
+	defer C.releaseEnv(jvm, didAttach)
+
+	C.callClipboardTransportOpen(env, h.callbackObj, h.transportOpenMid)
+}
+
 func clipboardRecover(env *C.JNIEnv, what string) {
 	if r := recover(); r != nil {
 		panicsCaught.Add(1)
@@ -812,8 +844,9 @@ func Java_dev_phonebridge_bridge_GoBridge_nativeClipboardInit(env *C.JNIEnv, cla
 	writeMid := C.resolveClipboardWriteMethod(env, jCallback)
 	sendMid := C.resolveClipboardSendMethod(env, jCallback)
 	oversizedMid := C.resolveClipboardOversizedMethod(env, jCallback)
+	transportOpenMid := C.resolveClipboardTransportOpenMethod(env, jCallback)
 
-	if C.isNullMethod(writeMid) == 1 || C.isNullMethod(sendMid) == 1 || C.isNullMethod(oversizedMid) == 1 {
+	if C.isNullMethod(writeMid) == 1 || C.isNullMethod(sendMid) == 1 || C.isNullMethod(oversizedMid) == 1 || C.isNullMethod(transportOpenMid) == 1 {
 		C.throwIllegalState(env, C.CString("Failed to resolve ClipboardHostCallback methods"))
 		return C.JNI_FALSE
 	}
@@ -829,10 +862,11 @@ func Java_dev_phonebridge_bridge_GoBridge_nativeClipboardInit(env *C.JNIEnv, cla
 		C.deleteGlobalRef(env, currentJniHost.callbackObj)
 	}
 	currentJniHost = &jniClipboardHost{
-		callbackObj:  gRef,
-		writeMid:     writeMid,
-		sendMid:      sendMid,
-		oversizedMid: oversizedMid,
+		callbackObj:      gRef,
+		writeMid:         writeMid,
+		sendMid:          sendMid,
+		oversizedMid:     oversizedMid,
+		transportOpenMid: transportOpenMid,
 	}
 	clipboardHostMu.Unlock()
 

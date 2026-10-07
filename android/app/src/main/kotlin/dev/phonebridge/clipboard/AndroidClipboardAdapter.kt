@@ -345,6 +345,12 @@ object AndroidClipboardAdapter : ClipboardHostCallback {
         val cm = clipboardManager ?: return false
         val text = String(payload, Charsets.UTF_8)
 
+        // If the pending slot held this exact payload, it has now converged with peer
+        val pending = pendingLocalClipSlot.peek()
+        if (pending != null && pending.payload.contentEquals(payload)) {
+            pendingLocalClipSlot.clearIfSame(pending)
+        }
+
         // Mark write in-flight to suppress platform listener echo
         writeInFlight = true
         lastWriteUptimeMs = SystemClock.uptimeMillis()
@@ -415,6 +421,11 @@ object AndroidClipboardAdapter : ClipboardHostCallback {
                 Log.w(TAG, "Error in oversizedListener: ${t.message}")
             }
         }
+    }
+
+    override fun onClipboardTransportOpen() {
+        Log.i(TAG, "Clipboard transport open received; flushing pending local clip")
+        flushPendingLocalClip(force = true)
     }
 
     // ------------------------------------------------------------------
@@ -548,12 +559,15 @@ object AndroidClipboardAdapter : ClipboardHostCallback {
      * accept path always sends exactly once: an accepted item clears the slot,
      * so no later call can re-send it.
      */
-    fun flushPendingLocalClip(): Boolean {
+    fun flushPendingLocalClip(force: Boolean = false): Boolean {
         if (!syncEnabled) {
             return false
         }
         val pending = pendingLocalClipSlot.peek() ?: return true
-        if (!GoBridge.loaded || !transportConnected()) {
+        if (!GoBridge.loaded) {
+            return false
+        }
+        if (!force && !transportConnected()) {
             return false
         }
 

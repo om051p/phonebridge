@@ -14,6 +14,7 @@
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../generated/phonebridge/v1/phonebridge.pb.dart' as pb;
 import '../services/frame_stream.dart';
@@ -24,6 +25,7 @@ class ScreenFrameView extends StatefulWidget {
     required this.provider,
     required this.fallback,
     this.onInput,
+    this.enabled = true,
   });
 
   /// Structural seam: the platform service that can open the daemon's frame
@@ -35,6 +37,9 @@ class ScreenFrameView extends StatefulWidget {
 
   /// Optional callback invoked when a normalized remote input event occurs.
   final void Function(pb.InputFrame frame)? onInput;
+
+  /// Whether interactive remote control is currently enabled.
+  final bool enabled;
 
   /// Normalizes an interaction coordinate inside a letterboxed/pillarboxed container.
   /// Returns null if [localPosition] falls in letterbox/pillarbox bars.
@@ -70,6 +75,8 @@ class ScreenFrameView extends StatefulWidget {
 
 class _ScreenFrameViewState extends State<ScreenFrameView> {
   late final FrameStream _frames;
+  final FocusNode _focusNode = FocusNode();
+  bool _isRightClick = false;
 
   @override
   void initState() {
@@ -80,6 +87,7 @@ class _ScreenFrameViewState extends State<ScreenFrameView> {
 
   @override
   void dispose() {
+    _focusNode.dispose();
     _frames.dispose();
     super.dispose();
   }
@@ -90,7 +98,29 @@ class _ScreenFrameViewState extends State<ScreenFrameView> {
     Size frameSize,
     pb.TouchEvent_Action action,
   ) {
-    if (widget.onInput == null) return;
+    if (!widget.enabled || widget.onInput == null) return;
+
+    if (action == pb.TouchEvent_Action.ACTION_DOWN) {
+      _focusNode.requestFocus();
+      if ((event.buttons & kSecondaryMouseButton) != 0) {
+        _isRightClick = true;
+        // Right click triggers Android Back immediately
+        widget.onInput!(pb.InputFrame(
+          timestampMs: Int64(DateTime.now().millisecondsSinceEpoch),
+          action: pb.GlobalActionEvent(
+            type: pb.GlobalActionEvent_Type.TYPE_GLOBAL_ACTION_BACK,
+          ),
+        ));
+        return;
+      }
+      _isRightClick = false;
+    } else if (action == pb.TouchEvent_Action.ACTION_MOVE && _isRightClick) {
+      return;
+    } else if (action == pb.TouchEvent_Action.ACTION_UP && _isRightClick) {
+      _isRightClick = false;
+      return;
+    }
+
     final norm = ScreenFrameView.normalizeCoordinate(
       event.localPosition,
       containerSize,
@@ -116,7 +146,7 @@ class _ScreenFrameViewState extends State<ScreenFrameView> {
     Size containerSize,
     Size frameSize,
   ) {
-    if (widget.onInput == null) return;
+    if (!widget.enabled || widget.onInput == null) return;
     final norm = ScreenFrameView.normalizeCoordinate(
       event.localPosition,
       containerSize,
@@ -141,6 +171,69 @@ class _ScreenFrameViewState extends State<ScreenFrameView> {
     widget.onInput!(frame);
   }
 
+  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    if (!widget.enabled || widget.onInput == null) return KeyEventResult.ignored;
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+
+    // Special keys mapping
+    if (event.logicalKey == LogicalKeyboardKey.escape ||
+        event.logicalKey == LogicalKeyboardKey.browserBack ||
+        event.logicalKey == LogicalKeyboardKey.goBack) {
+      widget.onInput!(pb.InputFrame(
+        timestampMs: Int64(DateTime.now().millisecondsSinceEpoch),
+        action: pb.GlobalActionEvent(
+          type: pb.GlobalActionEvent_Type.TYPE_GLOBAL_ACTION_BACK,
+        ),
+      ));
+      return KeyEventResult.handled;
+    }
+
+    if (event.logicalKey == LogicalKeyboardKey.home) {
+      widget.onInput!(pb.InputFrame(
+        timestampMs: Int64(DateTime.now().millisecondsSinceEpoch),
+        action: pb.GlobalActionEvent(
+          type: pb.GlobalActionEvent_Type.TYPE_GLOBAL_ACTION_HOME,
+        ),
+      ));
+      return KeyEventResult.handled;
+    }
+
+    if (event.logicalKey == LogicalKeyboardKey.backspace) {
+      widget.onInput!(pb.InputFrame(
+        timestampMs: Int64(DateTime.now().millisecondsSinceEpoch),
+        key: pb.KeyEvent(
+          action: pb.KeyEvent_Action.ACTION_DOWN,
+          keyCode: 67, // KEYCODE_DEL
+        ),
+      ));
+      return KeyEventResult.handled;
+    }
+
+    if (event.logicalKey == LogicalKeyboardKey.enter ||
+        event.logicalKey == LogicalKeyboardKey.numpadEnter) {
+      widget.onInput!(pb.InputFrame(
+        timestampMs: Int64(DateTime.now().millisecondsSinceEpoch),
+        key: pb.KeyEvent(
+          action: pb.KeyEvent_Action.ACTION_DOWN,
+          keyCode: 66, // KEYCODE_ENTER
+        ),
+      ));
+      return KeyEventResult.handled;
+    }
+
+    // Direct printable characters text entry
+    final char = event.character;
+    if (char != null && char.isNotEmpty && !char.contains(RegExp(r'[\x00-\x1F\x7F]'))) {
+      widget.onInput!(pb.InputFrame(
+        timestampMs: Int64(DateTime.now().millisecondsSinceEpoch),
+        text: pb.TextEvent(text: char),
+      ));
+      return KeyEventResult.handled;
+    }
+
+    return KeyEventResult.ignored;
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -156,23 +249,35 @@ class _ScreenFrameViewState extends State<ScreenFrameView> {
             final containerSize = Size(constraints.maxWidth, constraints.maxHeight);
             final frameSize = Size(image.width.toDouble(), image.height.toDouble());
 
-            return Listener(
-              behavior: HitTestBehavior.opaque,
-              onPointerDown: (e) => _handlePointer(e, containerSize, frameSize, pb.TouchEvent_Action.ACTION_DOWN),
-              onPointerMove: (e) => _handlePointer(e, containerSize, frameSize, pb.TouchEvent_Action.ACTION_MOVE),
-              onPointerUp: (e) => _handlePointer(e, containerSize, frameSize, pb.TouchEvent_Action.ACTION_UP),
-              onPointerCancel: (e) => _handlePointer(e, containerSize, frameSize, pb.TouchEvent_Action.ACTION_CANCEL),
-              onPointerSignal: (signal) {
-                if (signal is PointerScrollEvent) {
-                  _handleScroll(signal, containerSize, frameSize);
-                }
-              },
-              child: Center(
-                child: AspectRatio(
-                  aspectRatio: _frames.aspectRatio,
-                  child: RawImage(
-                    image: image,
-                    fit: BoxFit.fill,
+            return Focus(
+              focusNode: _focusNode,
+              autofocus: true,
+              onKeyEvent: _handleKeyEvent,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onPanDown: (_) {},
+                onPanStart: (_) {},
+                onPanUpdate: (_) {},
+                onPanEnd: (_) {},
+                child: Listener(
+                  behavior: HitTestBehavior.opaque,
+                  onPointerDown: (e) => _handlePointer(e, containerSize, frameSize, pb.TouchEvent_Action.ACTION_DOWN),
+                  onPointerMove: (e) => _handlePointer(e, containerSize, frameSize, pb.TouchEvent_Action.ACTION_MOVE),
+                  onPointerUp: (e) => _handlePointer(e, containerSize, frameSize, pb.TouchEvent_Action.ACTION_UP),
+                  onPointerCancel: (e) => _handlePointer(e, containerSize, frameSize, pb.TouchEvent_Action.ACTION_CANCEL),
+                  onPointerSignal: (signal) {
+                    if (signal is PointerScrollEvent) {
+                      _handleScroll(signal, containerSize, frameSize);
+                    }
+                  },
+                  child: Center(
+                    child: AspectRatio(
+                      aspectRatio: _frames.aspectRatio,
+                      child: RawImage(
+                        image: image,
+                        fit: BoxFit.fill,
+                      ),
+                    ),
                   ),
                 ),
               ),

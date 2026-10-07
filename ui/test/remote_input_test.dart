@@ -10,6 +10,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -249,6 +250,20 @@ void main() {
       ));
       await tester.pump();
       await tester.pump();
+
+      // Push 1 frame to frame stream so ScreenFrameView renders the interactive mirror surface
+      client.frames.add(ipc.StreamFramesResponse(
+        frameId: Int64(1),
+        chunkIndex: 0,
+        chunkCount: 1,
+        lastChunk: true,
+        width: 1,
+        height: 1,
+        jpeg: tinyJpeg,
+      ));
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pump();
       return (controller, client);
     }
 
@@ -346,6 +361,116 @@ void main() {
       expect(req.sessionId, 'sess-input-test');
       expect(req.frame.hasText(), isTrue);
       expect(req.frame.text.text, 'Test remote input text');
+
+      controller.dispose();
+    });
+
+    testWidgets('Right click dispatches Back global action', (tester) async {
+      final (controller, client) = await mountScreen(tester);
+
+      // Find ScreenFrameView
+      final frameView = find.byType(ScreenFrameView);
+      expect(frameView, findsOneWidget);
+
+      // Right click (secondary button)
+      await tester.tap(frameView, buttons: kSecondaryMouseButton);
+      await tester.pump();
+
+      expect(client.sendInputCalls, 1);
+      final req = client.sentInputRequests.last;
+      expect(req.sessionId, 'sess-input-test');
+      expect(req.frame.hasAction(), isTrue);
+      expect(
+        req.frame.action.type,
+        pb.GlobalActionEvent_Type.TYPE_GLOBAL_ACTION_BACK,
+      );
+
+      controller.dispose();
+    });
+
+    testWidgets('Direct keyboard input sends TextEvent and KeyEvents', (tester) async {
+      final (controller, client) = await mountScreen(tester);
+
+      // Focus ScreenFrameView
+      final frameView = find.byType(ScreenFrameView);
+      await tester.tap(frameView);
+      await tester.pump();
+
+      // Clear calls from tap gesture
+      client.sentInputRequests.clear();
+      client.sendInputCalls = 0;
+
+      // 1. Printable character typing
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyA, character: 'a');
+      await tester.pump();
+
+      expect(client.sendInputCalls, 1);
+      var req = client.sentInputRequests.last;
+      expect(req.frame.hasText(), isTrue);
+      expect(req.frame.text.text, 'a');
+
+      // 2. Backspace key
+      await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
+      await tester.pump();
+
+      expect(client.sendInputCalls, 2);
+      req = client.sentInputRequests.last;
+      expect(req.frame.hasKey(), isTrue);
+      expect(req.frame.key.keyCode, 67); // KEYCODE_DEL
+
+      // 3. Enter key
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      expect(client.sendInputCalls, 3);
+      req = client.sentInputRequests.last;
+      expect(req.frame.hasKey(), isTrue);
+      expect(req.frame.key.keyCode, 66); // KEYCODE_ENTER
+
+      // 4. Home key
+      await tester.sendKeyEvent(LogicalKeyboardKey.home);
+      await tester.pump();
+
+      expect(client.sendInputCalls, 4);
+      req = client.sentInputRequests.last;
+      expect(req.frame.hasAction(), isTrue);
+      expect(
+        req.frame.action.type,
+        pb.GlobalActionEvent_Type.TYPE_GLOBAL_ACTION_HOME,
+      );
+
+      controller.dispose();
+    });
+
+    testWidgets('Remote control toggle switches between ACTIVE and VIEW ONLY and gates inputs', (tester) async {
+      final (controller, client) = await mountScreen(tester);
+
+      expect(find.text('REMOTE CONTROL ACTIVE'), findsOneWidget);
+      expect(controller.remoteControlEnabled, isTrue);
+
+      // Toggle OFF via Switch
+      final switchWidget = find.byType(Switch);
+      expect(switchWidget, findsOneWidget);
+      await tester.tap(switchWidget);
+      await tester.pump();
+
+      expect(controller.remoteControlEnabled, isFalse);
+      expect(find.text('VIEW ONLY'), findsOneWidget);
+
+      // Attempt pointer click on ScreenFrameView while disabled
+      final frameView = find.byType(ScreenFrameView);
+      await tester.tap(frameView);
+      await tester.pump();
+
+      // No input call should be dispatched
+      expect(client.sendInputCalls, 0);
+
+      // Toggle back ON
+      await tester.tap(switchWidget);
+      await tester.pump();
+
+      expect(controller.remoteControlEnabled, isTrue);
+      expect(find.text('REMOTE CONTROL ACTIVE'), findsOneWidget);
 
       controller.dispose();
     });

@@ -28,6 +28,7 @@ class TrustedDevice {
 
   bool get isLinux => platform.toLowerCase().contains('linux');
   bool get isCosmic => platform.toLowerCase().contains('cosmic');
+  bool get isTrusted => !revoked;
 
   String get shortId {
     if (deviceId.length <= 12) return deviceId;
