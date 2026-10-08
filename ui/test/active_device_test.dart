@@ -472,5 +472,64 @@ void main() {
       expect(activeRow.isActiveTarget, isTrue);
       expect(activeRow.group, equals(DeviceRowGroup.connected));
     });
+
+    test('clearAllRevokedDevices removes only revoked devices and preserves active trusted devices',
+        () async {
+      controller.initialize();
+      client.trustedDevices = [
+        ipc.TrustedDevice(
+          deviceId: 'dev-revoked-1',
+          displayName: 'Past Phone 1',
+          platform: 'android',
+          revoked: true,
+        ),
+        ipc.TrustedDevice(
+          deviceId: 'dev-revoked-2',
+          displayName: 'Past Phone 2',
+          platform: 'android',
+          revoked: true,
+        ),
+        ipc.TrustedDevice(
+          deviceId: 'dev-trusted-active',
+          displayName: 'Active Phone',
+          platform: 'android',
+          revoked: false,
+        ),
+      ];
+      await controller.refreshAll();
+      expect(controller.deviceRows.length, equals(3));
+
+      final removedCount = await controller.clearAllRevokedDevices();
+      expect(removedCount, equals(2));
+      expect(client.removeDeviceCalls, equals(['dev-revoked-1', 'dev-revoked-2']));
+    });
+
+    test('isSessionConnecting and isConnectingTo reflect connecting session state',
+        () async {
+      controller.initialize();
+      client.trustedDevices = [
+        ipc.TrustedDevice(
+          deviceId: 'phone-connecting-target',
+          displayName: 'Connecting Phone',
+          platform: 'android',
+        ),
+      ];
+      await controller.refreshAll();
+
+      expect(controller.isSessionConnecting, isFalse);
+      expect(controller.isConnectingTo('phone-connecting-target'), isFalse);
+
+      client.snapshot = ipc.GetSessionStateResponse(
+        sessionId: 'sess-conn-1',
+        deviceId: 'phone-connecting-target',
+        state: ipc.SessionState.SESSION_STATE_CONNECTING,
+      );
+      await controller.session.refresh();
+
+      expect(controller.isSessionConnecting, isTrue);
+      expect(controller.connectingDeviceId, equals('phone-connecting-target'));
+      expect(controller.isConnectingTo('phone-connecting-target'), isTrue);
+      expect(controller.isConnectingTo('other-phone'), isFalse);
+    });
   });
 }

@@ -125,6 +125,9 @@ class PhoneBridgeController extends ChangeNotifier {
   /// as plain UNPAIRED.
   String? _outboundPairingDeviceId;
 
+  /// Device id currently undergoing connection negotiation, if any.
+  String? _connectingDeviceId;
+
   /// Inbound request tokens this device has already surfaced a prompt for.
   /// Tracks the one-shot dialog so the same request never re-prompts on every
   /// notifyListeners.
@@ -243,6 +246,32 @@ class PhoneBridgeController extends ChangeNotifier {
     if (_service.isLinux) return _session.activeDeviceId;
     if (!isSharing) return null;
     return _androidTargetDeviceId;
+  }
+
+  /// Device id currently being connected to (either in-flight start/switch,
+  /// or daemon session state while connecting/discovering).
+  String? get connectingDeviceId {
+    if (_connectingDeviceId != null && _connectingDeviceId!.isNotEmpty) {
+      return _connectingDeviceId;
+    }
+    if (_session.supportsSessions && _session.status.isConnecting) {
+      return _session.status.deviceId;
+    }
+    return null;
+  }
+
+  /// True when a connection is actively being negotiated (connecting or discovering),
+  /// but has not yet reached a stable connected/streaming state.
+  bool get isSessionConnecting =>
+      _connectingDeviceId != null ||
+      (_session.supportsSessions && _session.status.isConnecting) ||
+      (_isLoading && _androidTargetDeviceId != null && !isSharing);
+
+  /// Whether the given [deviceId] is the target currently being connected to.
+  bool isConnectingTo(String deviceId) {
+    if (deviceId.isEmpty) return false;
+    final target = connectingDeviceId;
+    return isSessionConnecting && target == deviceId;
   }
 
   /// The trusted record for the authoritative active device, or null when
@@ -666,6 +695,7 @@ class PhoneBridgeController extends ChangeNotifier {
   /// aborts cleanly *before* capture — never after consent.
   Future<bool> startScreenSharing(
       {String? targetDeviceId, String? receiverUrl}) async {
+    _connectingDeviceId = targetDeviceId;
     _isLoading = true;
     _lastErrorMessage = null;
     notifyListeners();
@@ -721,6 +751,7 @@ class PhoneBridgeController extends ChangeNotifier {
       _lastErrorMessage = e.toString();
       return false;
     } finally {
+      _connectingDeviceId = null;
       _isLoading = false;
       notifyListeners();
     }
@@ -804,36 +835,46 @@ class PhoneBridgeController extends ChangeNotifier {
     final generation = ++_switchGeneration;
     bool superseded() => generation != _switchGeneration;
 
-    final needsStop =
-        _session.status.isActive || activeDeviceId != null || isSharing;
-    if (needsStop) {
-      final stopped = await disconnectActiveDevice(
-          reason: 'user switched devices from devices UI');
-      if (superseded()) return false;
-      if (!stopped) {
-        _lastErrorMessage ??= 'Could not stop the current session.';
-        return false;
-      }
-      final deadline = DateTime.now().add(settleTimeout);
-      while (DateTime.now().isBefore(deadline)) {
+    _connectingDeviceId = targetDeviceId;
+    notifyListeners();
+
+    try {
+      final needsStop =
+          _session.status.isActive || activeDeviceId != null || isSharing;
+      if (needsStop) {
+        final stopped = await disconnectActiveDevice(
+            reason: 'user switched devices from devices UI');
         if (superseded()) return false;
-        if (!_session.status.isActive && activeDeviceId == null && !isSharing) {
-          break;
+        if (!stopped) {
+          _lastErrorMessage ??= 'Could not stop the current session.';
+          return false;
         }
-        await Future<void>.delayed(const Duration(milliseconds: 150));
-        if (superseded()) return false;
+        final deadline = DateTime.now().add(settleTimeout);
+        while (DateTime.now().isBefore(deadline)) {
+          if (superseded()) return false;
+          if (!_session.status.isActive && activeDeviceId == null && !isSharing) {
+            break;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 150));
+          if (superseded()) return false;
+        }
+        if (_session.status.isActive) {
+          _lastErrorMessage =
+              'The previous session did not stop in time. Try disconnecting first.';
+          return false;
+        }
       }
-      if (_session.status.isActive) {
-        _lastErrorMessage =
-            'The previous session did not stop in time. Try disconnecting first.';
-        return false;
+      if (superseded()) return false;
+      return await startScreenSharing(
+        targetDeviceId: targetDeviceId,
+        receiverUrl: receiverUrl,
+      );
+    } finally {
+      if (!superseded()) {
+        _connectingDeviceId = null;
+        notifyListeners();
       }
     }
-    if (superseded()) return false;
-    return startScreenSharing(
-      targetDeviceId: targetDeviceId,
-      receiverUrl: receiverUrl,
-    );
   }
 
   Future<bool> stopScreenSharing() async {
@@ -896,6 +937,43 @@ class PhoneBridgeController extends ChangeNotifier {
     } catch (e) {
       _lastErrorMessage = e.toString();
       return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Permanently removes all revoked device records from the trust store.
+  ///
+  /// Returns the number of removed devices.
+  Future<int> clearAllRevokedDevices() async {
+    final revoked = _trustedDevices.where((d) => d.revoked).toList();
+    if (revoked.isEmpty) return 0;
+
+    _isLoading = true;
+    _lastErrorMessage = null;
+    notifyListeners();
+    int removedCount = 0;
+    try {
+      for (final dev in revoked) {
+        final ok = await _service.removeDevice(dev.deviceId);
+        if (ok) {
+          removedCount++;
+        }
+      }
+      if (removedCount > 0) {
+        addActivityEvent(
+          ActivityCategory.pairing,
+          'Revoked Devices Cleared',
+          'Removed $removedCount revoked device records from trust store',
+          ActivityLevel.info,
+        );
+      }
+      await refreshAll();
+      return removedCount;
+    } catch (e) {
+      _lastErrorMessage = e.toString();
+      return removedCount;
     } finally {
       _isLoading = false;
       notifyListeners();

@@ -380,4 +380,88 @@ testWidgets('an outbound pairing awaiting SAS confirmation shows PAIRING, not ju
   await tester.pumpAndSettle();
   expect(find.text('PAIRING'), findsNothing);
 });
+
+testWidgets('session in connecting state renders Connecting hero card and cancel button',
+    (tester) async {
+  await mountDevices(tester);
+
+  client.trustedDevices = [
+    ipc.TrustedDevice(
+      deviceId: 'trusted-1',
+      displayName: 'Trusted POCO',
+      platform: 'android',
+    ),
+  ];
+  client.snapshot = ipc.GetSessionStateResponse(
+    sessionId: 'sess-connecting-1',
+    deviceId: 'trusted-1',
+    state: ipc.SessionState.SESSION_STATE_CONNECTING,
+  );
+  await controller.refreshAll();
+  await controller.session.refresh();
+  await tester.pump();
+
+  expect(find.text('Connecting to Trusted POCO…'), findsOneWidget);
+  expect(find.text('Negotiating WebRTC session…'), findsOneWidget);
+  expect(find.text('CANCEL'), findsOneWidget);
+  controller.dispose();
+});
+
+testWidgets('clear all revoked devices button opens dialog and triggers controller clear',
+    (tester) async {
+  await mountDevices(tester);
+
+  client.trustedDevices = [
+    ipc.TrustedDevice(
+      deviceId: 'rev-1',
+      displayName: 'Old Device 1',
+      platform: 'android',
+      revoked: true,
+    ),
+    ipc.TrustedDevice(
+      deviceId: 'rev-2',
+      displayName: 'Old Device 2',
+      platform: 'android',
+      revoked: true,
+    ),
+  ];
+  await controller.refreshAll();
+  await tester.pumpAndSettle();
+
+  expect(find.text('CLEAR ALL'), findsOneWidget);
+  await tester.tap(find.text('CLEAR ALL'));
+  await tester.pumpAndSettle();
+
+  expect(find.text('Clear All Revoked Devices?'), findsOneWidget);
+  await tester.tap(find.widgetWithText(FilledButton, 'CLEAR ALL'));
+  await tester.pumpAndSettle();
+
+  expect(client.removeDeviceCalls, containsAll(['rev-1', 'rev-2']));
+});
+
+testWidgets('inline forget button on revoked tile opens confirmation and forgets device',
+    (tester) async {
+  await mountDevices(tester);
+
+  client.trustedDevices = [
+    ipc.TrustedDevice(
+      deviceId: 'rev-single',
+      displayName: 'Single Past Device',
+      platform: 'android',
+      revoked: true,
+    ),
+  ];
+  await controller.refreshAll();
+  await tester.pumpAndSettle();
+
+  expect(find.byTooltip('Forget device'), findsOneWidget);
+  await tester.tap(find.byTooltip('Forget device'));
+  await tester.pumpAndSettle();
+
+  expect(find.text('Forget Device?'), findsOneWidget);
+  await tester.tap(find.widgetWithText(FilledButton, 'FORGET'));
+  await tester.pumpAndSettle();
+
+  expect(client.removeDeviceCalls, equals(['rev-single']));
+});
 }

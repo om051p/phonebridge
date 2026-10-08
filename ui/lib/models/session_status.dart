@@ -226,6 +226,16 @@ class SessionStatus {
   /// not as an error the user must resolve.
   bool get isRecovering => state == SessionState.SESSION_STATE_RECONNECTING;
 
+  /// In-progress connection negotiation (discovering peer or negotiating params).
+  bool get isConnecting =>
+      state == SessionState.SESSION_STATE_CONNECTING ||
+      state == SessionState.SESSION_STATE_DISCOVERING;
+
+  /// Connected WebRTC peer or actively streaming frames.
+  bool get isConnectedOrStreaming =>
+      state == SessionState.SESSION_STATE_CONNECTED ||
+      state == SessionState.SESSION_STATE_STREAMING;
+
   /// Telemetry keeps flowing across a reconnect: the session is the same one
   /// (the daemon preserves its ID), it is only the transport that is replaced.
   bool get shouldKeepTelemetry => isActive;

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../controllers/phonebridge_controller.dart';
+import '../generated/phonebridge/localipc/v1/local_ipc.pb.dart' as ipc;
 import '../models/device_presence.dart';
 import '../models/device_row.dart';
 import '../ui/pairing_request_dialog.dart';
@@ -279,6 +280,83 @@ class DevicesScreen extends StatelessWidget {
             : (controller.lastErrorMessage ?? 'Disconnect failed')),
         backgroundColor:
             ok ? Colors.green.shade700 : Theme.of(context).colorScheme.error,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Future<void> _confirmRemoveDevice(BuildContext context, DeviceRow row) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        icon: const Icon(Icons.delete_outline, size: 36, color: Colors.red),
+        title: const Text('Forget Device?'),
+        content: Text(
+          'Permanently remove "${row.displayName}" (${row.shortId}) from trust store? '
+          'You will need to pair again to reconnect.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, false),
+            child: const Text('CANCEL'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(dialogCtx, true),
+            child: const Text('FORGET'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    final ok = await controller.removeDevice(row.deviceId);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok
+            ? 'Removed "${row.displayName}" from trust store.'
+            : (controller.lastErrorMessage ?? 'Failed to remove device.')),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Future<void> _confirmClearAllRevoked(
+      BuildContext context, int count) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        icon: const Icon(Icons.delete_sweep_outlined, size: 36, color: Colors.red),
+        title: const Text('Clear All Revoked Devices?'),
+        content: Text(
+          'This will permanently remove $count past revoked pairing records from your trust store. '
+          'Active and trusted devices will not be affected.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, false),
+            child: const Text('CANCEL'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(dialogCtx, true),
+            child: const Text('CLEAR ALL'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    final removed = await controller.clearAllRevokedDevices();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Cleared $removed revoked device records.'),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -575,6 +653,11 @@ class DevicesScreen extends StatelessWidget {
     final revoked =
         rows.where((r) => r.group == DeviceRowGroup.revoked).toList();
 
+    final connectingId = controller.connectingDeviceId;
+    final connectingRow = (connectingId != null && connectingId.isNotEmpty)
+        ? rows.where((r) => r.deviceId == connectingId).firstOrNull
+        : null;
+
     return RefreshIndicator(
       onRefresh: () async {
         await controller.refreshAll();
@@ -595,7 +678,10 @@ class DevicesScreen extends StatelessWidget {
               'The one live session — disconnect or switch from here'),
           const SizedBox(height: 10),
           if (connected.isEmpty)
-            _buildEmptyConnectedCard(theme)
+            if (connectingRow != null)
+              _buildConnectingCard(context, theme, connectingRow)
+            else
+              _buildEmptyConnectedCard(theme)
           else
             ...connected.map((r) => _buildConnectedCard(context, theme, r)),
           const SizedBox(height: 20),
@@ -623,10 +709,33 @@ class DevicesScreen extends StatelessWidget {
             const SizedBox(height: 20),
           ],
           if (revoked.isNotEmpty) ...[
-            _sectionHeader(theme, 'Revoked / past devices (${revoked.length})',
-                'Trust revoked · kept for audit, never auto-connected'),
-            const SizedBox(height: 10),
-            ...revoked.map((r) => _buildRevokedTile(context, theme, r)),
+            Theme(
+              data: theme.copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                initiallyExpanded: true,
+                tilePadding: EdgeInsets.zero,
+                childrenPadding: EdgeInsets.zero,
+                title: _sectionHeader(
+                  theme,
+                  'Revoked / past devices (${revoked.length})',
+                  'Trust revoked · kept for audit, never auto-connected',
+                  action: TextButton.icon(
+                    style: TextButton.styleFrom(
+                      foregroundColor: theme.colorScheme.error,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    onPressed: () =>
+                        _confirmClearAllRevoked(context, revoked.length),
+                    icon: const Icon(Icons.delete_sweep_outlined, size: 16),
+                    label: const Text('CLEAR ALL'),
+                  ),
+                ),
+                children: [
+                  const SizedBox(height: 10),
+                  ...revoked.map((r) => _buildRevokedTile(context, theme, r)),
+                ],
+              ),
+            ),
             const SizedBox(height: 20),
           ],
           _buildPairingGuideCard(theme),
@@ -635,22 +744,31 @@ class DevicesScreen extends StatelessWidget {
     );
   }
 
-  Widget _sectionHeader(ThemeData theme, String title, String subtitle) {
-    return Column(
+  Widget _sectionHeader(ThemeData theme, String title, String subtitle,
+      {Widget? action}) {
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          title,
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Text(
+                subtitle,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
           ),
         ),
-        Text(
-          subtitle,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
+        if (action != null) action,
       ],
     );
   }
@@ -727,6 +845,10 @@ class DevicesScreen extends StatelessWidget {
 
   Widget _buildConnectedCard(
       BuildContext context, ThemeData theme, DeviceRow row) {
+    if (controller.isSessionConnecting ||
+        controller.session.status.isConnecting) {
+      return _buildConnectingCard(context, theme, row);
+    }
     final sessionState = controller.session.status.state;
     return Card(
       elevation: 2,
@@ -828,6 +950,128 @@ class DevicesScreen extends StatelessWidget {
     );
   }
 
+  Widget _buildConnectingCard(
+      BuildContext context, ThemeData theme, DeviceRow row) {
+    final sessionState = controller.session.status.state;
+    final String stateDescription;
+    if (sessionState == ipc.SessionState.SESSION_STATE_DISCOVERING) {
+      stateDescription = 'Discovering target device on LAN…';
+    } else if (sessionState == ipc.SessionState.SESSION_STATE_CONNECTING) {
+      stateDescription = 'Negotiating WebRTC session…';
+    } else {
+      stateDescription = 'Establishing connection…';
+    }
+
+    return Card(
+      elevation: 2,
+      color: Colors.amber.withValues(alpha: 0.08),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: Colors.amber.withValues(alpha: 0.6),
+          width: 1.5,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Center(
+                    child: SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        color: Colors.amber,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Connecting to ${row.displayName}…',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        stateDescription,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                _statusBadge('CONNECTING…', Colors.amber, icon: Icons.sync),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Session state: ${sessionState.name} · ${row.platform.toUpperCase()} (${row.shortId})',
+              style: TextStyle(
+                fontSize: 11,
+                fontFamily: 'monospace',
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: theme.colorScheme.error,
+                      side: BorderSide(color: theme.colorScheme.error),
+                    ),
+                    onPressed: () => _disconnect(context),
+                    icon: const Icon(Icons.close, size: 18),
+                    label: const Text('CANCEL'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _showDeviceDetails(context, row),
+                    icon: const Icon(Icons.info_outline, size: 18),
+                    label: const Text('DETAILS'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Negotiating direct peer connection. Tap Cancel to abort.',
+              style: TextStyle(
+                fontSize: 11,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildEmptyConnectedCard(ThemeData theme) {
     return Card(
       elevation: 0,
@@ -869,6 +1113,9 @@ class DevicesScreen extends StatelessWidget {
   Widget _buildAvailableTile(
       BuildContext context, ThemeData theme, DeviceRow row,
       {required bool sessionLive}) {
+    final isThisConnecting = controller.isConnectingTo(row.deviceId);
+    final isAnyConnecting = controller.isSessionConnecting;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       elevation: 0,
@@ -890,14 +1137,18 @@ class DevicesScreen extends StatelessWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.primaryContainer,
+                  color: isThisConnecting
+                      ? Colors.amber.withValues(alpha: 0.15)
+                      : theme.colorScheme.primaryContainer,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
                   row.platform.toLowerCase().contains('linux')
                       ? Icons.computer
                       : Icons.phone_android,
-                  color: theme.colorScheme.onPrimaryContainer,
+                  color: isThisConnecting
+                      ? Colors.amber
+                      : theme.colorScheme.onPrimaryContainer,
                 ),
               ),
               const SizedBox(width: 12),
@@ -924,41 +1175,70 @@ class DevicesScreen extends StatelessWidget {
                       spacing: 6,
                       runSpacing: 6,
                       children: [
-                        _statusBadge('TRUSTED', Colors.green,
-                            icon: Icons.verified_outlined),
-                        _connectionDot(theme, isConnected: false),
+                        if (isThisConnecting)
+                          _statusBadge('CONNECTING…', Colors.amber,
+                              icon: Icons.sync)
+                        else ...[
+                          _statusBadge('TRUSTED', Colors.green,
+                              icon: Icons.verified_outlined),
+                          _connectionDot(theme, isConnected: false),
+                        ],
                       ],
                     ),
                   ],
                 ),
               ),
               const SizedBox(width: 8),
-              FilledButton(
-                style: FilledButton.styleFrom(
-                    visualDensity: VisualDensity.compact),
-                onPressed: controller.isLoading
-                    ? null
-                    : () async {
-                        if (sessionLive) {
-                          final connected = controller.deviceRows
-                              .where((r) => r.isActiveTarget)
-                              .cast<DeviceRow?>()
-                              .fold<DeviceRow?>(null, (p, e) => e);
-                          if (connected != null) {
-                            await _confirmSwitch(context, connected, row);
-                            return;
+              if (isThisConnecting)
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    backgroundColor: Colors.amber.shade700,
+                  ),
+                  onPressed: null,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      ),
+                      SizedBox(width: 6),
+                      Text('CONNECTING…'),
+                    ],
+                  ),
+                )
+              else
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                      visualDensity: VisualDensity.compact),
+                  onPressed: (controller.isLoading || isAnyConnecting)
+                      ? null
+                      : () async {
+                          if (sessionLive) {
+                            final connected = controller.deviceRows
+                                .where((r) => r.isActiveTarget)
+                                .cast<DeviceRow?>()
+                                .fold<DeviceRow?>(null, (p, e) => e);
+                            if (connected != null) {
+                              await _confirmSwitch(context, connected, row);
+                              return;
+                            }
                           }
-                        }
-                        await _connectDevice(
-                          context,
-                          targetDeviceId: row.deviceId,
-                          receiverUrl: row.signalingUrl.isNotEmpty
-                              ? row.signalingUrl
-                              : null,
-                        );
-                      },
-                child: Text(sessionLive ? 'SWITCH' : 'CONNECT'),
-              ),
+                          await _connectDevice(
+                            context,
+                            targetDeviceId: row.deviceId,
+                            receiverUrl: row.signalingUrl.isNotEmpty
+                                ? row.signalingUrl
+                                : null,
+                          );
+                        },
+                  child: Text(sessionLive ? 'SWITCH' : 'CONNECT'),
+                ),
             ],
           ),
         ),
@@ -1200,23 +1480,35 @@ class DevicesScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
-              if (row.discovered && !row.isStale)
-                FilledButton.tonal(
-                  style: FilledButton.styleFrom(
-                      visualDensity: VisualDensity.compact),
-                  onPressed: controller.isLoading
-                      ? null
-                      : () => _startPairingFlow(
-                            context,
-                            deviceId: row.deviceId,
-                            deviceName: row.displayName,
-                            shortId: row.shortId,
-                          ),
-                  child: const Text('RE-PAIR'),
-                )
-              else
-                const Icon(Icons.chevron_right),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (row.discovered && !row.isStale) ...[
+                    FilledButton.tonal(
+                      style: FilledButton.styleFrom(
+                          visualDensity: VisualDensity.compact),
+                      onPressed: controller.isLoading
+                          ? null
+                          : () => _startPairingFlow(
+                                context,
+                                deviceId: row.deviceId,
+                                deviceName: row.displayName,
+                                shortId: row.shortId,
+                              ),
+                      child: const Text('RE-PAIR'),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, size: 20),
+                    tooltip: 'Forget device',
+                    color: theme.colorScheme.error,
+                    onPressed: controller.isLoading
+                        ? null
+                        : () => _confirmRemoveDevice(context, row),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
