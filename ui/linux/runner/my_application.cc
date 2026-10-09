@@ -60,9 +60,9 @@ static void my_application_activate(GApplication* application) {
 
   FlView* view = fl_view_new(project);
   GdkRGBA background_color;
-  // Brand-matched launch background (PhoneBridge navy #1A237E): shown until
+  // Brand-matched launch background (PhoneBridge premium titanium space-black #0E1117): shown until
   // the first Flutter frame renders, so startup never flashes black/white.
-  gdk_rgba_parse(&background_color, "#1A237E");
+  gdk_rgba_parse(&background_color, "#0E1117");
   fl_view_set_background_color(view, &background_color);
   gtk_widget_show(GTK_WIDGET(view));
   gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));

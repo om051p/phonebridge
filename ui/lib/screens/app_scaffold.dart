@@ -12,6 +12,7 @@ import 'activity_screen.dart';
 import 'settings_screen.dart';
 import 'diagnostics_screen.dart';
 import 'about_screen.dart';
+import 'report_issue_screen.dart';
 
 class AppScaffold extends StatefulWidget {
   const AppScaffold({
@@ -97,7 +98,13 @@ class _AppScaffoldState extends State<AppScaffold> {
         } else if (route == '/about') {
           Navigator.of(context).push(
             MaterialPageRoute(
-              builder: (_) => const AboutScreen(),
+              builder: (_) => AboutScreen(controller: widget.controller),
+            ),
+          );
+        } else if (route == '/report') {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => ReportIssueScreen(controller: widget.controller),
             ),
           );
         }
@@ -168,6 +175,17 @@ class _AppScaffoldState extends State<AppScaffold> {
                 title: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: Image.asset(
+                        'assets/branding/logo.png',
+                        width: 24,
+                        height: 24,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     const Flexible(
                       child: Text(
                         'PhoneBridge',

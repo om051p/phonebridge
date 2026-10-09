@@ -1,7 +1,14 @@
 import 'package:flutter/material.dart';
+import '../controllers/phonebridge_controller.dart';
+import 'report_issue_screen.dart';
 
 class AboutScreen extends StatelessWidget {
-  const AboutScreen({super.key});
+  const AboutScreen({
+    super.key,
+    this.controller,
+  });
+
+  final PhoneBridgeController? controller;
 
   @override
   Widget build(BuildContext context) {
@@ -16,16 +23,30 @@ class AboutScreen extends StatelessWidget {
         children: [
           Center(
             child: Container(
-              width: 80,
-              height: 80,
+              width: 100,
+              height: 100,
               decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer,
-                shape: BoxShape.circle,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
               ),
-              child: Icon(
-                Icons.phonelink,
-                size: 42,
-                color: theme.colorScheme.onPrimaryContainer,
+              clipBehavior: Clip.antiAlias,
+              child: Image.asset(
+                'assets/branding/logo.png',
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  color: theme.colorScheme.primaryContainer,
+                  child: Icon(
+                    Icons.phonelink,
+                    size: 48,
+                    color: theme.colorScheme.onPrimaryContainer,
+                  ),
+                ),
               ),
             ),
           ),
@@ -35,6 +56,7 @@ class AboutScreen extends StatelessWidget {
               'PhoneBridge',
               style: theme.textTheme.headlineMedium?.copyWith(
                 fontWeight: FontWeight.bold,
+                letterSpacing: -0.5,
               ),
             ),
           ),
@@ -48,13 +70,38 @@ class AboutScreen extends StatelessWidget {
           ),
           Center(
             child: Text(
-              'Version 0.3.0 · Phase 3 Production Foundation',
+              'Version 0.3.0 · Phase 4 Production Build',
               style: theme.textTheme.labelSmall?.copyWith(
                 color: theme.colorScheme.outline,
               ),
             ),
           ),
           const SizedBox(height: 24),
+          const Divider(),
+          const SizedBox(height: 16),
+          Text(
+            'Developer & Support',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.business_rounded),
+              title: const Text(ReportIssueScreen.developerName),
+              subtitle: const Text(ReportIssueScreen.developerEmail),
+              trailing: const Icon(Icons.bug_report_outlined),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ReportIssueScreen(controller: controller),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 16),
           const Divider(),
           const SizedBox(height: 16),
           Text(

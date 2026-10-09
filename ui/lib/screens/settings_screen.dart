@@ -4,6 +4,7 @@ import '../models/media_capabilities.dart';
 import '../ui/permission_onboarding_card.dart';
 import 'diagnostics_screen.dart';
 import 'about_screen.dart';
+import 'report_issue_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({
@@ -116,6 +117,21 @@ class SettingsScreen extends StatelessWidget {
             },
           ),
           const Divider(),
+          _sectionHeader(theme, 'Support & Feedback'),
+          ListTile(
+            leading: const Icon(Icons.feedback_outlined),
+            title: const Text('Report an Issue / Feedback'),
+            subtitle: const Text('Send bug report or feedback to raxatechnologies@gmail.com'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => ReportIssueScreen(controller: controller),
+                ),
+              );
+            },
+          ),
+          const Divider(),
           _sectionHeader(theme, 'About'),
           ListTile(
             leading: const Icon(Icons.info_outline),
@@ -125,7 +141,7 @@ class SettingsScreen extends StatelessWidget {
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => const AboutScreen(),
+                  builder: (_) => AboutScreen(controller: controller),
                 ),
               );
             },

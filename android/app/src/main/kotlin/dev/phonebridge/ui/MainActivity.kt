@@ -782,6 +782,23 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
                     }
                 }
             }
+            "openEmailClient" -> {
+                val email = call.argument<String>("email") ?: "raxatechnologies@gmail.com"
+                val subject = call.argument<String>("subject") ?: "PhoneBridge Bug Report"
+                val body = call.argument<String>("body") ?: ""
+                try {
+                    val intent = android.content.Intent(android.content.Intent.ACTION_SENDTO).apply {
+                        data = android.net.Uri.parse("mailto:$email")
+                        putExtra(android.content.Intent.EXTRA_SUBJECT, subject)
+                        putExtra(android.content.Intent.EXTRA_TEXT, body)
+                    }
+                    startActivity(android.content.Intent.createChooser(intent, "Send Bug Report"))
+                    result.success(true)
+                } catch (e: Exception) {
+                    Log.w(TAG, "openEmailClient failed: ${e.message}")
+                    result.success(false)
+                }
+            }
             else -> result.notImplemented()
         }
     }
