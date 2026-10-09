@@ -75,6 +75,9 @@ class _AppScaffoldState extends State<AppScaffold> {
         // the listener below prompts the dialog for any new request.
         await widget.controller.refreshInboundPairings();
         break;
+      case 'sessionChanged':
+        await widget.controller.refreshAll();
+        break;
       case 'onNavigateTab':
         final tab = call.arguments['tab'] as int? ?? 0;
         setState(() {

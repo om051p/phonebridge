@@ -206,7 +206,11 @@ class DevicesScreen extends StatelessWidget {
     String? targetDeviceId,
     String? receiverUrl,
   }) async {
-    final sessionWasActive = controller.session.status.isActive;
+    // Composed truth: on Android the live session is the phone's own capture
+    // pipeline (no SessionBackend), so controller.session is always idle and a
+    // live session would be started as a cold start (SESSION_BUSY) instead of
+    // being switched.
+    final sessionWasActive = controller.linkStatus.hasSession;
     final ok = sessionWasActive
         ? await controller.switchToDevice(
             targetDeviceId: targetDeviceId,
@@ -511,7 +515,7 @@ class DevicesScreen extends StatelessWidget {
                             }
                           },
                     icon: const Icon(Icons.link),
-                    label: Text(controller.session.status.isActive
+                    label: Text(controller.linkStatus.hasSession
                         ? 'SWITCH TO THIS DEVICE'
                         : 'CONNECT / START SESSION'),
                   ),
@@ -849,7 +853,11 @@ class DevicesScreen extends StatelessWidget {
         controller.session.status.isConnecting) {
       return _buildConnectingCard(context, theme, row);
     }
-    final sessionState = controller.session.status.state;
+    // Composed link status, not the raw session state: on Android the phone's
+    // own capture pipeline is the session (it does not implement
+    // SessionBackend), so reading controller.session here showed
+    // SESSION_STATE_DISCONNECTED on a card the same screen labels CONNECTED.
+    final linkStatus = controller.linkStatus;
     return Card(
       elevation: 2,
       color: Colors.green.withValues(alpha: 0.08),
@@ -903,7 +911,7 @@ class DevicesScreen extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Session state: ${sessionState.name}',
+              'Session state: ${linkStatus.label} · ${linkStatus.phase.name}',
               style: TextStyle(
                 fontSize: 12,
                 color: theme.colorScheme.onSurfaceVariant,
@@ -1196,9 +1204,9 @@ class DevicesScreen extends StatelessWidget {
                     backgroundColor: Colors.amber.shade700,
                   ),
                   onPressed: null,
-                  child: Row(
+                  child: const Row(
                     mainAxisSize: MainAxisSize.min,
-                    children: const [
+                    children: [
                       SizedBox(
                         width: 12,
                         height: 12,

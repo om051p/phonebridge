@@ -480,7 +480,10 @@ class ScreenSharingScreen extends StatelessWidget {
     // an internal "Target PC x1". Trust (shield) and connection (dot) stay
     // separate so Trusted + Offline/Available/Connected read distinctly.
     final hasPeer = peer != null;
-    final sessionActive = controller.session.status.isActive;
+    // Read the unified link, not the raw session: on Android the phone owns
+    // capture and has no local session model, so the raw session is always
+    // inactive even while streaming (the badge would say Ready).
+    final sessionActive = controller.linkStatus.hasSession;
     final connectionLabel =
         sessionActive ? controller.linkStatus.label : 'Disconnected';
     final connectionColor =

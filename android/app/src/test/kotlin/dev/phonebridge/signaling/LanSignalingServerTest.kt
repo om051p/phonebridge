@@ -177,4 +177,18 @@ class LanSignalingServerTest {
         assertTrue(stopCalled)
         assertTrue(body.contains(""""status":"ok""""))
     }
+
+    @Test
+    fun testDefaultHandlerStopNotifiesHostCaptureTeardown() {
+        // Regression: a peer-ended session (POST /session/stop) must reach the
+        // host so it can stop the Kotlin capture pipeline. Tearing down only the
+        // Go media transport left the screen encoder running after a
+        // desktop-side disconnect (physical leak).
+        val reasons = mutableListOf<String>()
+        val handler = LanSignalingServer.DefaultSignalingHandler(
+            onRemoteStop = { reasons.add(it) },
+        )
+        handler.handleStop("peer disconnected")
+        assertEquals(listOf("peer disconnected"), reasons)
+    }
 }

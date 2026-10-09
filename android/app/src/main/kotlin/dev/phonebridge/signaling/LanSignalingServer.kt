@@ -80,6 +80,14 @@ class LanSignalingServer(
     class DefaultSignalingHandler(
         private val liveCapture: () -> LiveCapture? = { null },
         private val capabilities: () -> DeviceMediaCapabilities = { DeviceMediaCapabilities() },
+        /**
+         * Invoked when the peer ends the session (POST /session/stop). The
+         * host wires this to its capture teardown: Go media teardown alone
+         * leaves the Kotlin capture pipeline (MediaProjection + encoder)
+         * running, so the phone would keep capturing after a desktop-side
+         * disconnect. Defaults to a no-op for tests and unwired handlers.
+         */
+        private val onRemoteStop: (String) -> Unit = {},
     ) : SignalingHandler {
         override fun handleOffer(request: SessionOfferRequest): SessionOfferAnswer {
             val caps = capabilities()
@@ -139,6 +147,10 @@ class LanSignalingServer(
                 GoBridge.mediaStop()
                 GoBridge.mediaRelease()
             }
+            // Go teardown does not stop the Kotlin capture pipeline, so a
+            // peer-ended session would otherwise leave the screen encoder
+            // running forever. The host stops capture here.
+            onRemoteStop(reason)
         }
     }
 
@@ -170,6 +182,33 @@ class LanSignalingServer(
     private val isRunning = AtomicBoolean(false)
     private val authValidator = if (trustStore != null) AuthValidator(trustStore) else null
     internal val pendingPairings = ConcurrentHashMap<String, PendingPairing>()
+
+    @Volatile
+    var activeSessionPeerId: String? = null
+        private set
+
+    @Volatile
+    private var pendingSessionPeerId: String? = null
+
+    /**
+     * Fired whenever an authenticated session is established (true, peerDeviceId)
+     * or stopped/disconnected (false, null).
+     */
+    @Volatile
+    var onSessionStateChanged: ((Boolean, String?) -> Unit)? = null
+
+    fun resetSession() {
+        val hadSession = activeSessionPeerId != null
+        activeSessionPeerId = null
+        pendingSessionPeerId = null
+        if (hadSession) {
+            try {
+                onSessionStateChanged?.invoke(false, null)
+            } catch (t: Throwable) {
+                logW(TAG, "onSessionStateChanged listener failed: ${t.message}")
+            }
+        }
+    }
 
     /**
      * Fired (off the server lock) whenever a NEW inbound pairing request is
@@ -258,6 +297,7 @@ class LanSignalingServer(
      */
     @Synchronized
     fun stop() {
+        resetSession()
         if (!isRunning.compareAndSet(true, false)) return
 
         try {
@@ -386,6 +426,7 @@ class LanSignalingServer(
             }
 
             method == "POST" && (path == "/session/offer" || path == "/session/answer" || path == "/session/stop") -> {
+                var authResult: AuthValidator.AuthResult? = null
                 if (authValidator != null) {
                     // The verifier's TrustStore instance is long-lived while
                     // trust commits (pairing approvals, revokes) can land
@@ -394,10 +435,11 @@ class LanSignalingServer(
                     // so a freshly paired peer is not rejected with 403 and a
                     // freshly revoked peer is not still accepted.
                     trustStore?.reload()
-                    val authResult = authValidator.verify(method, path, body) { headerName ->
+                    val res = authValidator.verify(method, path, body) { headerName ->
                         headers[headerName.lowercase()]
                     }
-                    when (authResult) {
+                    authResult = res
+                    when (res) {
                         is AuthValidator.AuthResult.Failure -> {
                             val err = """{"error":"${authResult.message}"}""".toByteArray(StandardCharsets.UTF_8)
                             val statusStr = if (authResult.statusCode == 401) "Unauthorized" else "Forbidden"
@@ -437,9 +479,12 @@ class LanSignalingServer(
                                     "application/json",
                                     payload,
                                 )
-                                is SessionNegotiationResult.Accepted -> sendResponse(
-                                    out, 200, "OK", "application/json", payload,
-                                )
+                                is SessionNegotiationResult.Accepted -> {
+                                    pendingSessionPeerId = (authResult as? AuthValidator.AuthResult.Success)?.deviceId
+                                    sendResponse(
+                                        out, 200, "OK", "application/json", payload,
+                                    )
+                                }
                             }
                         } catch (t: Throwable) {
                             logW(TAG, "/session/offer failed: ${t.message}")
@@ -456,6 +501,14 @@ class LanSignalingServer(
                         try {
                             val ok = handler.handleAnswer(body)
                             if (ok) {
+                                val peerId = pendingSessionPeerId
+                                    ?: (authResult as? AuthValidator.AuthResult.Success)?.deviceId
+                                activeSessionPeerId = peerId
+                                try {
+                                    onSessionStateChanged?.invoke(true, peerId)
+                                } catch (t: Throwable) {
+                                    logW(TAG, "onSessionStateChanged listener failed: ${t.message}")
+                                }
                                 val resp = """{"status":"ok"}""".toByteArray(StandardCharsets.UTF_8)
                                 sendResponse(out, 200, "OK", "application/json", resp)
                             } else {
@@ -469,7 +522,14 @@ class LanSignalingServer(
                     }
                     "/session/stop" -> {
                         val reason = if (body.isNotEmpty()) String(body, StandardCharsets.UTF_8) else "stopped"
+                        activeSessionPeerId = null
+                        pendingSessionPeerId = null
                         handler.handleStop(reason)
+                        try {
+                            onSessionStateChanged?.invoke(false, null)
+                        } catch (t: Throwable) {
+                            logW(TAG, "onSessionStateChanged listener failed: ${t.message}")
+                        }
                         val resp = """{"status":"ok"}""".toByteArray(StandardCharsets.UTF_8)
                         sendResponse(out, 200, "OK", "application/json", resp)
                     }

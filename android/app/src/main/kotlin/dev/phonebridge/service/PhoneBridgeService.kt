@@ -110,6 +110,38 @@ class PhoneBridgeService : Service() {
         var pairingListener: ((LanSignalingServer.PairingRequestInfo) -> Unit)? = null
 
         /**
+         * Authoritative remote peer device ID when a session is active.
+         * Null when idle / disconnected.
+         */
+        @Volatile
+        var activeSessionPeerId: String? = null
+            private set
+
+        /**
+         * True when an authenticated session is live (either capturing/streaming
+         * or inbound connected from remote desktop).
+         */
+        @Volatile
+        var isSessionActive: Boolean = false
+            private set
+
+        /**
+         * Fired whenever session active state or connected peer changes.
+         */
+        @Volatile
+        var sessionListener: ((Boolean, String?) -> Unit)? = null
+
+        fun updateSessionState(active: Boolean, peerId: String?) {
+            isSessionActive = active
+            activeSessionPeerId = if (active) peerId else null
+            try {
+                sessionListener?.invoke(active, activeSessionPeerId)
+            } catch (t: Throwable) {
+                Log.w(TAG, "sessionListener failed: ${t.message}")
+            }
+        }
+
+        /**
          * The live signaling server, for the UI's inbound-pairing reads
          * (ListInboundPairings / RespondInboundPairing). Null while LAN
          * services are down.
@@ -248,6 +280,10 @@ class PhoneBridgeService : Service() {
                 val handler = LanSignalingServer.DefaultSignalingHandler(
                     liveCapture = { captureEngine?.takeIf { it.isCapturing }?.liveCapture() },
                     capabilities = { deviceMediaCapabilities() },
+                    // The desktop ended the session: stop capture here too, or
+                    // the screen encoder keeps running (reproduced physical
+                    // leak: daemon STOPPED, phone CAPTURE_STATS still climbing).
+                    onRemoteStop = { reason -> stopCaptureInternal("peer_stopped:$reason") },
                 )
 
                 val server = LanSignalingServer(
@@ -270,6 +306,9 @@ class PhoneBridgeService : Service() {
                     } catch (t: Throwable) {
                         Log.w(TAG, "pairing listener failed: ${t.message}")
                     }
+                }
+                server.onSessionStateChanged = { active, peerId ->
+                    updateSessionState(active, peerId)
                 }
                 if (server.start()) {
                     signalingServer = server
@@ -433,6 +472,7 @@ class PhoneBridgeService : Service() {
             signalingServer?.stop()
             signalingServer = null
             activeSignalingServer = null
+            updateSessionState(false, null)
         } catch (t: Throwable) {
             Log.w(TAG, "Error stopping LAN services: ${t.message}")
         }
@@ -607,6 +647,8 @@ class PhoneBridgeService : Service() {
             GoBridge.mediaStop()
             GoBridge.mediaRelease()
         }
+        signalingServer?.resetSession()
+        updateSessionState(false, null)
     }
 
     /**

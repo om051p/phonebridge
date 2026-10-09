@@ -13,6 +13,7 @@ import '../generated/phonebridge/v1/phonebridge.pb.dart' as pb;
 import '../models/discovered_device.dart';
 import '../models/inbound_pairing.dart';
 import '../models/link_status.dart';
+import '../models/session_status.dart';
 import '../services/phonebridge_channel.dart';
 import '../services/platform_bridge_service.dart';
 import '../services/android_bridge_service.dart';
@@ -97,11 +98,45 @@ class PhoneBridgeController extends ChangeNotifier {
   }
 
   /// The one connection/transfer status every surface renders.
+  ///
+  /// On Android the phone owns capture and has no local session state machine
+  /// (the session controller reports "unsupported"), so composing from that
+  /// always-idle session made the badge and every connection surface read
+  /// "Ready" even while streaming. Android therefore composes from its own
+  /// capture telemetry; Linux keeps the daemon session as the single truth.
   LinkStatus get linkStatus => LinkStatus.compose(
-        session: _session.status,
+        session:
+            _session.supportsSessions ? _session.status : _androidCaptureStatus,
         transfer: transferActivity,
         daemonReachable: _session.daemonReachable,
       );
+
+  /// Android's live connection state as a [SessionStatus], derived from the
+  /// platform's own capture telemetry: the phone is the capture owner, so its
+  /// capture flag *is* "a session is up". Idle when nothing is capturing or
+  /// negotiating.
+  SessionStatus get _androidCaptureStatus {
+    final activePeer = _androidSessionPeerId ?? _androidTargetDeviceId;
+    if (isSharing) {
+      return SessionStatus(
+        state: ipc.SessionState.SESSION_STATE_STREAMING,
+        deviceId: activePeer,
+      );
+    }
+    if (_androidSessionActive && activePeer != null && activePeer.isNotEmpty) {
+      return SessionStatus(
+        state: ipc.SessionState.SESSION_STATE_CONNECTED,
+        deviceId: activePeer,
+      );
+    }
+    if (isSessionConnecting) {
+      return SessionStatus(
+        state: ipc.SessionState.SESSION_STATE_CONNECTING,
+        deviceId: _androidTargetDeviceId,
+      );
+    }
+    return SessionStatus.idle;
+  }
 
   /// What the transfer surface currently knows, in the shape the connection
   /// model documents.
@@ -244,6 +279,9 @@ class PhoneBridgeController extends ChangeNotifier {
   /// ordering, never discovery ordering, never a guess.
   String? get activeDeviceId {
     if (_service.isLinux) return _session.activeDeviceId;
+    if (_androidSessionActive && _androidSessionPeerId != null && _androidSessionPeerId!.isNotEmpty) {
+      return _androidSessionPeerId;
+    }
     if (!isSharing) return null;
     return _androidTargetDeviceId;
   }
@@ -305,6 +343,13 @@ class PhoneBridgeController extends ChangeNotifier {
   /// cleared on disconnect/stop. The phone has no daemon session snapshot,
   /// so this explicit selection is the only honest Android peer.
   String? _androidTargetDeviceId;
+
+  /// True when Android has an active connection (either screen sharing or inbound
+  /// session from remote PC).
+  bool _androidSessionActive = false;
+
+  /// Remote peer device ID reported by native service when a session is active.
+  String? _androidSessionPeerId;
 
   void initialize() {
     refreshAll();
@@ -393,6 +438,17 @@ class PhoneBridgeController extends ChangeNotifier {
           unawaited(refreshInboundPairings());
         }
 
+        // Active session transitions pushed over the platform event channel (Android):
+        // remote desktop connected or disconnected.
+        if (event['sessionChanged'] == true || event.containsKey('isSessionActive')) {
+          final bool? active = event['isSessionActive'] as bool?;
+          final String? peerId = event['activeSessionPeerId'] as String?;
+          if (active != null) {
+            _androidSessionActive = active;
+            _androidSessionPeerId = (peerId != null && peerId.isNotEmpty) ? peerId : null;
+          }
+        }
+
         final prevCapturing = _captureStats.isCapturing;
         _captureStats = CaptureStats.fromMap(event, previous: _captureStats);
 
@@ -466,6 +522,12 @@ class PhoneBridgeController extends ChangeNotifier {
       _trustedDevices = devices;
       _clipboardStatus = clip;
       if (_service.isAndroid) {
+        _androidSessionActive = state.isSessionActive || stats.isCapturing;
+        if (state.activeSessionPeerId != null && state.activeSessionPeerId!.isNotEmpty) {
+          _androidSessionPeerId = state.activeSessionPeerId;
+        } else if (!_androidSessionActive) {
+          _androidSessionPeerId = null;
+        }
         unawaited(refreshPermissions());
         unawaited(refreshCapabilities());
       }
@@ -810,10 +872,14 @@ class PhoneBridgeController extends ChangeNotifier {
       {String reason = 'user requested disconnect from devices UI'}) async {
     if (_service.isAndroid) {
       _androidTargetDeviceId = null;
+      _androidSessionActive = false;
+      _androidSessionPeerId = null;
     }
     final ok = await stopScreenSharing();
     if (_service.isAndroid) {
       _androidTargetDeviceId = null;
+      _androidSessionActive = false;
+      _androidSessionPeerId = null;
     }
     return ok;
   }
@@ -884,6 +950,11 @@ class PhoneBridgeController extends ChangeNotifier {
 
     try {
       final ok = await _service.stopCapture();
+      if (_service.isAndroid) {
+        _androidTargetDeviceId = null;
+        _androidSessionActive = false;
+        _androidSessionPeerId = null;
+      }
       await refreshAll();
       return ok;
     } catch (e) {

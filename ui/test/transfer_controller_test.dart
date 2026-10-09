@@ -237,6 +237,20 @@ void main() {
       expect(transport.isOk, isFalse);
       expect(transport.errorText, 'connection refused');
 
+      // Typed reason + daemon prose: keep both. The prose names the actual
+      // cause (e.g. a scoped-storage permission denial surfaced as
+      // CODE_PERMISSION_DENIED), which a bare reason label hides — this is
+      // what the on-device SEND FILE dialog showed for an unreadable path.
+      const scoped = TransferSendResult(
+        reasonCode: ipc.TransferReason.TRANSFER_REASON_STORAGE_FAILED,
+        errorMessage: 'file "/sdcard/Download/x.bin" is not readable',
+      );
+      expect(scoped.isOk, isFalse);
+      expect(
+        scoped.errorText,
+        'Storage error: file "/sdcard/Download/x.bin" is not readable',
+      );
+
       const empty = TransferSendResult();
       expect(empty.errorText, 'Transfer could not be started');
     });

@@ -294,6 +294,32 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
                 }
             }
         }
+
+        // Active session state transitions (e.g. desktop connects to phone or disconnects).
+        // Push immediately to Flutter so the home connection card updates without delay.
+        PhoneBridgeService.sessionListener = { active, peerId ->
+            mainHandler.post {
+                try {
+                    methodChannel?.invokeMethod(
+                        "sessionChanged",
+                        mapOf("active" to active, "peerDeviceId" to (peerId ?: ""))
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "sessionChanged invoke failed: ${e.message}")
+                }
+                try {
+                    eventSink?.success(
+                        mapOf(
+                            "sessionChanged" to true,
+                            "isSessionActive" to active,
+                            "activeSessionPeerId" to (peerId ?: "")
+                        )
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "sessionChanged emission failed: ${e.message}")
+                }
+            }
+        }
     }
 
     override fun onNewIntent(intent: android.content.Intent) {
@@ -337,11 +363,16 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
 
     private fun getDeviceState(): Map<String, Any?> {
         val engine = PhoneBridgeService.activeCaptureEngine
+        val isCapturing = engine?.isCapturing == true
+        val activePeerId = PhoneBridgeService.activeSessionPeerId
+        val isSessionActive = PhoneBridgeService.isSessionActive || isCapturing
         return mapOf(
             "model" to Build.MODEL,
             "manufacturer" to Build.MANUFACTURER,
             "sdkInt" to Build.VERSION.SDK_INT,
-            "isCapturing" to (engine?.isCapturing == true),
+            "isCapturing" to isCapturing,
+            "isSessionActive" to isSessionActive,
+            "activeSessionPeerId" to (activePeerId ?: ""),
             "goEngineLoaded" to GoBridge.loaded,
             "codec" to (engine?.selectedCodecName ?: "none"),
             "isHardwareCodec" to (engine?.isHardwareCodec ?: false),
@@ -915,8 +946,13 @@ class MainActivity : FlutterActivity(), MethodChannel.MethodCallHandler, EventCh
             GoBridge.mediaStats()?.let { String(it, Charsets.UTF_8) } ?: "{}"
         } else "{}"
 
+        val activePeerId = PhoneBridgeService.activeSessionPeerId
+        val isSessionActive = PhoneBridgeService.isSessionActive || isCapturing
+
         return mapOf(
             "isCapturing" to isCapturing,
+            "isSessionActive" to isSessionActive,
+            "activeSessionPeerId" to (activePeerId ?: ""),
             "encodedFrames" to encodedFrames,
             "keyframes" to keyframes,
             "admittedFrames" to admittedFrames,

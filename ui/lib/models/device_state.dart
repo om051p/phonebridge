@@ -3,6 +3,8 @@ class DeviceState {
   final String manufacturer;
   final int sdkInt;
   final bool isCapturing;
+  final bool isSessionActive;
+  final String? activeSessionPeerId;
   final bool goEngineLoaded;
   final String codec;
   final bool isHardwareCodec;
@@ -16,6 +18,8 @@ class DeviceState {
     required this.manufacturer,
     required this.sdkInt,
     required this.isCapturing,
+    this.isSessionActive = false,
+    this.activeSessionPeerId,
     required this.goEngineLoaded,
     required this.codec,
     required this.isHardwareCodec,
@@ -31,6 +35,8 @@ class DeviceState {
       manufacturer: map['manufacturer'] as String? ?? 'Unknown',
       sdkInt: map['sdkInt'] as int? ?? 0,
       isCapturing: map['isCapturing'] as bool? ?? false,
+      isSessionActive: map['isSessionActive'] as bool? ?? false,
+      activeSessionPeerId: map['activeSessionPeerId'] as String?,
       goEngineLoaded: map['goEngineLoaded'] as bool? ?? false,
       codec: map['codec'] as String? ?? 'None',
       isHardwareCodec: map['isHardwareCodec'] as bool? ?? false,
@@ -46,6 +52,8 @@ class DeviceState {
     manufacturer: 'Unknown',
     sdkInt: 0,
     isCapturing: false,
+    isSessionActive: false,
+    activeSessionPeerId: null,
     goEngineLoaded: false,
     codec: 'None',
     isHardwareCodec: false,

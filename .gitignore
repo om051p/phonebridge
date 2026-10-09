@@ -66,3 +66,6 @@ spikes/*/tools/spike*-receiver
 # Source lives in core/cmd/ipcdrv/; the ~16 MB binary is never committed.
 /core/ipcdrv
 *.tar.gz
+__pycache__/
+*.pyc
+

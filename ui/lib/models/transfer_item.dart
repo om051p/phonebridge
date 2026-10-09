@@ -303,8 +303,16 @@ class TransferSendResult {
   bool get isOk => transferId.isNotEmpty;
 
   /// Text to show the user: typed reason first, daemon prose second.
+  ///
+  /// Both are kept: the typed reason classifies the failure, but the daemon's
+  /// prose carries the specifics (e.g. which path was unreadable and why), and
+  /// dropping it turned permission errors into an unactionable bare
+  /// "Storage error" on device.
   String get errorText {
     final typed = TransferItem.reasonTextFor(reasonCode);
+    if (typed != null && errorMessage.isNotEmpty) {
+      return '$typed: $errorMessage';
+    }
     if (typed != null) return typed;
     if (errorMessage.isNotEmpty) return errorMessage;
     return 'Transfer could not be started';
