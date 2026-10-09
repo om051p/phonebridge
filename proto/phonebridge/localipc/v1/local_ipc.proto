@@ -162,6 +162,9 @@ service LocalEngineService {
 
   // ListNotifications returns the active in-memory mirrored notifications (Phase 8, DEC-028).
   rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse);
+
+  // DismissNotification requests dismissal of a mirrored notification on Android (Phase 8, DEC-028).
+  rpc DismissNotification(DismissNotificationRequest) returns (DismissNotificationResponse);
 }
 
 // HandshakeRequest advertises the client's local-IPC protocol support.
@@ -855,6 +858,17 @@ message ListNotificationsRequest {}
 // ListNotificationsResponse returns the active notifications, newest first.
 message ListNotificationsResponse {
   repeated phonebridge.v1.NotificationPosted notifications = 1;
+}
+
+// DismissNotificationRequest requests dismissal of a mirrored notification by key.
+message DismissNotificationRequest {
+  string key = 1;
+}
+
+// DismissNotificationResponse reports the outcome of the dismissal request.
+message DismissNotificationResponse {
+  bool success = 1;
+  string error = 2;
 }
 
 

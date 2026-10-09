@@ -304,9 +304,9 @@ object GoBridge {
     // Mirrors Android notifications to Linux desktop WebRTC "notifications" DataChannel.
     // ------------------------------------------------------------------
 
-    fun notificationInit(): Boolean {
+    fun notificationInit(host: NotificationHostCallback? = null): Boolean {
         check(isLoaded) { "libphonebridge_core.so is not loaded" }
-        return nativeNotificationInit()
+        return nativeNotificationInit(host)
     }
 
     fun notificationStop() {
@@ -428,7 +428,7 @@ object GoBridge {
 
     // Notifications plane natives (implemented in core/cmd/android/notification_jni.go)
     @JvmStatic
-    private external fun nativeNotificationInit(): Boolean
+    private external fun nativeNotificationInit(host: NotificationHostCallback?): Boolean
 
     @JvmStatic
     private external fun nativeNotificationStop()
@@ -456,6 +456,13 @@ object GoBridge {
 
     @JvmStatic
     private external fun nativeNotificationStats(): String?
+}
+
+/**
+ * NotificationHostCallback receives remote notification dismissal requests (DEC-028).
+ */
+interface NotificationHostCallback {
+    fun onDismiss(key: String): Boolean
 }
 
 /**

@@ -108,3 +108,46 @@ func TestNotificationBridge_LifecycleAndDispatch(t *testing.T) {
 		t.Fatal("expected error after Stop")
 	}
 }
+
+type mockNotificationHost struct {
+	dismissedKey string
+	result       bool
+}
+
+func (m *mockNotificationHost) OnDismiss(key string) bool {
+	m.dismissedKey = key
+	return m.result
+}
+
+func TestNotificationBridge_OnRemoteBytes_Dismiss(t *testing.T) {
+	b := &NotificationBridge{}
+	host := &mockNotificationHost{result: true}
+	if err := b.Init(host); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+
+	frame := &phonebridgev1.NotificationFrame{
+		Version:     1,
+		TimestampMs: 12345,
+		Event: &phonebridgev1.NotificationFrame_Dismiss{
+			Dismiss: &phonebridgev1.NotificationDismiss{
+				Key: "0|com.example|1|null|10",
+			},
+		},
+	}
+	data, err := proto.Marshal(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := b.OnRemoteBytes(data); err != nil {
+		t.Fatalf("OnRemoteBytes failed: %v", err)
+	}
+	if host.dismissedKey != "0|com.example|1|null|10" {
+		t.Fatalf("expected host to receive key, got %q", host.dismissedKey)
+	}
+	if b.dismissCount.Load() != 1 {
+		t.Fatalf("expected dismissCount=1, got %d", b.dismissCount.Load())
+	}
+}
+

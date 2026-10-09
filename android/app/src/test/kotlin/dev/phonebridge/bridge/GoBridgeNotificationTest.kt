@@ -41,11 +41,20 @@ class GoBridgeNotificationTest {
         assertTrue("GoBridge.start failed", GoBridge.start(null))
     }
 
+    private class TestNotificationCallback : NotificationHostCallback {
+        var lastDismissedKey: String? = null
+        override fun onDismiss(key: String): Boolean {
+            lastDismissedKey = key
+            return true
+        }
+    }
+
     @Test
     fun `notification initialization and lifecycle`() {
         requireEngine()
         try {
-            assertTrue(GoBridge.notificationInit())
+            val callback = TestNotificationCallback()
+            assertTrue(GoBridge.notificationInit(callback))
 
             // Posting when channel is not open drops safely and returns true (or handled safely)
             val postedOk = GoBridge.notificationPost(

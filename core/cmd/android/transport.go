@@ -178,6 +178,11 @@ func (t *MediaTransport) MediaInit() error {
 				nb.OnChannelClose()
 			}
 		},
+		OnNotificationMessage: func(data []byte) {
+			if nb := currentNotificationBridge(); nb != nil {
+				_ = nb.OnRemoteBytes(data)
+			}
+		},
 	}
 	sess, err := webrtc.NewSession(cfg, sender)
 	if err != nil {

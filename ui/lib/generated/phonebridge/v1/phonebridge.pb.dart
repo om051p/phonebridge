@@ -2715,7 +2715,7 @@ class NotificationDismissed extends $pb.GeneratedMessage {
   static NotificationDismissed? _defaultInstance;
 }
 
-enum NotificationFrame_Event { posted, removed, notSet }
+enum NotificationFrame_Event { posted, removed, dismiss, notSet }
 
 /// ---------------------------------------------------------------------------
 /// Notifications (DEC-028, Phase 8)
@@ -2730,12 +2730,14 @@ class NotificationFrame extends $pb.GeneratedMessage {
     $fixnum.Int64? timestampMs,
     NotificationPosted? posted,
     NotificationRemoved? removed,
+    NotificationDismiss? dismiss,
   }) {
     final result = NotificationFrame._();
     if (version != null) result.version = version;
     if (timestampMs != null) result.timestampMs = timestampMs;
     if (posted != null) result.posted = posted;
     if (removed != null) result.removed = removed;
+    if (dismiss != null) result.dismiss = dismiss;
     return result;
   }
 
@@ -2752,13 +2754,14 @@ class NotificationFrame extends $pb.GeneratedMessage {
       _NotificationFrame_EventByTag = {
     10: NotificationFrame_Event.posted,
     11: NotificationFrame_Event.removed,
+    12: NotificationFrame_Event.dismiss,
     0: NotificationFrame_Event.notSet
   };
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(
       _omitMessageNames ? '' : 'NotificationFrame',
       package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
       createEmptyInstance: NotificationFrame.$_createMessage)
-    ..oo(0, [10, 11])
+    ..oo(0, [10, 11, 12])
     ..aI(1, _omitFieldNames ? '' : 'version', fieldType: $pb.PbFieldType.OU3)
     ..a<$fixnum.Int64>(
         2, _omitFieldNames ? '' : 'timestampMs', $pb.PbFieldType.OU6,
@@ -2767,6 +2770,8 @@ class NotificationFrame extends $pb.GeneratedMessage {
         subBuilder: NotificationPosted.$_createMessage)
     ..aOM<NotificationRemoved>(11, _omitFieldNames ? '' : 'removed',
         subBuilder: NotificationRemoved.$_createMessage)
+    ..aOM<NotificationDismiss>(12, _omitFieldNames ? '' : 'dismiss',
+        subBuilder: NotificationDismiss.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -2793,10 +2798,12 @@ class NotificationFrame extends $pb.GeneratedMessage {
 
   @$pb.TagNumber(10)
   @$pb.TagNumber(11)
+  @$pb.TagNumber(12)
   NotificationFrame_Event whichEvent() =>
       _NotificationFrame_EventByTag[$_whichOneof(0)]!;
   @$pb.TagNumber(10)
   @$pb.TagNumber(11)
+  @$pb.TagNumber(12)
   void clearEvent() => $_clearField($_whichOneof(0));
 
   /// Protocol version (1 for v0.1).
@@ -2840,6 +2847,17 @@ class NotificationFrame extends $pb.GeneratedMessage {
   void clearRemoved() => $_clearField(11);
   @$pb.TagNumber(11)
   NotificationRemoved ensureRemoved() => $_ensure(3);
+
+  @$pb.TagNumber(12)
+  NotificationDismiss get dismiss => $_getN(4);
+  @$pb.TagNumber(12)
+  set dismiss(NotificationDismiss value) => $_setField(12, value);
+  @$pb.TagNumber(12)
+  $core.bool hasDismiss() => $_has(4);
+  @$pb.TagNumber(12)
+  void clearDismiss() => $_clearField(12);
+  @$pb.TagNumber(12)
+  NotificationDismiss ensureDismiss() => $_ensure(4);
 }
 
 /// NotificationPosted represents an Android notification posted or updated.
@@ -3102,6 +3120,66 @@ class NotificationRemoved extends $pb.GeneratedMessage {
   $core.bool hasReason() => $_has(2);
   @$pb.TagNumber(3)
   void clearReason() => $_clearField(3);
+}
+
+/// NotificationDismiss requests the paired Android device to cancel/dismiss a notification (DEC-028).
+class NotificationDismiss extends $pb.GeneratedMessage {
+  factory NotificationDismiss({
+    $core.String? key,
+  }) {
+    final result = NotificationDismiss._();
+    if (key != null) result.key = key;
+    return result;
+  }
+
+  NotificationDismiss._();
+
+  factory NotificationDismiss.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      NotificationDismiss()..mergeFromBuffer(data, registry);
+  factory NotificationDismiss.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      NotificationDismiss()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'NotificationDismiss',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'phonebridge.v1'),
+      createEmptyInstance: NotificationDismiss.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'key')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  NotificationDismiss clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  NotificationDismiss copyWith(void Function(NotificationDismiss) updates) =>
+      super.copyWith((message) => updates(message as NotificationDismiss))
+          as NotificationDismiss;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core
+      .Deprecated('Use NotificationDismiss() / NotificationDismiss.new instead')
+  static NotificationDismiss create() => NotificationDismiss._();
+  static $pb.GeneratedMessage $_createMessage() => NotificationDismiss._();
+  @$core.override
+  NotificationDismiss createEmptyInstance() => NotificationDismiss._();
+  @$core.pragma('dart2js:noInline')
+  static NotificationDismiss getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<NotificationDismiss>(
+          NotificationDismiss.$_createMessage);
+  static NotificationDismiss? _defaultInstance;
+
+  /// Globally unique notification key (StatusBarNotification.getKey()) to cancel.
+  @$pb.TagNumber(1)
+  $core.String get key => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set key($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasKey() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearKey() => $_clearField(1);
 }
 
 class ScreenStop extends $pb.GeneratedMessage {

@@ -132,6 +132,13 @@ func main() {
 	case "notifications":
 		r, err := c.ListNotifications(rpcCtx, &phonebridgelocalipcv1.ListNotificationsRequest{})
 		show(r, err)
+	case "dismiss":
+		if len(os.Args) < 3 {
+			fmt.Println("dismiss needs a notification key")
+			os.Exit(2)
+		}
+		r, err := c.DismissNotification(rpcCtx, &phonebridgelocalipcv1.DismissNotificationRequest{Key: os.Args[2]})
+		show(r, err)
 	case "clipboard":
 		r, err := c.GetClipboardStatus(rpcCtx, &phonebridgelocalipcv1.GetClipboardStatusRequest{})
 		show(r, err)

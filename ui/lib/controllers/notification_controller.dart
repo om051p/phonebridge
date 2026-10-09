@@ -115,6 +115,16 @@ class NotificationController extends ChangeNotifier {
     }
   }
 
+  /// Requests dismissal of a notification on Android and removes it locally upon success.
+  Future<bool> dismiss(String key) async {
+    if (!_backend.supportsNotifications) return false;
+    final success = await _backend.dismissNotification(key);
+    if (success) {
+      applyRemoved(key);
+    }
+    return success;
+  }
+
   /// Purges all notifications from memory on disconnect or reset.
   void clear() {
     if (_items.isNotEmpty) {

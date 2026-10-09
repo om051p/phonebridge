@@ -64,6 +64,54 @@ void main() {
       expect(find.text('ONGOING'), findsNothing);
       expect(find.byIcon(Icons.notifications_none), findsOneWidget);
     });
+
+    testWidgets('renders dismiss button when isClearable is true and onDismiss provided', (tester) async {
+      final now = DateTime.now();
+      final item = NotificationItem(
+        key: 'tile-key-clearable',
+        packageName: 'com.example.app',
+        appName: 'Example App',
+        title: 'Title',
+        text: 'Text',
+        postTime: now,
+        isClearable: true,
+        receivedAt: now,
+      );
+
+      var dismissed = false;
+      await tester.pumpWidget(buildTestApp(NotificationTile(
+        item: item,
+        onDismiss: () => dismissed = true,
+      )));
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.close), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+      expect(dismissed, isTrue);
+    });
+
+    testWidgets('hides dismiss button when isClearable is false', (tester) async {
+      final now = DateTime.now();
+      final item = NotificationItem(
+        key: 'tile-key-sticky',
+        packageName: 'com.example.app',
+        appName: 'Example App',
+        title: 'Title',
+        text: 'Text',
+        postTime: now,
+        isClearable: false,
+        receivedAt: now,
+      );
+
+      await tester.pumpWidget(buildTestApp(NotificationTile(
+        item: item,
+        onDismiss: () {},
+      )));
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.close), findsNothing);
+    });
   });
 
   group('NotificationsSection', () {

@@ -450,6 +450,16 @@ class LocalIpcClient {
     );
   }
 
+  /// Dismisses a mirrored notification on Android (DEC-028).
+  Future<DismissNotificationResponse> dismissNotification(String key) async {
+    return _callWithAuth(
+      (opts) => _service.dismissNotification(
+        DismissNotificationRequest()..key = key,
+        options: opts,
+      ),
+    );
+  }
+
   /// Subscribes to relayed device events via server streaming.
   /// Automatically attempts resubscription with backoff on disconnect.
   Stream<StreamEventsResponse> streamEvents({

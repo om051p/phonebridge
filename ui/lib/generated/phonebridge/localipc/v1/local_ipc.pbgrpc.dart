@@ -150,7 +150,8 @@ class LocalEngineServiceClient extends $grpc.Client {
   }
 
   /// RemoveDevice permanently deletes a trusted record (Forget Device).
-  /// Hand-added for Phase H (mirrors RevokeDevice; reuses its messages).
+  /// Unlike RevokeDevice — which preserves the revoked row for audit — this
+  /// removes it. Reuses the revoke messages: no new payload shape.
   $grpc.ResponseFuture<$0.RevokeDeviceResponse> removeDevice(
     $0.RevokeDeviceRequest request, {
     $grpc.CallOptions? options,
@@ -238,6 +239,14 @@ class LocalEngineServiceClient extends $grpc.Client {
     return $createUnaryCall(_$listNotifications, request, options: options);
   }
 
+  /// DismissNotification requests dismissal of a mirrored notification on Android (Phase 8, DEC-028).
+  $grpc.ResponseFuture<$0.DismissNotificationResponse> dismissNotification(
+    $0.DismissNotificationRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$dismissNotification, request, options: options);
+  }
+
   // method descriptors
 
   static final _$handshake =
@@ -309,7 +318,6 @@ class LocalEngineServiceClient extends $grpc.Client {
           '/phonebridge.localipc.v1.LocalEngineService/RevokeDevice',
           ($0.RevokeDeviceRequest value) => value.writeToBuffer(),
           $0.RevokeDeviceResponse.fromBuffer);
-  // Hand-added for Phase H (mirrors _$revokeDevice).
   static final _$removeDevice =
       $grpc.ClientMethod<$0.RevokeDeviceRequest, $0.RevokeDeviceResponse>(
           '/phonebridge.localipc.v1.LocalEngineService/RemoveDevice',
@@ -355,6 +363,11 @@ class LocalEngineServiceClient extends $grpc.Client {
       '/phonebridge.localipc.v1.LocalEngineService/ListNotifications',
       ($0.ListNotificationsRequest value) => value.writeToBuffer(),
       $0.ListNotificationsResponse.fromBuffer);
+  static final _$dismissNotification = $grpc.ClientMethod<
+          $0.DismissNotificationRequest, $0.DismissNotificationResponse>(
+      '/phonebridge.localipc.v1.LocalEngineService/DismissNotification',
+      ($0.DismissNotificationRequest value) => value.writeToBuffer(),
+      $0.DismissNotificationResponse.fromBuffer);
 }
 
 @$pb.GrpcServiceName('phonebridge.localipc.v1.LocalEngineService')
@@ -557,6 +570,15 @@ abstract class LocalEngineServiceBase extends $grpc.Service {
         ($core.List<$core.int> value) =>
             $0.ListNotificationsRequest.fromBuffer(value),
         ($0.ListNotificationsResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.DismissNotificationRequest,
+            $0.DismissNotificationResponse>(
+        'DismissNotification',
+        dismissNotification_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) =>
+            $0.DismissNotificationRequest.fromBuffer(value),
+        ($0.DismissNotificationResponse value) => value.writeToBuffer()));
   }
 
   $async.Future<$0.HandshakeResponse> handshake_Pre($grpc.ServiceCall $call,
@@ -757,4 +779,13 @@ abstract class LocalEngineServiceBase extends $grpc.Service {
 
   $async.Future<$0.ListNotificationsResponse> listNotifications(
       $grpc.ServiceCall call, $0.ListNotificationsRequest request);
+
+  $async.Future<$0.DismissNotificationResponse> dismissNotification_Pre(
+      $grpc.ServiceCall $call,
+      $async.Future<$0.DismissNotificationRequest> $request) async {
+    return dismissNotification($call, await $request);
+  }
+
+  $async.Future<$0.DismissNotificationResponse> dismissNotification(
+      $grpc.ServiceCall call, $0.DismissNotificationRequest request);
 }

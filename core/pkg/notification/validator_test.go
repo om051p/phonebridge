@@ -95,3 +95,29 @@ func TestSanitizeString(t *testing.T) {
 		t.Fatalf("expected ErrInvalidUTF8, got %v", err)
 	}
 }
+
+func TestValidateNotificationDismiss(t *testing.T) {
+	dis := &phonebridgev1.NotificationFrame{
+		Version:     1,
+		TimestampMs: 12345678,
+		Event: &phonebridgev1.NotificationFrame_Dismiss{
+			Dismiss: &phonebridgev1.NotificationDismiss{
+				Key: "0|com.example.app|1|tag|1000",
+			},
+		},
+	}
+	if err := ValidateNotificationFrame(dis); err != nil {
+		t.Fatalf("expected valid dismiss frame, got %v", err)
+	}
+
+	dis.GetDismiss().Key = ""
+	if err := ValidateNotificationFrame(dis); err != ErrKeyEmpty {
+		t.Fatalf("expected ErrKeyEmpty, got %v", err)
+	}
+
+	dis.GetDismiss().Key = strings.Repeat("K", MaxKeyLengthBytes+1)
+	if err := ValidateNotificationFrame(dis); err != ErrKeyTooLarge {
+		t.Fatalf("expected ErrKeyTooLarge, got %v", err)
+	}
+}
+

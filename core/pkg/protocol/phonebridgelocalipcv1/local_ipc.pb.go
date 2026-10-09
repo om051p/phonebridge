@@ -3997,6 +3997,104 @@ func (x *ListNotificationsResponse) GetNotifications() []*phonebridgev1.Notifica
 	return nil
 }
 
+// DismissNotificationRequest requests dismissal of a mirrored notification by key.
+type DismissNotificationRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DismissNotificationRequest) Reset() {
+	*x = DismissNotificationRequest{}
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[54]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DismissNotificationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DismissNotificationRequest) ProtoMessage() {}
+
+func (x *DismissNotificationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[54]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DismissNotificationRequest.ProtoReflect.Descriptor instead.
+func (*DismissNotificationRequest) Descriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{54}
+}
+
+func (x *DismissNotificationRequest) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+// DismissNotificationResponse reports the outcome of the dismissal request.
+type DismissNotificationResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DismissNotificationResponse) Reset() {
+	*x = DismissNotificationResponse{}
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[55]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DismissNotificationResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DismissNotificationResponse) ProtoMessage() {}
+
+func (x *DismissNotificationResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_localipc_v1_local_ipc_proto_msgTypes[55]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DismissNotificationResponse.ProtoReflect.Descriptor instead.
+func (*DismissNotificationResponse) Descriptor() ([]byte, []int) {
+	return file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP(), []int{55}
+}
+
+func (x *DismissNotificationResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *DismissNotificationResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
 var File_phonebridge_localipc_v1_local_ipc_proto protoreflect.FileDescriptor
 
 const file_phonebridge_localipc_v1_local_ipc_proto_rawDesc = "" +
@@ -4249,7 +4347,12 @@ const file_phonebridge_localipc_v1_local_ipc_proto_rawDesc = "" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"\x1a\n" +
 	"\x18ListNotificationsRequest\"e\n" +
 	"\x19ListNotificationsResponse\x12H\n" +
-	"\rnotifications\x18\x01 \x03(\v2\".phonebridge.v1.NotificationPostedR\rnotifications*\x99\x02\n" +
+	"\rnotifications\x18\x01 \x03(\v2\".phonebridge.v1.NotificationPostedR\rnotifications\".\n" +
+	"\x1aDismissNotificationRequest\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\"M\n" +
+	"\x1bDismissNotificationResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error*\x99\x02\n" +
 	"\fSessionState\x12\x1d\n" +
 	"\x19SESSION_STATE_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aSESSION_STATE_DISCONNECTED\x10\x01\x12\x1d\n" +
@@ -4312,7 +4415,7 @@ const file_phonebridge_localipc_v1_local_ipc_proto_rawDesc = "" +
 	"\x12%\n" +
 	"!TRANSFER_REASON_CANCELLED_BY_USER\x10\v\x12\"\n" +
 	"\x1eTRANSFER_REASON_PROTOCOL_ERROR\x10\f\x12(\n" +
-	"$TRANSFER_REASON_INCOMPATIBLE_VERSION\x10\r2\xb8\x13\n" +
+	"$TRANSFER_REASON_INCOMPATIBLE_VERSION\x10\r2\xa8\x15\n" +
 	"\x12LocalEngineService\x12b\n" +
 	"\tHandshake\x12).phonebridge.localipc.v1.HandshakeRequest\x1a*.phonebridge.localipc.v1.HandshakeResponse\x12S\n" +
 	"\x04Ping\x12$.phonebridge.localipc.v1.PingRequest\x1a%.phonebridge.localipc.v1.PingResponse\x12m\n" +
@@ -4328,7 +4431,8 @@ const file_phonebridge_localipc_v1_local_ipc_proto_rawDesc = "" +
 	"\x13ListInboundPairings\x123.phonebridge.localipc.v1.ListInboundPairingsRequest\x1a4.phonebridge.localipc.v1.ListInboundPairingsResponse\x12\x86\x01\n" +
 	"\x15RespondInboundPairing\x125.phonebridge.localipc.v1.RespondInboundPairingRequest\x1a6.phonebridge.localipc.v1.RespondInboundPairingResponse\x12}\n" +
 	"\x12ListTrustedDevices\x122.phonebridge.localipc.v1.ListTrustedDevicesRequest\x1a3.phonebridge.localipc.v1.ListTrustedDevicesResponse\x12k\n" +
-	"\fRevokeDevice\x12,.phonebridge.localipc.v1.RevokeDeviceRequest\x1a-.phonebridge.localipc.v1.RevokeDeviceResponse\x12}\n" +
+	"\fRevokeDevice\x12,.phonebridge.localipc.v1.RevokeDeviceRequest\x1a-.phonebridge.localipc.v1.RevokeDeviceResponse\x12k\n" +
+	"\fRemoveDevice\x12,.phonebridge.localipc.v1.RevokeDeviceRequest\x1a-.phonebridge.localipc.v1.RevokeDeviceResponse\x12}\n" +
 	"\x12GetClipboardStatus\x122.phonebridge.localipc.v1.GetClipboardStatusRequest\x1a3.phonebridge.localipc.v1.GetClipboardStatusResponse\x12\x83\x01\n" +
 	"\x14TriggerClipboardPull\x124.phonebridge.localipc.v1.TriggerClipboardPullRequest\x1a5.phonebridge.localipc.v1.TriggerClipboardPullResponse\x12_\n" +
 	"\bSendFile\x12(.phonebridge.localipc.v1.SendFileRequest\x1a).phonebridge.localipc.v1.SendFileResponse\x12q\n" +
@@ -4336,7 +4440,8 @@ const file_phonebridge_localipc_v1_local_ipc_proto_rawDesc = "" +
 	"\rListTransfers\x12-.phonebridge.localipc.v1.ListTransfersRequest\x1a..phonebridge.localipc.v1.ListTransfersResponse\x12m\n" +
 	"\fStreamFrames\x12,.phonebridge.localipc.v1.StreamFramesRequest\x1a-.phonebridge.localipc.v1.StreamFramesResponse0\x01\x12b\n" +
 	"\tSendInput\x12).phonebridge.localipc.v1.SendInputRequest\x1a*.phonebridge.localipc.v1.SendInputResponse\x12z\n" +
-	"\x11ListNotifications\x121.phonebridge.localipc.v1.ListNotificationsRequest\x1a2.phonebridge.localipc.v1.ListNotificationsResponseB\x82\x01\n" +
+	"\x11ListNotifications\x121.phonebridge.localipc.v1.ListNotificationsRequest\x1a2.phonebridge.localipc.v1.ListNotificationsResponse\x12\x80\x01\n" +
+	"\x13DismissNotification\x123.phonebridge.localipc.v1.DismissNotificationRequest\x1a4.phonebridge.localipc.v1.DismissNotificationResponseB\x82\x01\n" +
 	"!dev.phonebridge.proto.localipc.v1P\x01Z[github.com/om051p/phonebridge/core/pkg/protocol/phonebridgelocalipcv1;phonebridgelocalipcv1b\x06proto3"
 
 var (
@@ -4352,7 +4457,7 @@ func file_phonebridge_localipc_v1_local_ipc_proto_rawDescGZIP() []byte {
 }
 
 var file_phonebridge_localipc_v1_local_ipc_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
-var file_phonebridge_localipc_v1_local_ipc_proto_msgTypes = make([]protoimpl.MessageInfo, 54)
+var file_phonebridge_localipc_v1_local_ipc_proto_msgTypes = make([]protoimpl.MessageInfo, 56)
 var file_phonebridge_localipc_v1_local_ipc_proto_goTypes = []any{
 	(SessionState)(0),                        // 0: phonebridge.localipc.v1.SessionState
 	(SessionReason)(0),                       // 1: phonebridge.localipc.v1.SessionReason
@@ -4415,38 +4520,40 @@ var file_phonebridge_localipc_v1_local_ipc_proto_goTypes = []any{
 	(*SendInputResponse)(nil),                // 58: phonebridge.localipc.v1.SendInputResponse
 	(*ListNotificationsRequest)(nil),         // 59: phonebridge.localipc.v1.ListNotificationsRequest
 	(*ListNotificationsResponse)(nil),        // 60: phonebridge.localipc.v1.ListNotificationsResponse
-	(*phonebridgev1.Envelope)(nil),           // 61: phonebridge.v1.Envelope
-	(*phonebridgev1.NotificationFrame)(nil),  // 62: phonebridge.v1.NotificationFrame
-	(*phonebridgev1.MediaParams)(nil),        // 63: phonebridge.v1.MediaParams
-	(*phonebridgev1.MediaCapabilities)(nil),  // 64: phonebridge.v1.MediaCapabilities
-	(*phonebridgev1.InputFrame)(nil),         // 65: phonebridge.v1.InputFrame
-	(*phonebridgev1.NotificationPosted)(nil), // 66: phonebridge.v1.NotificationPosted
+	(*DismissNotificationRequest)(nil),       // 61: phonebridge.localipc.v1.DismissNotificationRequest
+	(*DismissNotificationResponse)(nil),      // 62: phonebridge.localipc.v1.DismissNotificationResponse
+	(*phonebridgev1.Envelope)(nil),           // 63: phonebridge.v1.Envelope
+	(*phonebridgev1.NotificationFrame)(nil),  // 64: phonebridge.v1.NotificationFrame
+	(*phonebridgev1.MediaParams)(nil),        // 65: phonebridge.v1.MediaParams
+	(*phonebridgev1.MediaCapabilities)(nil),  // 66: phonebridge.v1.MediaCapabilities
+	(*phonebridgev1.InputFrame)(nil),         // 67: phonebridge.v1.InputFrame
+	(*phonebridgev1.NotificationPosted)(nil), // 68: phonebridge.v1.NotificationPosted
 }
 var file_phonebridge_localipc_v1_local_ipc_proto_depIdxs = []int32{
-	61, // 0: phonebridge.localipc.v1.StreamEventsResponse.envelope:type_name -> phonebridge.v1.Envelope
+	63, // 0: phonebridge.localipc.v1.StreamEventsResponse.envelope:type_name -> phonebridge.v1.Envelope
 	16, // 1: phonebridge.localipc.v1.StreamEventsResponse.session_event:type_name -> phonebridge.localipc.v1.SessionEvent
 	46, // 2: phonebridge.localipc.v1.StreamEventsResponse.clipboard_event:type_name -> phonebridge.localipc.v1.ClipboardStatusEvent
 	54, // 3: phonebridge.localipc.v1.StreamEventsResponse.transfer_event:type_name -> phonebridge.localipc.v1.TransferEvent
-	62, // 4: phonebridge.localipc.v1.StreamEventsResponse.notification_event:type_name -> phonebridge.v1.NotificationFrame
+	64, // 4: phonebridge.localipc.v1.StreamEventsResponse.notification_event:type_name -> phonebridge.v1.NotificationFrame
 	36, // 5: phonebridge.localipc.v1.StreamEventsResponse.pairing_event:type_name -> phonebridge.localipc.v1.PairingEvent
-	61, // 6: phonebridge.localipc.v1.LocalEvent.envelope:type_name -> phonebridge.v1.Envelope
+	63, // 6: phonebridge.localipc.v1.LocalEvent.envelope:type_name -> phonebridge.v1.Envelope
 	16, // 7: phonebridge.localipc.v1.LocalEvent.session_event:type_name -> phonebridge.localipc.v1.SessionEvent
 	46, // 8: phonebridge.localipc.v1.LocalEvent.clipboard_event:type_name -> phonebridge.localipc.v1.ClipboardStatusEvent
 	54, // 9: phonebridge.localipc.v1.LocalEvent.transfer_event:type_name -> phonebridge.localipc.v1.TransferEvent
-	62, // 10: phonebridge.localipc.v1.LocalEvent.notification_event:type_name -> phonebridge.v1.NotificationFrame
+	64, // 10: phonebridge.localipc.v1.LocalEvent.notification_event:type_name -> phonebridge.v1.NotificationFrame
 	36, // 11: phonebridge.localipc.v1.LocalEvent.pairing_event:type_name -> phonebridge.localipc.v1.PairingEvent
 	0,  // 12: phonebridge.localipc.v1.SessionEvent.state:type_name -> phonebridge.localipc.v1.SessionState
 	1,  // 13: phonebridge.localipc.v1.SessionEvent.reason_code:type_name -> phonebridge.localipc.v1.SessionReason
-	63, // 14: phonebridge.localipc.v1.StartSessionRequest.requested:type_name -> phonebridge.v1.MediaParams
+	65, // 14: phonebridge.localipc.v1.StartSessionRequest.requested:type_name -> phonebridge.v1.MediaParams
 	0,  // 15: phonebridge.localipc.v1.StartSessionResponse.state:type_name -> phonebridge.localipc.v1.SessionState
 	0,  // 16: phonebridge.localipc.v1.StopSessionResponse.state:type_name -> phonebridge.localipc.v1.SessionState
 	0,  // 17: phonebridge.localipc.v1.GetSessionStateResponse.state:type_name -> phonebridge.localipc.v1.SessionState
 	22, // 18: phonebridge.localipc.v1.GetSessionStateResponse.stats:type_name -> phonebridge.localipc.v1.StreamStats
-	63, // 19: phonebridge.localipc.v1.GetSessionStateResponse.requested:type_name -> phonebridge.v1.MediaParams
-	63, // 20: phonebridge.localipc.v1.GetSessionStateResponse.actual:type_name -> phonebridge.v1.MediaParams
+	65, // 19: phonebridge.localipc.v1.GetSessionStateResponse.requested:type_name -> phonebridge.v1.MediaParams
+	65, // 20: phonebridge.localipc.v1.GetSessionStateResponse.actual:type_name -> phonebridge.v1.MediaParams
 	1,  // 21: phonebridge.localipc.v1.GetSessionStateResponse.reason_code:type_name -> phonebridge.localipc.v1.SessionReason
 	2,  // 22: phonebridge.localipc.v1.GetSessionStateResponse.sink_kind:type_name -> phonebridge.localipc.v1.SinkKind
-	64, // 23: phonebridge.localipc.v1.GetSessionStateResponse.capabilities:type_name -> phonebridge.v1.MediaCapabilities
+	66, // 23: phonebridge.localipc.v1.GetSessionStateResponse.capabilities:type_name -> phonebridge.v1.MediaCapabilities
 	24, // 24: phonebridge.localipc.v1.ListDevicesResponse.devices:type_name -> phonebridge.localipc.v1.DiscoveredDevice
 	31, // 25: phonebridge.localipc.v1.ListInboundPairingsResponse.requests:type_name -> phonebridge.localipc.v1.InboundPairingRequest
 	3,  // 26: phonebridge.localipc.v1.PairingEvent.type:type_name -> phonebridge.localipc.v1.PairingEventType
@@ -4458,8 +4565,8 @@ var file_phonebridge_localipc_v1_local_ipc_proto_depIdxs = []int32{
 	6,  // 32: phonebridge.localipc.v1.SendFileResponse.reason_code:type_name -> phonebridge.localipc.v1.TransferReason
 	47, // 33: phonebridge.localipc.v1.ListTransfersResponse.transfers:type_name -> phonebridge.localipc.v1.TransferInfo
 	47, // 34: phonebridge.localipc.v1.TransferEvent.transfer:type_name -> phonebridge.localipc.v1.TransferInfo
-	65, // 35: phonebridge.localipc.v1.SendInputRequest.frame:type_name -> phonebridge.v1.InputFrame
-	66, // 36: phonebridge.localipc.v1.ListNotificationsResponse.notifications:type_name -> phonebridge.v1.NotificationPosted
+	67, // 35: phonebridge.localipc.v1.SendInputRequest.frame:type_name -> phonebridge.v1.InputFrame
+	68, // 36: phonebridge.localipc.v1.ListNotificationsResponse.notifications:type_name -> phonebridge.v1.NotificationPosted
 	7,  // 37: phonebridge.localipc.v1.LocalEngineService.Handshake:input_type -> phonebridge.localipc.v1.HandshakeRequest
 	9,  // 38: phonebridge.localipc.v1.LocalEngineService.Ping:input_type -> phonebridge.localipc.v1.PingRequest
 	11, // 39: phonebridge.localipc.v1.LocalEngineService.StreamEvents:input_type -> phonebridge.localipc.v1.StreamEventsRequest
@@ -4474,38 +4581,42 @@ var file_phonebridge_localipc_v1_local_ipc_proto_depIdxs = []int32{
 	34, // 48: phonebridge.localipc.v1.LocalEngineService.RespondInboundPairing:input_type -> phonebridge.localipc.v1.RespondInboundPairingRequest
 	38, // 49: phonebridge.localipc.v1.LocalEngineService.ListTrustedDevices:input_type -> phonebridge.localipc.v1.ListTrustedDevicesRequest
 	40, // 50: phonebridge.localipc.v1.LocalEngineService.RevokeDevice:input_type -> phonebridge.localipc.v1.RevokeDeviceRequest
-	42, // 51: phonebridge.localipc.v1.LocalEngineService.GetClipboardStatus:input_type -> phonebridge.localipc.v1.GetClipboardStatusRequest
-	44, // 52: phonebridge.localipc.v1.LocalEngineService.TriggerClipboardPull:input_type -> phonebridge.localipc.v1.TriggerClipboardPullRequest
-	48, // 53: phonebridge.localipc.v1.LocalEngineService.SendFile:input_type -> phonebridge.localipc.v1.SendFileRequest
-	50, // 54: phonebridge.localipc.v1.LocalEngineService.CancelTransfer:input_type -> phonebridge.localipc.v1.CancelTransferRequest
-	52, // 55: phonebridge.localipc.v1.LocalEngineService.ListTransfers:input_type -> phonebridge.localipc.v1.ListTransfersRequest
-	55, // 56: phonebridge.localipc.v1.LocalEngineService.StreamFrames:input_type -> phonebridge.localipc.v1.StreamFramesRequest
-	57, // 57: phonebridge.localipc.v1.LocalEngineService.SendInput:input_type -> phonebridge.localipc.v1.SendInputRequest
-	59, // 58: phonebridge.localipc.v1.LocalEngineService.ListNotifications:input_type -> phonebridge.localipc.v1.ListNotificationsRequest
-	8,  // 59: phonebridge.localipc.v1.LocalEngineService.Handshake:output_type -> phonebridge.localipc.v1.HandshakeResponse
-	10, // 60: phonebridge.localipc.v1.LocalEngineService.Ping:output_type -> phonebridge.localipc.v1.PingResponse
-	12, // 61: phonebridge.localipc.v1.LocalEngineService.StreamEvents:output_type -> phonebridge.localipc.v1.StreamEventsResponse
-	15, // 62: phonebridge.localipc.v1.LocalEngineService.Health:output_type -> phonebridge.localipc.v1.HealthResponse
-	18, // 63: phonebridge.localipc.v1.LocalEngineService.StartSession:output_type -> phonebridge.localipc.v1.StartSessionResponse
-	20, // 64: phonebridge.localipc.v1.LocalEngineService.StopSession:output_type -> phonebridge.localipc.v1.StopSessionResponse
-	23, // 65: phonebridge.localipc.v1.LocalEngineService.GetSessionState:output_type -> phonebridge.localipc.v1.GetSessionStateResponse
-	26, // 66: phonebridge.localipc.v1.LocalEngineService.ListDevices:output_type -> phonebridge.localipc.v1.ListDevicesResponse
-	28, // 67: phonebridge.localipc.v1.LocalEngineService.PairDevice:output_type -> phonebridge.localipc.v1.PairDeviceResponse
-	30, // 68: phonebridge.localipc.v1.LocalEngineService.ConfirmPairing:output_type -> phonebridge.localipc.v1.ConfirmPairingResponse
-	33, // 69: phonebridge.localipc.v1.LocalEngineService.ListInboundPairings:output_type -> phonebridge.localipc.v1.ListInboundPairingsResponse
-	35, // 70: phonebridge.localipc.v1.LocalEngineService.RespondInboundPairing:output_type -> phonebridge.localipc.v1.RespondInboundPairingResponse
-	39, // 71: phonebridge.localipc.v1.LocalEngineService.ListTrustedDevices:output_type -> phonebridge.localipc.v1.ListTrustedDevicesResponse
-	41, // 72: phonebridge.localipc.v1.LocalEngineService.RevokeDevice:output_type -> phonebridge.localipc.v1.RevokeDeviceResponse
-	43, // 73: phonebridge.localipc.v1.LocalEngineService.GetClipboardStatus:output_type -> phonebridge.localipc.v1.GetClipboardStatusResponse
-	45, // 74: phonebridge.localipc.v1.LocalEngineService.TriggerClipboardPull:output_type -> phonebridge.localipc.v1.TriggerClipboardPullResponse
-	49, // 75: phonebridge.localipc.v1.LocalEngineService.SendFile:output_type -> phonebridge.localipc.v1.SendFileResponse
-	51, // 76: phonebridge.localipc.v1.LocalEngineService.CancelTransfer:output_type -> phonebridge.localipc.v1.CancelTransferResponse
-	53, // 77: phonebridge.localipc.v1.LocalEngineService.ListTransfers:output_type -> phonebridge.localipc.v1.ListTransfersResponse
-	56, // 78: phonebridge.localipc.v1.LocalEngineService.StreamFrames:output_type -> phonebridge.localipc.v1.StreamFramesResponse
-	58, // 79: phonebridge.localipc.v1.LocalEngineService.SendInput:output_type -> phonebridge.localipc.v1.SendInputResponse
-	60, // 80: phonebridge.localipc.v1.LocalEngineService.ListNotifications:output_type -> phonebridge.localipc.v1.ListNotificationsResponse
-	59, // [59:81] is the sub-list for method output_type
-	37, // [37:59] is the sub-list for method input_type
+	40, // 51: phonebridge.localipc.v1.LocalEngineService.RemoveDevice:input_type -> phonebridge.localipc.v1.RevokeDeviceRequest
+	42, // 52: phonebridge.localipc.v1.LocalEngineService.GetClipboardStatus:input_type -> phonebridge.localipc.v1.GetClipboardStatusRequest
+	44, // 53: phonebridge.localipc.v1.LocalEngineService.TriggerClipboardPull:input_type -> phonebridge.localipc.v1.TriggerClipboardPullRequest
+	48, // 54: phonebridge.localipc.v1.LocalEngineService.SendFile:input_type -> phonebridge.localipc.v1.SendFileRequest
+	50, // 55: phonebridge.localipc.v1.LocalEngineService.CancelTransfer:input_type -> phonebridge.localipc.v1.CancelTransferRequest
+	52, // 56: phonebridge.localipc.v1.LocalEngineService.ListTransfers:input_type -> phonebridge.localipc.v1.ListTransfersRequest
+	55, // 57: phonebridge.localipc.v1.LocalEngineService.StreamFrames:input_type -> phonebridge.localipc.v1.StreamFramesRequest
+	57, // 58: phonebridge.localipc.v1.LocalEngineService.SendInput:input_type -> phonebridge.localipc.v1.SendInputRequest
+	59, // 59: phonebridge.localipc.v1.LocalEngineService.ListNotifications:input_type -> phonebridge.localipc.v1.ListNotificationsRequest
+	61, // 60: phonebridge.localipc.v1.LocalEngineService.DismissNotification:input_type -> phonebridge.localipc.v1.DismissNotificationRequest
+	8,  // 61: phonebridge.localipc.v1.LocalEngineService.Handshake:output_type -> phonebridge.localipc.v1.HandshakeResponse
+	10, // 62: phonebridge.localipc.v1.LocalEngineService.Ping:output_type -> phonebridge.localipc.v1.PingResponse
+	12, // 63: phonebridge.localipc.v1.LocalEngineService.StreamEvents:output_type -> phonebridge.localipc.v1.StreamEventsResponse
+	15, // 64: phonebridge.localipc.v1.LocalEngineService.Health:output_type -> phonebridge.localipc.v1.HealthResponse
+	18, // 65: phonebridge.localipc.v1.LocalEngineService.StartSession:output_type -> phonebridge.localipc.v1.StartSessionResponse
+	20, // 66: phonebridge.localipc.v1.LocalEngineService.StopSession:output_type -> phonebridge.localipc.v1.StopSessionResponse
+	23, // 67: phonebridge.localipc.v1.LocalEngineService.GetSessionState:output_type -> phonebridge.localipc.v1.GetSessionStateResponse
+	26, // 68: phonebridge.localipc.v1.LocalEngineService.ListDevices:output_type -> phonebridge.localipc.v1.ListDevicesResponse
+	28, // 69: phonebridge.localipc.v1.LocalEngineService.PairDevice:output_type -> phonebridge.localipc.v1.PairDeviceResponse
+	30, // 70: phonebridge.localipc.v1.LocalEngineService.ConfirmPairing:output_type -> phonebridge.localipc.v1.ConfirmPairingResponse
+	33, // 71: phonebridge.localipc.v1.LocalEngineService.ListInboundPairings:output_type -> phonebridge.localipc.v1.ListInboundPairingsResponse
+	35, // 72: phonebridge.localipc.v1.LocalEngineService.RespondInboundPairing:output_type -> phonebridge.localipc.v1.RespondInboundPairingResponse
+	39, // 73: phonebridge.localipc.v1.LocalEngineService.ListTrustedDevices:output_type -> phonebridge.localipc.v1.ListTrustedDevicesResponse
+	41, // 74: phonebridge.localipc.v1.LocalEngineService.RevokeDevice:output_type -> phonebridge.localipc.v1.RevokeDeviceResponse
+	41, // 75: phonebridge.localipc.v1.LocalEngineService.RemoveDevice:output_type -> phonebridge.localipc.v1.RevokeDeviceResponse
+	43, // 76: phonebridge.localipc.v1.LocalEngineService.GetClipboardStatus:output_type -> phonebridge.localipc.v1.GetClipboardStatusResponse
+	45, // 77: phonebridge.localipc.v1.LocalEngineService.TriggerClipboardPull:output_type -> phonebridge.localipc.v1.TriggerClipboardPullResponse
+	49, // 78: phonebridge.localipc.v1.LocalEngineService.SendFile:output_type -> phonebridge.localipc.v1.SendFileResponse
+	51, // 79: phonebridge.localipc.v1.LocalEngineService.CancelTransfer:output_type -> phonebridge.localipc.v1.CancelTransferResponse
+	53, // 80: phonebridge.localipc.v1.LocalEngineService.ListTransfers:output_type -> phonebridge.localipc.v1.ListTransfersResponse
+	56, // 81: phonebridge.localipc.v1.LocalEngineService.StreamFrames:output_type -> phonebridge.localipc.v1.StreamFramesResponse
+	58, // 82: phonebridge.localipc.v1.LocalEngineService.SendInput:output_type -> phonebridge.localipc.v1.SendInputResponse
+	60, // 83: phonebridge.localipc.v1.LocalEngineService.ListNotifications:output_type -> phonebridge.localipc.v1.ListNotificationsResponse
+	62, // 84: phonebridge.localipc.v1.LocalEngineService.DismissNotification:output_type -> phonebridge.localipc.v1.DismissNotificationResponse
+	61, // [61:85] is the sub-list for method output_type
+	37, // [37:61] is the sub-list for method input_type
 	37, // [37:37] is the sub-list for extension type_name
 	37, // [37:37] is the sub-list for extension extendee
 	0,  // [0:37] is the sub-list for field type_name
@@ -4522,7 +4633,7 @@ func file_phonebridge_localipc_v1_local_ipc_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_phonebridge_localipc_v1_local_ipc_proto_rawDesc), len(file_phonebridge_localipc_v1_local_ipc_proto_rawDesc)),
 			NumEnums:      7,
-			NumMessages:   54,
+			NumMessages:   56,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

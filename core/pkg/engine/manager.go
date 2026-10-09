@@ -349,6 +349,22 @@ func (m *SessionManager) ListNotifications() []*phonebridgev1.NotificationPosted
 	return m.notificationStore.List()
 }
 
+// DismissNotification routes a notification dismissal request to the active session (DEC-028).
+func (m *SessionManager) DismissNotification(key string) error {
+	m.mu.RLock()
+	sess := m.activeSess
+	ts := m.trustStore
+	m.mu.RUnlock()
+
+	if sess == nil {
+		return errors.New("no active session: connect to a device before dismissing notifications")
+	}
+	if ts != nil && sess.cfg.TargetDeviceID != "" && !ts.IsTrusted(sess.cfg.TargetDeviceID) {
+		return fmt.Errorf("device %s is not trusted: notification dismissal rejected", sess.cfg.TargetDeviceID)
+	}
+	return sess.DismissNotification(key)
+}
+
 // TrustStore returns the active trust store.
 func (m *SessionManager) TrustStore() *crypto.TrustStore {
 	m.mu.RLock()

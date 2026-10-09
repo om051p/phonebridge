@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
@@ -53,6 +54,8 @@ class TransferController extends ChangeNotifier {
   bool get hasTransfers => _items.isNotEmpty;
 
   bool get hasActiveTransfers => _items.values.any((item) => item.isInFlight);
+
+  bool get hasFinishedTransfers => _items.values.any((item) => item.isTerminal);
 
   int get activeCount => _items.values.where((item) => item.isInFlight).length;
 
@@ -263,6 +266,80 @@ class TransferController extends ChangeNotifier {
     if (_errorMessage == null) return;
     _errorMessage = null;
     _notify();
+  }
+
+  /// Removes all completed, cancelled, or failed transfers from the in-memory list.
+  void clearFinished() {
+    final toRemove = _items.entries
+        .where((e) => e.value.isTerminal)
+        .map((e) => e.key)
+        .toList();
+    if (toRemove.isEmpty) return;
+    for (final id in toRemove) {
+      _items.remove(id);
+    }
+    _notify();
+  }
+
+  /// Opens the containing directory of a received file in the desktop file manager.
+  Future<bool> openContainingFolder(String filename) async {
+    try {
+      if (kIsWeb) return false;
+      final home = Platform.environment['HOME'] ?? '';
+      final xdgDownload = Platform.environment['XDG_DOWNLOAD_DIR'];
+      final downloadDir = (xdgDownload != null && xdgDownload.isNotEmpty)
+          ? xdgDownload
+          : '$home/Downloads';
+      final file = File('$downloadDir/$filename');
+      final target = await file.exists() ? file.path : downloadDir;
+      final result = await Process.run('xdg-open', [target]);
+      return result.exitCode == 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Interactive native desktop file picker using zenity or kdialog.
+  Future<String?> pickDesktopFilePath({String title = 'Select file to send'}) async {
+    return pickNativeFile(title: title);
+  }
+
+  /// Static helper for picking files on Linux via native dialogs.
+  static Future<String?> pickNativeFile({String title = 'Select file to send'}) async {
+    try {
+      if (kIsWeb) return null;
+      if (!Platform.isLinux) return null;
+
+      // 1. Try zenity (standard on GNOME / Ubuntu / Debian)
+      final zenityRes = await Process.run('zenity', [
+        '--file-selection',
+        '--title=$title',
+      ]);
+      if (zenityRes.exitCode == 0) {
+        final path = zenityRes.stdout.toString().trim();
+        if (path.isNotEmpty) return path;
+      }
+    } catch (_) {}
+
+    try {
+      if (kIsWeb) return null;
+      if (!Platform.isLinux) return null;
+
+      // 2. Try kdialog fallback (KDE / Qt)
+      final kdialogRes = await Process.run('kdialog', [
+        '--getopenfilename',
+        '.',
+        '*',
+        '--title',
+        title,
+      ]);
+      if (kdialogRes.exitCode == 0) {
+        final path = kdialogRes.stdout.toString().trim();
+        if (path.isNotEmpty) return path;
+      }
+    } catch (_) {}
+
+    return null;
   }
 
   @override

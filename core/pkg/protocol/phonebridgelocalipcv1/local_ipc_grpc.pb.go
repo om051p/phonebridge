@@ -103,6 +103,7 @@ const (
 	LocalEngineService_StreamFrames_FullMethodName          = "/phonebridge.localipc.v1.LocalEngineService/StreamFrames"
 	LocalEngineService_SendInput_FullMethodName             = "/phonebridge.localipc.v1.LocalEngineService/SendInput"
 	LocalEngineService_ListNotifications_FullMethodName     = "/phonebridge.localipc.v1.LocalEngineService/ListNotifications"
+	LocalEngineService_DismissNotification_FullMethodName   = "/phonebridge.localipc.v1.LocalEngineService/DismissNotification"
 )
 
 // LocalEngineServiceClient is the client API for LocalEngineService service.
@@ -142,8 +143,8 @@ type LocalEngineServiceClient interface {
 	// RevokeDevice revokes trust for a previously paired device.
 	RevokeDevice(ctx context.Context, in *RevokeDeviceRequest, opts ...grpc.CallOption) (*RevokeDeviceResponse, error)
 	// RemoveDevice permanently deletes a trusted record (Forget Device).
-	// Unlike RevokeDevice it does not preserve a revoked row. Reuses the
-	// revoke messages: no new payload shape (Phase H).
+	// Unlike RevokeDevice — which preserves the revoked row for audit — this
+	// removes it. Reuses the revoke messages: no new payload shape.
 	RemoveDevice(ctx context.Context, in *RevokeDeviceRequest, opts ...grpc.CallOption) (*RevokeDeviceResponse, error)
 	// GetClipboardStatus returns the current status of the host clipboard adapter and engine.
 	GetClipboardStatus(ctx context.Context, in *GetClipboardStatusRequest, opts ...grpc.CallOption) (*GetClipboardStatusResponse, error)
@@ -175,6 +176,8 @@ type LocalEngineServiceClient interface {
 	SendInput(ctx context.Context, in *SendInputRequest, opts ...grpc.CallOption) (*SendInputResponse, error)
 	// ListNotifications returns the active in-memory mirrored notifications (Phase 8, DEC-028).
 	ListNotifications(ctx context.Context, in *ListNotificationsRequest, opts ...grpc.CallOption) (*ListNotificationsResponse, error)
+	// DismissNotification requests dismissal of a mirrored notification on Android (Phase 8, DEC-028).
+	DismissNotification(ctx context.Context, in *DismissNotificationRequest, opts ...grpc.CallOption) (*DismissNotificationResponse, error)
 }
 
 type localEngineServiceClient struct {
@@ -433,6 +436,16 @@ func (c *localEngineServiceClient) ListNotifications(ctx context.Context, in *Li
 	return out, nil
 }
 
+func (c *localEngineServiceClient) DismissNotification(ctx context.Context, in *DismissNotificationRequest, opts ...grpc.CallOption) (*DismissNotificationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DismissNotificationResponse)
+	err := c.cc.Invoke(ctx, LocalEngineService_DismissNotification_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LocalEngineServiceServer is the server API for LocalEngineService service.
 // All implementations should embed UnimplementedLocalEngineServiceServer
 // for forward compatibility.
@@ -470,6 +483,8 @@ type LocalEngineServiceServer interface {
 	// RevokeDevice revokes trust for a previously paired device.
 	RevokeDevice(context.Context, *RevokeDeviceRequest) (*RevokeDeviceResponse, error)
 	// RemoveDevice permanently deletes a trusted record (Forget Device).
+	// Unlike RevokeDevice — which preserves the revoked row for audit — this
+	// removes it. Reuses the revoke messages: no new payload shape.
 	RemoveDevice(context.Context, *RevokeDeviceRequest) (*RevokeDeviceResponse, error)
 	// GetClipboardStatus returns the current status of the host clipboard adapter and engine.
 	GetClipboardStatus(context.Context, *GetClipboardStatusRequest) (*GetClipboardStatusResponse, error)
@@ -501,6 +516,8 @@ type LocalEngineServiceServer interface {
 	SendInput(context.Context, *SendInputRequest) (*SendInputResponse, error)
 	// ListNotifications returns the active in-memory mirrored notifications (Phase 8, DEC-028).
 	ListNotifications(context.Context, *ListNotificationsRequest) (*ListNotificationsResponse, error)
+	// DismissNotification requests dismissal of a mirrored notification on Android (Phase 8, DEC-028).
+	DismissNotification(context.Context, *DismissNotificationRequest) (*DismissNotificationResponse, error)
 }
 
 // UnimplementedLocalEngineServiceServer should be embedded to have
@@ -578,6 +595,9 @@ func (UnimplementedLocalEngineServiceServer) SendInput(context.Context, *SendInp
 }
 func (UnimplementedLocalEngineServiceServer) ListNotifications(context.Context, *ListNotificationsRequest) (*ListNotificationsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListNotifications not implemented")
+}
+func (UnimplementedLocalEngineServiceServer) DismissNotification(context.Context, *DismissNotificationRequest) (*DismissNotificationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DismissNotification not implemented")
 }
 func (UnimplementedLocalEngineServiceServer) testEmbeddedByValue() {}
 
@@ -999,6 +1019,24 @@ func _LocalEngineService_ListNotifications_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LocalEngineService_DismissNotification_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DismissNotificationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalEngineServiceServer).DismissNotification(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalEngineService_DismissNotification_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalEngineServiceServer).DismissNotification(ctx, req.(*DismissNotificationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // LocalEngineService_ServiceDesc is the grpc.ServiceDesc for LocalEngineService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1089,6 +1127,10 @@ var LocalEngineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListNotifications",
 			Handler:    _LocalEngineService_ListNotifications_Handler,
+		},
+		{
+			MethodName: "DismissNotification",
+			Handler:    _LocalEngineService_DismissNotification_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

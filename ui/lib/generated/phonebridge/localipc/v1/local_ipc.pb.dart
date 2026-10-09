@@ -4756,6 +4756,147 @@ class ListNotificationsResponse extends $pb.GeneratedMessage {
   $pb.PbList<$1.NotificationPosted> get notifications => $_getList(0);
 }
 
+/// DismissNotificationRequest requests dismissal of a mirrored notification by key.
+class DismissNotificationRequest extends $pb.GeneratedMessage {
+  factory DismissNotificationRequest({
+    $core.String? key,
+  }) {
+    final result = DismissNotificationRequest._();
+    if (key != null) result.key = key;
+    return result;
+  }
+
+  DismissNotificationRequest._();
+
+  factory DismissNotificationRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      DismissNotificationRequest()..mergeFromBuffer(data, registry);
+  factory DismissNotificationRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      DismissNotificationRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'DismissNotificationRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: DismissNotificationRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'key')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  DismissNotificationRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  DismissNotificationRequest copyWith(
+          void Function(DismissNotificationRequest) updates) =>
+      super.copyWith(
+              (message) => updates(message as DismissNotificationRequest))
+          as DismissNotificationRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use DismissNotificationRequest() / DismissNotificationRequest.new instead')
+  static DismissNotificationRequest create() => DismissNotificationRequest._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      DismissNotificationRequest._();
+  @$core.override
+  DismissNotificationRequest createEmptyInstance() =>
+      DismissNotificationRequest._();
+  @$core.pragma('dart2js:noInline')
+  static DismissNotificationRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<DismissNotificationRequest>(
+          DismissNotificationRequest.$_createMessage);
+  static DismissNotificationRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get key => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set key($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasKey() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearKey() => $_clearField(1);
+}
+
+/// DismissNotificationResponse reports the outcome of the dismissal request.
+class DismissNotificationResponse extends $pb.GeneratedMessage {
+  factory DismissNotificationResponse({
+    $core.bool? success,
+    $core.String? error,
+  }) {
+    final result = DismissNotificationResponse._();
+    if (success != null) result.success = success;
+    if (error != null) result.error = error;
+    return result;
+  }
+
+  DismissNotificationResponse._();
+
+  factory DismissNotificationResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      DismissNotificationResponse()..mergeFromBuffer(data, registry);
+  factory DismissNotificationResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      DismissNotificationResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'DismissNotificationResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'phonebridge.localipc.v1'),
+      createEmptyInstance: DismissNotificationResponse.$_createMessage)
+    ..aOB(1, _omitFieldNames ? '' : 'success')
+    ..aOS(2, _omitFieldNames ? '' : 'error')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  DismissNotificationResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  DismissNotificationResponse copyWith(
+          void Function(DismissNotificationResponse) updates) =>
+      super.copyWith(
+              (message) => updates(message as DismissNotificationResponse))
+          as DismissNotificationResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use DismissNotificationResponse() / DismissNotificationResponse.new instead')
+  static DismissNotificationResponse create() =>
+      DismissNotificationResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      DismissNotificationResponse._();
+  @$core.override
+  DismissNotificationResponse createEmptyInstance() =>
+      DismissNotificationResponse._();
+  @$core.pragma('dart2js:noInline')
+  static DismissNotificationResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<DismissNotificationResponse>(
+          DismissNotificationResponse.$_createMessage);
+  static DismissNotificationResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.bool get success => $_getBF(0);
+  @$pb.TagNumber(1)
+  set success($core.bool value) => $_setBool(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasSuccess() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearSuccess() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get error => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set error($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasError() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearError() => $_clearField(2);
+}
+
 const $core.bool _omitFieldNames =
     $core.bool.fromEnvironment('protobuf.omit_field_names');
 const $core.bool _omitMessageNames =

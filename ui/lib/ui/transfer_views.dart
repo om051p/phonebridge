@@ -115,6 +115,19 @@ class TransferTile extends StatelessWidget {
                   fontSize: 11,
                 ),
               ),
+              if (item.isComplete && item.isInbound && controller != null) ...[
+                const SizedBox(width: 4),
+                IconButton(
+                  icon: const Icon(Icons.folder_open, size: 20),
+                  tooltip: 'Show in file manager',
+                  onPressed: () {
+                    final target = item.savedName.isNotEmpty
+                        ? item.savedName
+                        : item.displayName;
+                    controller!.openContainingFolder(target);
+                  },
+                ),
+              ],
               if (cancellable) ...[
                 const SizedBox(width: 4),
                 IconButton(
@@ -254,6 +267,15 @@ class TransfersSection extends StatelessWidget {
               icon: const Icon(Icons.upload_file, size: 18),
               label: const Text('SEND FILE'),
               style: FilledButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+          if (controller.hasFinishedTransfers)
+            TextButton.icon(
+              onPressed: controller.clearFinished,
+              icon: const Icon(Icons.clear_all, size: 16),
+              label: const Text('CLEAR FINISHED'),
+              style: TextButton.styleFrom(
                 visualDensity: VisualDensity.compact,
               ),
             ),
@@ -408,7 +430,7 @@ class TransfersSection extends StatelessWidget {
 
   Future<void> _promptAndSend(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
-    final path = await showSendFileDialog(context);
+    final path = await showSendFileDialog(context, controller: controller);
     if (path == null || path.trim().isEmpty) return;
 
     final result = await controller.sendFile(localPath: path);
@@ -427,21 +449,18 @@ class TransfersSection extends StatelessWidget {
 }
 
 /// Asks for the absolute path of the local file to send and returns it, or null
-/// when the user cancelled.
-///
-/// The desktop daemon reads SendFileRequest.local_path itself (file bytes never
-/// cross local IPC), so a path field is sufficient and no file-picker plugin is
-/// required — this app has no picker dependency. A native picker can replace this
-/// behind the same call later, on the platform that needs it.
-Future<String?> showSendFileDialog(BuildContext context) {
+/// when the user cancelled. Offers a native file picker on Linux desktop.
+Future<String?> showSendFileDialog(BuildContext context, {TransferController? controller}) {
   return showDialog<String>(
     context: context,
-    builder: (_) => const _SendFileDialog(),
+    builder: (_) => _SendFileDialog(controller: controller),
   );
 }
 
 class _SendFileDialog extends StatefulWidget {
-  const _SendFileDialog();
+  const _SendFileDialog({this.controller});
+
+  final TransferController? controller;
 
   @override
   State<_SendFileDialog> createState() => _SendFileDialogState();
@@ -455,6 +474,15 @@ class _SendFileDialogState extends State<_SendFileDialog> {
   void dispose() {
     _pathController.dispose();
     super.dispose();
+  }
+
+  Future<void> _browse() async {
+    final picked = await (widget.controller?.pickDesktopFilePath() ??
+        TransferController.pickNativeFile());
+    if (picked != null && picked.isNotEmpty && mounted) {
+      _pathController.text = picked;
+      setState(() => _error = null);
+    }
   }
 
   String? _validate(String raw) {
@@ -495,17 +523,33 @@ class _SendFileDialogState extends State<_SendFileDialog> {
             ),
           ),
           const SizedBox(height: 12),
-          TextField(
-            controller: _pathController,
-            autofocus: true,
-            decoration: InputDecoration(
-              labelText: 'Absolute file path',
-              hintText: '/home/you/Documents/report.pdf',
-              errorText: _error,
-              border: const OutlineInputBorder(),
-              prefixIcon: const Icon(Icons.insert_drive_file_outlined),
-            ),
-            onSubmitted: (_) => _submit(),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _pathController,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    labelText: 'Absolute file path',
+                    hintText: '/home/you/Documents/report.pdf',
+                    errorText: _error,
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.insert_drive_file_outlined),
+                  ),
+                  onSubmitted: (_) => _submit(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.tonalIcon(
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+                ),
+                onPressed: _browse,
+                icon: const Icon(Icons.folder_open, size: 18),
+                label: const Text('BROWSE…'),
+              ),
+            ],
           ),
         ],
       ),

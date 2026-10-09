@@ -458,6 +458,12 @@ class LinuxBridgeService
     return resp.notifications.map(NotificationItem.fromProto).toList();
   }
 
+  @override
+  Future<bool> dismissNotification(String key) async {
+    final resp = await _client.dismissNotification(key);
+    return resp.success;
+  }
+
   /// Transfer history as the daemon sees it. Unlike the other read paths this
   /// one rethrows, because the UI must tell "no transfers yet" apart from
   /// "daemon unreachable / transfer engine disabled".

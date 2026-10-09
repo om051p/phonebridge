@@ -320,6 +320,7 @@ void main() {
 
       await tester.tap(find.text('SEND FILE'));
       await tester.pumpAndSettle();
+      expect(find.text('BROWSE…'), findsOneWidget);
       await tester.enterText(find.byType(TextField), '/home/you/report.pdf');
       await tester.tap(find.text('SEND'));
       await tester.pumpAndSettle();
@@ -330,6 +331,28 @@ void main() {
       );
       expect(controller.items, isEmpty);
       await tester.pump(const Duration(seconds: 4));
+    });
+
+    testWidgets('CLEAR FINISHED clears terminal transfers from view',
+        (tester) async {
+      backend.history = [
+        item('tx-active', state: ipc.TransferState.TRANSFER_STATE_ACTIVE),
+        item('tx-done',
+            state: ipc.TransferState.TRANSFER_STATE_COMPLETE, finished: true),
+      ];
+      await controller.initialize();
+      await tester.pumpWidget(inline(TransfersSection(controller: controller)));
+
+      expect(find.text('CLEAR FINISHED'), findsOneWidget);
+      expect(find.byType(TransferTile), findsNWidgets(2));
+
+      await tester.tap(find.text('CLEAR FINISHED'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('CLEAR FINISHED'), findsNothing);
+      expect(find.byType(TransferTile), findsOneWidget);
+      expect(find.text('tx-active.bin'), findsOneWidget);
+      expect(find.text('tx-done.bin'), findsNothing);
     });
   });
 

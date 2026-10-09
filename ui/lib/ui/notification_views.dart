@@ -8,9 +8,11 @@ class NotificationTile extends StatelessWidget {
   const NotificationTile({
     super.key,
     required this.item,
+    this.onDismiss,
   });
 
   final NotificationItem item;
+  final VoidCallback? onDismiss;
 
   @override
   Widget build(BuildContext context) {
@@ -117,6 +119,15 @@ class NotificationTile extends StatelessWidget {
               ],
             ),
           ),
+          if (item.isClearable && onDismiss != null) ...[
+            const SizedBox(width: 4),
+            IconButton(
+              icon: const Icon(Icons.close, size: 18),
+              tooltip: 'Dismiss on phone',
+              visualDensity: VisualDensity.compact,
+              onPressed: onDismiss,
+            ),
+          ],
         ],
       ),
     );
@@ -248,7 +259,10 @@ class NotificationsSection extends StatelessWidget {
         children: [
           for (var i = 0; i < items.length; i++) ...[
             if (i > 0) const Divider(height: 1),
-            NotificationTile(item: items[i]),
+            NotificationTile(
+              item: items[i],
+              onDismiss: () => controller.dismiss(items[i].key),
+            ),
           ],
         ],
       ),

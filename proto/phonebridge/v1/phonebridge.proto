@@ -482,6 +482,7 @@ message NotificationFrame {
   oneof event {
     NotificationPosted posted = 10;
     NotificationRemoved removed = 11;
+    NotificationDismiss dismiss = 12;
   }
 }
 
@@ -528,6 +529,12 @@ message NotificationRemoved {
 
   // Android cancellation reason code (e.g. REASON_CANCEL, REASON_DISMISSED).
   int32 reason = 3;
+}
+
+// NotificationDismiss requests the paired Android device to cancel/dismiss a notification (DEC-028).
+message NotificationDismiss {
+  // Globally unique notification key (StatusBarNotification.getKey()) to cancel.
+  string key = 1;
 }
 message ScreenStop {
   // Why the stream stopped (typed where the sender knows the cause).

@@ -887,6 +887,15 @@ const NotificationFrame$json = {
       '9': 0,
       '10': 'removed'
     },
+    {
+      '1': 'dismiss',
+      '3': 12,
+      '4': 1,
+      '5': 11,
+      '6': '.phonebridge.v1.NotificationDismiss',
+      '9': 0,
+      '10': 'dismiss'
+    },
   ],
   '8': [
     {'1': 'event'},
@@ -898,7 +907,9 @@ final $typed_data.Uint8List notificationFrameDescriptor = $convert.base64Decode(
     'ChFOb3RpZmljYXRpb25GcmFtZRIYCgd2ZXJzaW9uGAEgASgNUgd2ZXJzaW9uEiEKDHRpbWVzdG'
     'FtcF9tcxgCIAEoBFILdGltZXN0YW1wTXMSPAoGcG9zdGVkGAogASgLMiIucGhvbmVicmlkZ2Uu'
     'djEuTm90aWZpY2F0aW9uUG9zdGVkSABSBnBvc3RlZBI/CgdyZW1vdmVkGAsgASgLMiMucGhvbm'
-    'VicmlkZ2UudjEuTm90aWZpY2F0aW9uUmVtb3ZlZEgAUgdyZW1vdmVkQgcKBWV2ZW50');
+    'VicmlkZ2UudjEuTm90aWZpY2F0aW9uUmVtb3ZlZEgAUgdyZW1vdmVkEj8KB2Rpc21pc3MYDCAB'
+    'KAsyIy5waG9uZWJyaWRnZS52MS5Ob3RpZmljYXRpb25EaXNtaXNzSABSB2Rpc21pc3NCBwoFZX'
+    'ZlbnQ=');
 
 @$core.Deprecated('Use notificationPostedDescriptor instead')
 const NotificationPosted$json = {
@@ -940,6 +951,18 @@ const NotificationRemoved$json = {
 final $typed_data.Uint8List notificationRemovedDescriptor = $convert.base64Decode(
     'ChNOb3RpZmljYXRpb25SZW1vdmVkEhAKA2tleRgBIAEoCVIDa2V5EiEKDHBhY2thZ2VfbmFtZR'
     'gCIAEoCVILcGFja2FnZU5hbWUSFgoGcmVhc29uGAMgASgFUgZyZWFzb24=');
+
+@$core.Deprecated('Use notificationDismissDescriptor instead')
+const NotificationDismiss$json = {
+  '1': 'NotificationDismiss',
+  '2': [
+    {'1': 'key', '3': 1, '4': 1, '5': 9, '10': 'key'},
+  ],
+};
+
+/// Descriptor for `NotificationDismiss`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List notificationDismissDescriptor = $convert
+    .base64Decode('ChNOb3RpZmljYXRpb25EaXNtaXNzEhAKA2tleRgBIAEoCVIDa2V5');
 
 @$core.Deprecated('Use screenStopDescriptor instead')
 const ScreenStop$json = {

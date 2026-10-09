@@ -294,7 +294,7 @@ func (x TouchEvent_Action) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use TouchEvent_Action.Descriptor instead.
 func (TouchEvent_Action) EnumDescriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{33, 0}
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{34, 0}
 }
 
 type KeyEvent_Action int32
@@ -343,7 +343,7 @@ func (x KeyEvent_Action) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use KeyEvent_Action.Descriptor instead.
 func (KeyEvent_Action) EnumDescriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{34, 0}
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{35, 0}
 }
 
 type GlobalActionEvent_Type int32
@@ -401,7 +401,7 @@ func (x GlobalActionEvent_Type) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use GlobalActionEvent_Type.Descriptor instead.
 func (GlobalActionEvent_Type) EnumDescriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{37, 0}
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{38, 0}
 }
 
 // ---------------------------------------------------------------------------
@@ -2507,6 +2507,7 @@ type NotificationFrame struct {
 	//
 	//	*NotificationFrame_Posted
 	//	*NotificationFrame_Removed
+	//	*NotificationFrame_Dismiss
 	Event         isNotificationFrame_Event `protobuf_oneof:"event"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2581,6 +2582,15 @@ func (x *NotificationFrame) GetRemoved() *NotificationRemoved {
 	return nil
 }
 
+func (x *NotificationFrame) GetDismiss() *NotificationDismiss {
+	if x != nil {
+		if x, ok := x.Event.(*NotificationFrame_Dismiss); ok {
+			return x.Dismiss
+		}
+	}
+	return nil
+}
+
 type isNotificationFrame_Event interface {
 	isNotificationFrame_Event()
 }
@@ -2593,9 +2603,15 @@ type NotificationFrame_Removed struct {
 	Removed *NotificationRemoved `protobuf:"bytes,11,opt,name=removed,proto3,oneof"`
 }
 
+type NotificationFrame_Dismiss struct {
+	Dismiss *NotificationDismiss `protobuf:"bytes,12,opt,name=dismiss,proto3,oneof"`
+}
+
 func (*NotificationFrame_Posted) isNotificationFrame_Event() {}
 
 func (*NotificationFrame_Removed) isNotificationFrame_Event() {}
+
+func (*NotificationFrame_Dismiss) isNotificationFrame_Event() {}
 
 // NotificationPosted represents an Android notification posted or updated.
 type NotificationPosted struct {
@@ -2788,6 +2804,52 @@ func (x *NotificationRemoved) GetReason() int32 {
 	return 0
 }
 
+// NotificationDismiss requests the paired Android device to cancel/dismiss a notification (DEC-028).
+type NotificationDismiss struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Globally unique notification key (StatusBarNotification.getKey()) to cancel.
+	Key           string `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NotificationDismiss) Reset() {
+	*x = NotificationDismiss{}
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NotificationDismiss) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NotificationDismiss) ProtoMessage() {}
+
+func (x *NotificationDismiss) ProtoReflect() protoreflect.Message {
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NotificationDismiss.ProtoReflect.Descriptor instead.
+func (*NotificationDismiss) Descriptor() ([]byte, []int) {
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *NotificationDismiss) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
 type ScreenStop struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Why the stream stopped (typed where the sender knows the cause).
@@ -2800,7 +2862,7 @@ type ScreenStop struct {
 
 func (x *ScreenStop) Reset() {
 	*x = ScreenStop{}
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[27]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2812,7 +2874,7 @@ func (x *ScreenStop) String() string {
 func (*ScreenStop) ProtoMessage() {}
 
 func (x *ScreenStop) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[27]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2825,7 +2887,7 @@ func (x *ScreenStop) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScreenStop.ProtoReflect.Descriptor instead.
 func (*ScreenStop) Descriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{27}
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ScreenStop) GetReasonCode() Code {
@@ -2850,7 +2912,7 @@ type InputKeyboard struct {
 
 func (x *InputKeyboard) Reset() {
 	*x = InputKeyboard{}
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[28]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2862,7 +2924,7 @@ func (x *InputKeyboard) String() string {
 func (*InputKeyboard) ProtoMessage() {}
 
 func (x *InputKeyboard) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[28]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2875,7 +2937,7 @@ func (x *InputKeyboard) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InputKeyboard.ProtoReflect.Descriptor instead.
 func (*InputKeyboard) Descriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{28}
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{29}
 }
 
 type InputMouse struct {
@@ -2886,7 +2948,7 @@ type InputMouse struct {
 
 func (x *InputMouse) Reset() {
 	*x = InputMouse{}
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[29]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2898,7 +2960,7 @@ func (x *InputMouse) String() string {
 func (*InputMouse) ProtoMessage() {}
 
 func (x *InputMouse) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[29]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2911,7 +2973,7 @@ func (x *InputMouse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InputMouse.ProtoReflect.Descriptor instead.
 func (*InputMouse) Descriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{29}
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{30}
 }
 
 type InputTouch struct {
@@ -2922,7 +2984,7 @@ type InputTouch struct {
 
 func (x *InputTouch) Reset() {
 	*x = InputTouch{}
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[30]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2934,7 +2996,7 @@ func (x *InputTouch) String() string {
 func (*InputTouch) ProtoMessage() {}
 
 func (x *InputTouch) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[30]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2947,7 +3009,7 @@ func (x *InputTouch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InputTouch.ProtoReflect.Descriptor instead.
 func (*InputTouch) Descriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{30}
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{31}
 }
 
 type DeviceStatus struct {
@@ -2958,7 +3020,7 @@ type DeviceStatus struct {
 
 func (x *DeviceStatus) Reset() {
 	*x = DeviceStatus{}
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[31]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2970,7 +3032,7 @@ func (x *DeviceStatus) String() string {
 func (*DeviceStatus) ProtoMessage() {}
 
 func (x *DeviceStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[31]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2983,7 +3045,7 @@ func (x *DeviceStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceStatus.ProtoReflect.Descriptor instead.
 func (*DeviceStatus) Descriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{31}
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{32}
 }
 
 // ---------------------------------------------------------------------------
@@ -3012,7 +3074,7 @@ type InputFrame struct {
 
 func (x *InputFrame) Reset() {
 	*x = InputFrame{}
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[32]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3024,7 +3086,7 @@ func (x *InputFrame) String() string {
 func (*InputFrame) ProtoMessage() {}
 
 func (x *InputFrame) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[32]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3037,7 +3099,7 @@ func (x *InputFrame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InputFrame.ProtoReflect.Descriptor instead.
 func (*InputFrame) Descriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{32}
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *InputFrame) GetTimestampMs() uint64 {
@@ -3149,7 +3211,7 @@ type TouchEvent struct {
 
 func (x *TouchEvent) Reset() {
 	*x = TouchEvent{}
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[33]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3161,7 +3223,7 @@ func (x *TouchEvent) String() string {
 func (*TouchEvent) ProtoMessage() {}
 
 func (x *TouchEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[33]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3174,7 +3236,7 @@ func (x *TouchEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TouchEvent.ProtoReflect.Descriptor instead.
 func (*TouchEvent) Descriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{33}
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *TouchEvent) GetAction() TouchEvent_Action {
@@ -3224,7 +3286,7 @@ type KeyEvent struct {
 
 func (x *KeyEvent) Reset() {
 	*x = KeyEvent{}
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[34]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3236,7 +3298,7 @@ func (x *KeyEvent) String() string {
 func (*KeyEvent) ProtoMessage() {}
 
 func (x *KeyEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[34]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3249,7 +3311,7 @@ func (x *KeyEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KeyEvent.ProtoReflect.Descriptor instead.
 func (*KeyEvent) Descriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{34}
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *KeyEvent) GetAction() KeyEvent_Action {
@@ -3284,7 +3346,7 @@ type TextEvent struct {
 
 func (x *TextEvent) Reset() {
 	*x = TextEvent{}
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[35]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3296,7 +3358,7 @@ func (x *TextEvent) String() string {
 func (*TextEvent) ProtoMessage() {}
 
 func (x *TextEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[35]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3309,7 +3371,7 @@ func (x *TextEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TextEvent.ProtoReflect.Descriptor instead.
 func (*TextEvent) Descriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{35}
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *TextEvent) GetText() string {
@@ -3332,7 +3394,7 @@ type ScrollEvent struct {
 
 func (x *ScrollEvent) Reset() {
 	*x = ScrollEvent{}
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[36]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3344,7 +3406,7 @@ func (x *ScrollEvent) String() string {
 func (*ScrollEvent) ProtoMessage() {}
 
 func (x *ScrollEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[36]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3357,7 +3419,7 @@ func (x *ScrollEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScrollEvent.ProtoReflect.Descriptor instead.
 func (*ScrollEvent) Descriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{36}
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *ScrollEvent) GetNormalizedX() float32 {
@@ -3398,7 +3460,7 @@ type GlobalActionEvent struct {
 
 func (x *GlobalActionEvent) Reset() {
 	*x = GlobalActionEvent{}
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[37]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3410,7 +3472,7 @@ func (x *GlobalActionEvent) String() string {
 func (*GlobalActionEvent) ProtoMessage() {}
 
 func (x *GlobalActionEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[37]
+	mi := &file_phonebridge_v1_phonebridge_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3423,7 +3485,7 @@ func (x *GlobalActionEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GlobalActionEvent.ProtoReflect.Descriptor instead.
 func (*GlobalActionEvent) Descriptor() ([]byte, []int) {
-	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{37}
+	return file_phonebridge_v1_phonebridge_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *GlobalActionEvent) GetType() GlobalActionEvent_Type {
@@ -3598,13 +3660,14 @@ const file_phonebridge_v1_phonebridge_proto_rawDesc = "" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\"\x13\n" +
 	"\x11NotificationEvent\"\x14\n" +
 	"\x12NotificationAction\"\x17\n" +
-	"\x15NotificationDismissed\"\xd8\x01\n" +
+	"\x15NotificationDismissed\"\x99\x02\n" +
 	"\x11NotificationFrame\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\rR\aversion\x12!\n" +
 	"\ftimestamp_ms\x18\x02 \x01(\x04R\vtimestampMs\x12<\n" +
 	"\x06posted\x18\n" +
 	" \x01(\v2\".phonebridge.v1.NotificationPostedH\x00R\x06posted\x12?\n" +
-	"\aremoved\x18\v \x01(\v2#.phonebridge.v1.NotificationRemovedH\x00R\aremovedB\a\n" +
+	"\aremoved\x18\v \x01(\v2#.phonebridge.v1.NotificationRemovedH\x00R\aremoved\x12?\n" +
+	"\adismiss\x18\f \x01(\v2#.phonebridge.v1.NotificationDismissH\x00R\adismissB\a\n" +
 	"\x05event\"\xa9\x02\n" +
 	"\x12NotificationPosted\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12!\n" +
@@ -3623,7 +3686,9 @@ const file_phonebridge_v1_phonebridge_proto_rawDesc = "" +
 	"\x13NotificationRemoved\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12!\n" +
 	"\fpackage_name\x18\x02 \x01(\tR\vpackageName\x12\x16\n" +
-	"\x06reason\x18\x03 \x01(\x05R\x06reason\"[\n" +
+	"\x06reason\x18\x03 \x01(\x05R\x06reason\"'\n" +
+	"\x13NotificationDismiss\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\"[\n" +
 	"\n" +
 	"ScreenStop\x125\n" +
 	"\vreason_code\x18\x01 \x01(\x0e2\x14.phonebridge.v1.CodeR\n" +
@@ -3733,7 +3798,7 @@ func file_phonebridge_v1_phonebridge_proto_rawDescGZIP() []byte {
 }
 
 var file_phonebridge_v1_phonebridge_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_phonebridge_v1_phonebridge_proto_msgTypes = make([]protoimpl.MessageInfo, 39)
+var file_phonebridge_v1_phonebridge_proto_msgTypes = make([]protoimpl.MessageInfo, 40)
 var file_phonebridge_v1_phonebridge_proto_goTypes = []any{
 	(Capability)(0),               // 0: phonebridge.v1.Capability
 	(Code)(0),                     // 1: phonebridge.v1.Code
@@ -3767,18 +3832,19 @@ var file_phonebridge_v1_phonebridge_proto_goTypes = []any{
 	(*NotificationFrame)(nil),     // 29: phonebridge.v1.NotificationFrame
 	(*NotificationPosted)(nil),    // 30: phonebridge.v1.NotificationPosted
 	(*NotificationRemoved)(nil),   // 31: phonebridge.v1.NotificationRemoved
-	(*ScreenStop)(nil),            // 32: phonebridge.v1.ScreenStop
-	(*InputKeyboard)(nil),         // 33: phonebridge.v1.InputKeyboard
-	(*InputMouse)(nil),            // 34: phonebridge.v1.InputMouse
-	(*InputTouch)(nil),            // 35: phonebridge.v1.InputTouch
-	(*DeviceStatus)(nil),          // 36: phonebridge.v1.DeviceStatus
-	(*InputFrame)(nil),            // 37: phonebridge.v1.InputFrame
-	(*TouchEvent)(nil),            // 38: phonebridge.v1.TouchEvent
-	(*KeyEvent)(nil),              // 39: phonebridge.v1.KeyEvent
-	(*TextEvent)(nil),             // 40: phonebridge.v1.TextEvent
-	(*ScrollEvent)(nil),           // 41: phonebridge.v1.ScrollEvent
-	(*GlobalActionEvent)(nil),     // 42: phonebridge.v1.GlobalActionEvent
-	nil,                           // 43: phonebridge.v1.Error.DetailsEntry
+	(*NotificationDismiss)(nil),   // 32: phonebridge.v1.NotificationDismiss
+	(*ScreenStop)(nil),            // 33: phonebridge.v1.ScreenStop
+	(*InputKeyboard)(nil),         // 34: phonebridge.v1.InputKeyboard
+	(*InputMouse)(nil),            // 35: phonebridge.v1.InputMouse
+	(*InputTouch)(nil),            // 36: phonebridge.v1.InputTouch
+	(*DeviceStatus)(nil),          // 37: phonebridge.v1.DeviceStatus
+	(*InputFrame)(nil),            // 38: phonebridge.v1.InputFrame
+	(*TouchEvent)(nil),            // 39: phonebridge.v1.TouchEvent
+	(*KeyEvent)(nil),              // 40: phonebridge.v1.KeyEvent
+	(*TextEvent)(nil),             // 41: phonebridge.v1.TextEvent
+	(*ScrollEvent)(nil),           // 42: phonebridge.v1.ScrollEvent
+	(*GlobalActionEvent)(nil),     // 43: phonebridge.v1.GlobalActionEvent
+	nil,                           // 44: phonebridge.v1.Error.DetailsEntry
 }
 var file_phonebridge_v1_phonebridge_proto_depIdxs = []int32{
 	6,  // 0: phonebridge.v1.Envelope.capabilities:type_name -> phonebridge.v1.CapabilitySet
@@ -3799,11 +3865,11 @@ var file_phonebridge_v1_phonebridge_proto_depIdxs = []int32{
 	23, // 15: phonebridge.v1.Envelope.file_complete:type_name -> phonebridge.v1.FileComplete
 	25, // 16: phonebridge.v1.Envelope.file_cancel:type_name -> phonebridge.v1.FileCancel
 	17, // 17: phonebridge.v1.Envelope.screen_start:type_name -> phonebridge.v1.ScreenStart
-	32, // 18: phonebridge.v1.Envelope.screen_stop:type_name -> phonebridge.v1.ScreenStop
-	33, // 19: phonebridge.v1.Envelope.input_keyboard:type_name -> phonebridge.v1.InputKeyboard
-	34, // 20: phonebridge.v1.Envelope.input_mouse:type_name -> phonebridge.v1.InputMouse
-	35, // 21: phonebridge.v1.Envelope.input_touch:type_name -> phonebridge.v1.InputTouch
-	36, // 22: phonebridge.v1.Envelope.device_status:type_name -> phonebridge.v1.DeviceStatus
+	33, // 18: phonebridge.v1.Envelope.screen_stop:type_name -> phonebridge.v1.ScreenStop
+	34, // 19: phonebridge.v1.Envelope.input_keyboard:type_name -> phonebridge.v1.InputKeyboard
+	35, // 20: phonebridge.v1.Envelope.input_mouse:type_name -> phonebridge.v1.InputMouse
+	36, // 21: phonebridge.v1.Envelope.input_touch:type_name -> phonebridge.v1.InputTouch
+	37, // 22: phonebridge.v1.Envelope.device_status:type_name -> phonebridge.v1.DeviceStatus
 	0,  // 23: phonebridge.v1.CapabilitySet.capabilities:type_name -> phonebridge.v1.Capability
 	7,  // 24: phonebridge.v1.DeviceHello.version_negotiation:type_name -> phonebridge.v1.VersionNegotiation
 	6,  // 25: phonebridge.v1.DeviceHello.capabilities:type_name -> phonebridge.v1.CapabilitySet
@@ -3812,7 +3878,7 @@ var file_phonebridge_v1_phonebridge_proto_depIdxs = []int32{
 	10, // 28: phonebridge.v1.PairAccept.hello:type_name -> phonebridge.v1.DeviceHello
 	16, // 29: phonebridge.v1.PairReject.error:type_name -> phonebridge.v1.Error
 	1,  // 30: phonebridge.v1.Error.code:type_name -> phonebridge.v1.Code
-	43, // 31: phonebridge.v1.Error.details:type_name -> phonebridge.v1.Error.DetailsEntry
+	44, // 31: phonebridge.v1.Error.details:type_name -> phonebridge.v1.Error.DetailsEntry
 	8,  // 32: phonebridge.v1.ScreenStart.requested:type_name -> phonebridge.v1.MediaParams
 	8,  // 33: phonebridge.v1.ScreenStart.actual:type_name -> phonebridge.v1.MediaParams
 	20, // 34: phonebridge.v1.TransferFrame.offer:type_name -> phonebridge.v1.FileOffer
@@ -3826,20 +3892,21 @@ var file_phonebridge_v1_phonebridge_proto_depIdxs = []int32{
 	1,  // 42: phonebridge.v1.FileCancel.code:type_name -> phonebridge.v1.Code
 	30, // 43: phonebridge.v1.NotificationFrame.posted:type_name -> phonebridge.v1.NotificationPosted
 	31, // 44: phonebridge.v1.NotificationFrame.removed:type_name -> phonebridge.v1.NotificationRemoved
-	1,  // 45: phonebridge.v1.ScreenStop.reason_code:type_name -> phonebridge.v1.Code
-	38, // 46: phonebridge.v1.InputFrame.touch:type_name -> phonebridge.v1.TouchEvent
-	39, // 47: phonebridge.v1.InputFrame.key:type_name -> phonebridge.v1.KeyEvent
-	40, // 48: phonebridge.v1.InputFrame.text:type_name -> phonebridge.v1.TextEvent
-	41, // 49: phonebridge.v1.InputFrame.scroll:type_name -> phonebridge.v1.ScrollEvent
-	42, // 50: phonebridge.v1.InputFrame.action:type_name -> phonebridge.v1.GlobalActionEvent
-	2,  // 51: phonebridge.v1.TouchEvent.action:type_name -> phonebridge.v1.TouchEvent.Action
-	3,  // 52: phonebridge.v1.KeyEvent.action:type_name -> phonebridge.v1.KeyEvent.Action
-	4,  // 53: phonebridge.v1.GlobalActionEvent.type:type_name -> phonebridge.v1.GlobalActionEvent.Type
-	54, // [54:54] is the sub-list for method output_type
-	54, // [54:54] is the sub-list for method input_type
-	54, // [54:54] is the sub-list for extension type_name
-	54, // [54:54] is the sub-list for extension extendee
-	0,  // [0:54] is the sub-list for field type_name
+	32, // 45: phonebridge.v1.NotificationFrame.dismiss:type_name -> phonebridge.v1.NotificationDismiss
+	1,  // 46: phonebridge.v1.ScreenStop.reason_code:type_name -> phonebridge.v1.Code
+	39, // 47: phonebridge.v1.InputFrame.touch:type_name -> phonebridge.v1.TouchEvent
+	40, // 48: phonebridge.v1.InputFrame.key:type_name -> phonebridge.v1.KeyEvent
+	41, // 49: phonebridge.v1.InputFrame.text:type_name -> phonebridge.v1.TextEvent
+	42, // 50: phonebridge.v1.InputFrame.scroll:type_name -> phonebridge.v1.ScrollEvent
+	43, // 51: phonebridge.v1.InputFrame.action:type_name -> phonebridge.v1.GlobalActionEvent
+	2,  // 52: phonebridge.v1.TouchEvent.action:type_name -> phonebridge.v1.TouchEvent.Action
+	3,  // 53: phonebridge.v1.KeyEvent.action:type_name -> phonebridge.v1.KeyEvent.Action
+	4,  // 54: phonebridge.v1.GlobalActionEvent.type:type_name -> phonebridge.v1.GlobalActionEvent.Type
+	55, // [55:55] is the sub-list for method output_type
+	55, // [55:55] is the sub-list for method input_type
+	55, // [55:55] is the sub-list for extension type_name
+	55, // [55:55] is the sub-list for extension extendee
+	0,  // [0:55] is the sub-list for field type_name
 }
 
 func init() { file_phonebridge_v1_phonebridge_proto_init() }
@@ -3882,8 +3949,9 @@ func file_phonebridge_v1_phonebridge_proto_init() {
 	file_phonebridge_v1_phonebridge_proto_msgTypes[24].OneofWrappers = []any{
 		(*NotificationFrame_Posted)(nil),
 		(*NotificationFrame_Removed)(nil),
+		(*NotificationFrame_Dismiss)(nil),
 	}
-	file_phonebridge_v1_phonebridge_proto_msgTypes[32].OneofWrappers = []any{
+	file_phonebridge_v1_phonebridge_proto_msgTypes[33].OneofWrappers = []any{
 		(*InputFrame_Touch)(nil),
 		(*InputFrame_Key)(nil),
 		(*InputFrame_Text)(nil),
@@ -3896,7 +3964,7 @@ func file_phonebridge_v1_phonebridge_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_phonebridge_v1_phonebridge_proto_rawDesc), len(file_phonebridge_v1_phonebridge_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   39,
+			NumMessages:   40,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

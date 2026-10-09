@@ -20,14 +20,21 @@ type NotificationSender interface {
 	SendNotification(wireBytes []byte) error
 }
 
+// NotificationHost defines the Kotlin host callbacks that receive remote notification requests.
+type NotificationHost interface {
+	OnDismiss(key string) bool
+}
+
 // NotificationBridge bridges Android notification events to the WebRTC "notifications" DataChannel (DEC-028).
 type NotificationBridge struct {
 	mu           sync.Mutex
+	host         NotificationHost
 	initialized  atomic.Bool
 	channelOpen  atomic.Bool
 	sender       NotificationSender
 	postedCount  atomic.Uint64
 	removedCount atomic.Uint64
+	dismissCount atomic.Uint64
 	droppedCount atomic.Uint64
 	sendErrors   atomic.Uint64
 }
@@ -43,9 +50,12 @@ func currentNotificationBridge() *NotificationBridge {
 	return b
 }
 
-func (b *NotificationBridge) Init() error {
+func (b *NotificationBridge) Init(hosts ...NotificationHost) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if len(hosts) > 0 {
+		b.host = hosts[0]
+	}
 	b.initialized.Store(true)
 	return nil
 }
@@ -53,8 +63,15 @@ func (b *NotificationBridge) Init() error {
 func (b *NotificationBridge) Stop() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.host = nil
 	b.initialized.Store(false)
 	b.channelOpen.Store(false)
+}
+
+func (b *NotificationBridge) SetHost(host NotificationHost) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.host = host
 }
 
 func (b *NotificationBridge) SetSender(s NotificationSender) {
@@ -238,6 +255,51 @@ func (b *NotificationBridge) RemoveNotification(key, packageName string, reason 
 		return err
 	}
 	b.removedCount.Add(1)
+	return nil
+}
+
+// OnRemoteBytes processes inbound NotificationFrame bytes received over WebRTC.
+func (b *NotificationBridge) OnRemoteBytes(data []byte) error {
+	if !b.initialized.Load() {
+		return errors.New("notification: bridge not initialized")
+	}
+
+	var frame phonebridgev1.NotificationFrame
+	if err := proto.Unmarshal(data, &frame); err != nil {
+		b.droppedCount.Add(1)
+		return fmt.Errorf("notification: unmarshal frame: %w", err)
+	}
+
+	if err := notification.ValidateNotificationFrame(&frame); err != nil {
+		b.droppedCount.Add(1)
+		return err
+	}
+
+	b.mu.Lock()
+	h := b.host
+	b.mu.Unlock()
+
+	if h == nil {
+		b.droppedCount.Add(1)
+		return errors.New("notification: host not registered")
+	}
+
+	switch ev := frame.Event.(type) {
+	case *phonebridgev1.NotificationFrame_Dismiss:
+		if ev.Dismiss != nil {
+			cleanKey, err := notification.SanitizeString(ev.Dismiss.Key)
+			if err != nil {
+				b.droppedCount.Add(1)
+				return err
+			}
+			if !h.OnDismiss(cleanKey) {
+				b.droppedCount.Add(1)
+				return errors.New("notification: dismiss failed on host")
+			}
+			b.dismissCount.Add(1)
+			return nil
+		}
+	}
 	return nil
 }
 

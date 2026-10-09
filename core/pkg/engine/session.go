@@ -441,6 +441,52 @@ func (s *Session) SendInput(frame *phonebridgev1.InputFrame) error {
 	return errors.New("engine: transport does not support input")
 }
 
+// DismissNotification sends a NotificationDismiss frame across the active WebRTC
+// transport on the dedicated "notifications" DataChannel (DEC-028).
+func (s *Session) DismissNotification(key string) error {
+	if key == "" {
+		return errors.New("engine: empty notification key")
+	}
+
+	s.mu.RLock()
+	st := s.state
+	tr := s.tr
+	stopping := s.ctx.Err() != nil
+	s.mu.RUnlock()
+
+	if stopping || tr == nil {
+		return errors.New("engine: no active transport")
+	}
+	if st != StateStreaming {
+		return fmt.Errorf("engine: session is in state %s, must be STREAMING to dismiss notification", st)
+	}
+
+	frame := &phonebridgev1.NotificationFrame{
+		Version:     1,
+		TimestampMs: uint64(time.Now().UnixMilli()),
+		Event: &phonebridgev1.NotificationFrame_Dismiss{
+			Dismiss: &phonebridgev1.NotificationDismiss{
+				Key: key,
+			},
+		},
+	}
+
+	if err := notification.ValidateNotificationFrame(frame); err != nil {
+		return err
+	}
+
+	wireBytes, err := proto.Marshal(frame)
+	if err != nil {
+		return fmt.Errorf("engine: marshal notification frame: %w", err)
+	}
+
+	if sn, ok := tr.(interface{ SendNotification([]byte) error }); ok {
+		return sn.SendNotification(wireBytes)
+	}
+
+	return errors.New("engine: transport does not support notifications")
+}
+
 // SetTrustStore sets the trust store for checking device peer trust.
 func (s *Session) SetTrustStore(ts *crypto.TrustStore) {
 	s.mu.Lock()

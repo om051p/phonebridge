@@ -593,5 +593,29 @@ void main() {
       // Nothing was applied after dispose, and no "used after dispose" throw.
       expect(owned.items, isEmpty);
     });
+
+    test('clearFinished removes terminal transfers and notifies listeners',
+        () async {
+      backend.history = [
+        item('tx-active', state: ipc.TransferState.TRANSFER_STATE_ACTIVE),
+        item('tx-done',
+            state: ipc.TransferState.TRANSFER_STATE_COMPLETE, finished: true),
+        item('tx-cancelled',
+            state: ipc.TransferState.TRANSFER_STATE_CANCELLED, finished: true),
+      ];
+      final controller = TransferController(backend: backend);
+      await controller.initialize();
+      expect(controller.items.length, 3);
+      expect(controller.hasFinishedTransfers, isTrue);
+
+      var notified = false;
+      controller.addListener(() => notified = true);
+
+      controller.clearFinished();
+      expect(notified, isTrue);
+      expect(controller.items.length, 1);
+      expect(controller.items.first.transferId, 'tx-active');
+      expect(controller.hasFinishedTransfers, isFalse);
+    });
   });
 }

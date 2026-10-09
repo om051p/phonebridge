@@ -11,6 +11,9 @@ abstract class NotificationBackend {
 
   /// In-memory active notifications from daemon.
   Future<List<NotificationItem>> listNotifications();
+
+  /// Requests dismissal of a mirrored notification on Android.
+  Future<bool> dismissNotification(String key);
 }
 
 /// Fallback for platforms where notifications are not mirrored (e.g. Android).
@@ -25,4 +28,7 @@ class UnsupportedNotificationBackend implements NotificationBackend {
 
   @override
   Future<List<NotificationItem>> listNotifications() async => const [];
+
+  @override
+  Future<bool> dismissNotification(String key) async => false;
 }

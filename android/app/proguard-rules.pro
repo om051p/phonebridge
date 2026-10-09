@@ -57,6 +57,13 @@
     *;
 }
 
+-keep interface dev.phonebridge.bridge.NotificationHostCallback {
+    boolean onDismiss(java.lang.String);
+}
+-keep class * implements dev.phonebridge.bridge.NotificationHostCallback {
+    *;
+}
+
 -keep class dev.phonebridge.bridge.** {
     *;
 }

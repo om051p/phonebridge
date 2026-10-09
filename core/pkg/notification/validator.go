@@ -69,6 +69,11 @@ func ValidateNotificationFrame(frame *phonebridgev1.NotificationFrame) error {
 			return ErrNoEvent
 		}
 		return ValidateNotificationRemoved(ev.Removed)
+	case *phonebridgev1.NotificationFrame_Dismiss:
+		if ev.Dismiss == nil {
+			return ErrNoEvent
+		}
+		return ValidateNotificationDismiss(ev.Dismiss)
 	default:
 		return ErrNoEvent
 	}
@@ -130,6 +135,23 @@ func ValidateNotificationRemoved(r *phonebridgev1.NotificationRemoved) error {
 		return ErrPackageNameTooLarge
 	}
 	if !utf8.ValidString(r.Key) || !utf8.ValidString(r.PackageName) {
+		return ErrInvalidUTF8
+	}
+	return nil
+}
+
+// ValidateNotificationDismiss validates a NotificationDismiss payload.
+func ValidateNotificationDismiss(d *phonebridgev1.NotificationDismiss) error {
+	if d == nil {
+		return ErrNoEvent
+	}
+	if len(d.Key) == 0 {
+		return ErrKeyEmpty
+	}
+	if len(d.Key) > MaxKeyLengthBytes {
+		return ErrKeyTooLarge
+	}
+	if !utf8.ValidString(d.Key) {
 		return ErrInvalidUTF8
 	}
 	return nil

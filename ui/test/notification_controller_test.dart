@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:phonebridge_ui/controllers/notification_controller.dart';
 import 'package:phonebridge_ui/generated/phonebridge/v1/phonebridge.pb.dart' as pb;
 import 'package:phonebridge_ui/models/notification_item.dart';
+import 'package:phonebridge_ui/services/notification_backend.dart';
 
 void main() {
   group('NotificationController', () {
@@ -189,5 +190,48 @@ void main() {
       controller.handleNotificationEvent(removedFrame);
       expect(controller.count, 0);
     });
+
+    test('dismiss calls backend and removes item on success', () async {
+      final fake = _FakeNotificationBackend();
+      final c = NotificationController(backend: fake);
+      addTearDown(c.dispose);
+
+      c.applyPosted(NotificationItem(
+        key: 'notif-1',
+        packageName: 'com.test',
+        appName: 'Test',
+        title: 'Title',
+        text: 'Text',
+        postTime: DateTime.now(),
+        receivedAt: DateTime.now(),
+      ));
+      expect(c.count, 1);
+
+      fake.dismissResult = true;
+      final ok = await c.dismiss('notif-1');
+      expect(ok, isTrue);
+      expect(fake.lastDismissedKey, 'notif-1');
+      expect(c.count, 0);
+    });
   });
+}
+
+class _FakeNotificationBackend implements NotificationBackend {
+  bool dismissResult = true;
+  String? lastDismissedKey;
+
+  @override
+  bool get supportsNotifications => true;
+
+  @override
+  Stream<pb.NotificationFrame> get notificationStream => const Stream.empty();
+
+  @override
+  Future<List<NotificationItem>> listNotifications() async => [];
+
+  @override
+  Future<bool> dismissNotification(String key) async {
+    lastDismissedKey = key;
+    return dismissResult;
+  }
 }

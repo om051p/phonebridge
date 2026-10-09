@@ -7,6 +7,7 @@ import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationManagerCompat
 import dev.phonebridge.bridge.GoBridge
+import dev.phonebridge.bridge.NotificationHostCallback
 
 /**
  * AndroidNotificationManager coordinates notification mirroring from Android to Linux (DEC-028).
@@ -16,7 +17,7 @@ import dev.phonebridge.bridge.GoBridge
  * 2. Self-Notification Suppression: Filters dev.phonebridge's own service notification.
  * 3. Zero-Logging Rule: Strictly prohibits logging notification title, text, or subtext.
  */
-object AndroidNotificationManager {
+object AndroidNotificationManager : NotificationHostCallback {
 
     private const val TAG = "AndroidNotifMgr"
 
@@ -33,7 +34,7 @@ object AndroidNotificationManager {
         appContext = context.applicationContext
         if (!isStarted) {
             try {
-                if (GoBridge.notificationInit()) {
+                if (GoBridge.notificationInit(this)) {
                     isStarted = true
                     Log.i(TAG, "AndroidNotificationManager initialized with GoBridge")
                     // If listener is already connected, sync current active notifications
@@ -136,5 +137,25 @@ object AndroidNotificationManager {
         if (!isStarted) return false
         Log.d(TAG, "dispatch remove: pkg=$packageName key=$key reason=$reason")
         return GoBridge.notificationRemove(key, packageName, reason)
+    }
+
+    override fun onDismiss(key: String): Boolean {
+        return dismissNotification(key)
+    }
+
+    fun dismissNotification(key: String): Boolean {
+        val service = listenerService
+        if (service == null) {
+            Log.w(TAG, "Cannot dismiss notification: listenerService is null")
+            return false
+        }
+        return try {
+            service.cancelNotification(key)
+            Log.d(TAG, "Requested cancelNotification for key=$key")
+            true
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to cancelNotification for key=$key: ${t.message}")
+            false
+        }
     }
 }

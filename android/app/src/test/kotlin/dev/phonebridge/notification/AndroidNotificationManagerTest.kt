@@ -70,4 +70,10 @@ class AndroidNotificationManagerTest {
         assertFalse(shouldSuppress(isDeviceLocked, visibilityPublic))
         assertFalse(shouldSuppress(false, visibilitySecret))
     }
+
+    @Test
+    fun `dismissNotification returns false when listenerService is not connected`() {
+        assertFalse(AndroidNotificationManager.dismissNotification("test-key"))
+    }
 }
+

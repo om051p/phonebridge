@@ -1343,3 +1343,31 @@ final $typed_data.Uint8List listNotificationsResponseDescriptor =
     $convert.base64Decode(
         'ChlMaXN0Tm90aWZpY2F0aW9uc1Jlc3BvbnNlEkgKDW5vdGlmaWNhdGlvbnMYASADKAsyIi5waG'
         '9uZWJyaWRnZS52MS5Ob3RpZmljYXRpb25Qb3N0ZWRSDW5vdGlmaWNhdGlvbnM=');
+
+@$core.Deprecated('Use dismissNotificationRequestDescriptor instead')
+const DismissNotificationRequest$json = {
+  '1': 'DismissNotificationRequest',
+  '2': [
+    {'1': 'key', '3': 1, '4': 1, '5': 9, '10': 'key'},
+  ],
+};
+
+/// Descriptor for `DismissNotificationRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List dismissNotificationRequestDescriptor =
+    $convert.base64Decode(
+        'ChpEaXNtaXNzTm90aWZpY2F0aW9uUmVxdWVzdBIQCgNrZXkYASABKAlSA2tleQ==');
+
+@$core.Deprecated('Use dismissNotificationResponseDescriptor instead')
+const DismissNotificationResponse$json = {
+  '1': 'DismissNotificationResponse',
+  '2': [
+    {'1': 'success', '3': 1, '4': 1, '5': 8, '10': 'success'},
+    {'1': 'error', '3': 2, '4': 1, '5': 9, '10': 'error'},
+  ],
+};
+
+/// Descriptor for `DismissNotificationResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List dismissNotificationResponseDescriptor =
+    $convert.base64Decode(
+        'ChtEaXNtaXNzTm90aWZpY2F0aW9uUmVzcG9uc2USGAoHc3VjY2VzcxgBIAEoCFIHc3VjY2Vzcx'
+        'IUCgVlcnJvchgCIAEoCVIFZXJyb3I=');

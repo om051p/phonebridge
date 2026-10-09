@@ -490,6 +490,8 @@ type mockOrchestrator struct {
 	lastInputFrame     *phonebridgev1.InputFrame
 	sendInputErr       error
 	notifications      []*phonebridgev1.NotificationPosted
+	lastDismissedKey   string
+	dismissErr         error
 }
 
 func (m *mockOrchestrator) StartSession(ctx context.Context, deviceID string, requested engine.MediaParams) (*engine.Session, error) {
@@ -595,6 +597,13 @@ func (m *mockOrchestrator) SendInput(ctx context.Context, sessionID string, fram
 
 func (m *mockOrchestrator) ListNotifications() []*phonebridgev1.NotificationPosted {
 	return m.notifications
+}
+
+func (m *mockOrchestrator) DismissNotification(key string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lastDismissedKey = key
+	return m.dismissErr
 }
 
 func TestMediaParamsConversions(t *testing.T) {

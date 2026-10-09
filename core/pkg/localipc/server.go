@@ -100,6 +100,8 @@ type SessionOrchestrator interface {
 	SendInput(ctx context.Context, sessionID string, frame *phonebridgev1.InputFrame) error
 	// ListNotifications returns in-memory active mirrored notifications (Phase 8, DEC-028).
 	ListNotifications() []*phonebridgev1.NotificationPosted
+	// DismissNotification requests dismissal of a mirrored notification on Android (Phase 8, DEC-028).
+	DismissNotification(key string) error
 }
 
 // FrameSource supplies per-session frame streams for the StreamFrames RPC
@@ -1094,6 +1096,34 @@ func (s *Server) ListNotifications(_ context.Context, _ *phonebridgelocalipcv1.L
 	}
 	return &phonebridgelocalipcv1.ListNotificationsResponse{
 		Notifications: s.orchestrator.ListNotifications(),
+	}, nil
+}
+
+// DismissNotification requests dismissal of a mirrored notification on Android (Phase 8, DEC-028).
+func (s *Server) DismissNotification(_ context.Context, req *phonebridgelocalipcv1.DismissNotificationRequest) (*phonebridgelocalipcv1.DismissNotificationResponse, error) {
+	if s.closed.Load() {
+		return nil, status.Error(codes.Unavailable, "daemon is shutting down")
+	}
+	if req == nil || req.Key == "" {
+		return &phonebridgelocalipcv1.DismissNotificationResponse{
+			Success: false,
+			Error:   "missing notification key",
+		}, nil
+	}
+	if s.orchestrator == nil {
+		return &phonebridgelocalipcv1.DismissNotificationResponse{
+			Success: false,
+			Error:   "orchestrator unavailable",
+		}, nil
+	}
+	if err := s.orchestrator.DismissNotification(req.Key); err != nil {
+		return &phonebridgelocalipcv1.DismissNotificationResponse{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+	return &phonebridgelocalipcv1.DismissNotificationResponse{
+		Success: true,
 	}, nil
 }
 

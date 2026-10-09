@@ -7,6 +7,9 @@ import (
 
 	"github.com/om051p/phonebridge/core/pkg/notification"
 	"github.com/om051p/phonebridge/core/pkg/protocol/phonebridgev1"
+	"github.com/om051p/phonebridge/core/pkg/rtpmedia"
+	"github.com/om051p/phonebridge/core/pkg/transfer"
+	pion "github.com/pion/webrtc/v4"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -133,3 +136,53 @@ func TestSessionManager_NotificationStoreAndTeardown(t *testing.T) {
 		t.Fatalf("expected 0 notifications after clear, got %d", len(mgr.ListNotifications()))
 	}
 }
+
+type mockNotificationTransport struct {
+	sent [][]byte
+}
+
+func (m *mockNotificationTransport) SetRemoteOffer(offer pion.SessionDescription) (pion.SessionDescription, error) {
+	return offer, nil
+}
+func (m *mockNotificationTransport) WaitForTrack(timeout time.Duration) error { return nil }
+func (m *mockNotificationTransport) Stats() (rtpmedia.StreamStats, int64) {
+	return rtpmedia.StreamStats{}, 0
+}
+func (m *mockNotificationTransport) TransferChannel() transfer.Channel { return nil }
+func (m *mockNotificationTransport) Close() error                     { return nil }
+
+func (m *mockNotificationTransport) SendNotification(b []byte) error {
+	m.sent = append(m.sent, b)
+	return nil
+}
+
+func TestSession_DismissNotification(t *testing.T) {
+	cfg := DefaultSessionConfig()
+	sess := NewSession("test-dismiss", cfg, nil, nil)
+	sess.state = StateStreaming
+	tr := &mockNotificationTransport{}
+	sess.tr = tr
+
+	// 1. Empty key rejected
+	if err := sess.DismissNotification(""); err == nil {
+		t.Fatal("expected error on empty key")
+	}
+
+	// 2. Successful dismiss
+	if err := sess.DismissNotification("test-key-123"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tr.sent) != 1 {
+		t.Fatalf("expected 1 sent frame, got %d", len(tr.sent))
+	}
+
+	var parsed phonebridgev1.NotificationFrame
+	if err := proto.Unmarshal(tr.sent[0], &parsed); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	dis := parsed.GetDismiss()
+	if dis == nil || dis.Key != "test-key-123" {
+		t.Fatalf("unexpected dismiss event: %+v", parsed)
+	}
+}
+

@@ -135,3 +135,54 @@ func TestNotification_ListWhenClosed(t *testing.T) {
 		t.Fatalf("expected codes.Unavailable, got %v", err)
 	}
 }
+
+func TestNotification_Dismiss(t *testing.T) {
+	sock, tok, tokVal := testSetup(t)
+
+	orch := &mockOrchestrator{}
+
+	cfg := Config{
+		SocketPath:       sock,
+		TokenPath:        tok,
+		Token:            tokVal,
+		ServerVersion:    "0.1.0-test",
+		DaemonGeneration: 101,
+	}
+
+	srv, cancel, errCh := startTestServer(t, cfg)
+	defer func() {
+		cancel()
+		<-errCh
+	}()
+	srv.SetOrchestrator(orch)
+
+	client, err := Dial(context.Background(), sock, tokVal)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer client.Close()
+
+	// 1. Missing key
+	resp, err := client.DismissNotification(context.Background(), &phonebridgelocalipcv1.DismissNotificationRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.GetSuccess() || resp.GetError() != "missing notification key" {
+		t.Fatalf("expected missing notification key failure, got %+v", resp)
+	}
+
+	// 2. Successful dismiss
+	resp, err = client.DismissNotification(context.Background(), &phonebridgelocalipcv1.DismissNotificationRequest{
+		Key: "test-notif-key",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.GetSuccess() {
+		t.Fatalf("expected success, got %+v", resp)
+	}
+	if orch.lastDismissedKey != "test-notif-key" {
+		t.Fatalf("expected orch to receive key, got %q", orch.lastDismissedKey)
+	}
+}
+
