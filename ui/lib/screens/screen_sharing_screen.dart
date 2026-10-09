@@ -70,116 +70,170 @@ class ScreenSharingScreen extends StatelessWidget {
         }
         return KeyEventResult.ignored;
       },
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-        children: [
-          _buildActiveStatusCard(theme, link, stats),
-          const SizedBox(height: 16),
-          if (inSession) ...[
-            // The live mirror (Linux only): newest-frame-wins JPEG surface with
-            // decode-on-arrival. While no frame has arrived it renders the
-            // existing presentation state below it — the banners, telemetry and
-            // controls are untouched and keep answering for the session.
-            if (frameProvider != null) ...[
-              _buildMirrorCard(context, theme, frameProvider, session.status.label),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isWide = constraints.maxWidth >= 720;
+          if (isWide && inSession) {
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      flex: 6,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (frameProvider != null) ...[
+                            _buildMirrorCard(context, theme, frameProvider, session.status.label),
+                            const SizedBox(height: 16),
+                          ],
+                          SessionStateBanner(
+                            status: session.status,
+                            sessionId: session.activeSessionId,
+                          ),
+                          const SizedBox(height: 16),
+                          if (session.status.hasReportedSink) ...[
+                            VideoDisplayBanner(
+                              sinkKind: session.status.sinkKind,
+                              sinkActive: session.status.sinkActive,
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 20),
+                    Expanded(
+                      flex: 4,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildActiveStatusCard(theme, link, stats),
+                          const SizedBox(height: 16),
+                          _buildTargetDeviceCard(theme, peer),
+                          const SizedBox(height: 16),
+                          _buildQualityPresetsCard(theme, showStop),
+                          const SizedBox(height: 16),
+                          StreamTelemetryCard(stats: session.streamStats),
+                          const SizedBox(height: 16),
+                          _buildPermissionGuidanceCard(theme, isLinux),
+                          const SizedBox(height: 20),
+                          _buildActionButton(context, theme, showStop, isLinux),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          }
+
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+            children: [
+              _buildActiveStatusCard(theme, link, stats),
               const SizedBox(height: 16),
-            ],
-          // The validated session information (DEC-022): id, negotiation,
-          // recovery and typed failure detail — read from the shared model.
-          SessionStateBanner(
-            status: session.status,
-            sessionId: session.activeSessionId,
-          ),
-          const SizedBox(height: 16),
-          if (session.status.hasReportedSink) ...[
-            // The daemon reports which sink it actually chose (ffplay,
-            // headless null, pipe, file) — the banner can no longer claim
-            // ffplay on a host that never opened a window.
-            VideoDisplayBanner(
-              sinkKind: session.status.sinkKind,
-              sinkActive: session.status.sinkActive,
-            ),
-            const SizedBox(height: 16),
-          ],
-        ],
-        _buildTargetDeviceCard(theme, peer),
-        const SizedBox(height: 16),
-        _buildQualityPresetsCard(theme, showStop),
-        const SizedBox(height: 16),
-        if (inSession) ...[
-          // Telemetry from the controller's one poll; the card renders zeros
-          // until the first snapshot rather than guessing numbers.
-          StreamTelemetryCard(stats: session.streamStats),
-          const SizedBox(height: 16),
-        ],
-        _buildPermissionGuidanceCard(theme, isLinux),
-        const SizedBox(height: 20),
-        SizedBox(
-          width: double.infinity,
-          height: 52,
-          child: FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: showStop ? theme.colorScheme.error : null,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-            ),
-            onPressed: controller.isLoading
-                ? null
-                : () async {
-                    final ok = showStop
-                        ? await controller.stopScreenSharing()
-                        : await controller.startScreenSharing();
-                    if (ok || !context.mounted) return;
-                    // A control failure must surface where the control lives
-                    // (migrated from the retired session view): the status
-                    // card only shows failures that actually transitioned the
-                    // shared session model, so a rejected start/stop would
-                    // otherwise vanish without a trace.
-                    final reason = controller.lastErrorMessage ??
-                        controller.session.lastError;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          reason ??
-                              (showStop
-                                  ? 'Stop session failed'
-                                  : 'Start session failed'),
-                        ),
-                        backgroundColor: Theme.of(context).colorScheme.error,
-                        behavior: SnackBarBehavior.floating,
+              if (inSession) ...[
+                if (frameProvider != null) ...[
+                  _buildMirrorCard(context, theme, frameProvider, session.status.label),
+                  const SizedBox(height: 16),
+                ],
+                SessionStateBanner(
+                  status: session.status,
+                  sessionId: session.activeSessionId,
+                ),
+                const SizedBox(height: 16),
+                if (session.status.hasReportedSink) ...[
+                  VideoDisplayBanner(
+                    sinkKind: session.status.sinkKind,
+                    sinkActive: session.status.sinkActive,
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ],
+              _buildTargetDeviceCard(theme, peer),
+              const SizedBox(height: 16),
+              _buildQualityPresetsCard(theme, showStop),
+              const SizedBox(height: 16),
+              if (inSession) ...[
+                StreamTelemetryCard(stats: session.streamStats),
+                const SizedBox(height: 16),
+              ],
+              _buildPermissionGuidanceCard(theme, isLinux),
+              _buildActionButton(context, theme, showStop, isLinux),
+              const SizedBox(height: 16),
+              Center(
+                child: TextButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => DiagnosticsScreen(controller: controller),
                       ),
                     );
                   },
-            icon: Icon(showStop
-                ? Icons.stop
-                : (isLinux ? Icons.phone_android : Icons.screen_share)),
-            label: Text(
-              showStop
-                  ? (isLinux ? 'STOP RECEIVER SESSION' : 'STOP SCREEN SHARING')
-                  : (isLinux ? 'MIRROR PHONE SCREEN' : 'START SCREEN SHARING'),
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Center(
-          child: TextButton.icon(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => DiagnosticsScreen(controller: controller),
+                  icon: const Icon(Icons.analytics_outlined, size: 16),
+                  label: const Text('View Stream Diagnostics & Telemetry'),
                 ),
-              );
-            },
-            icon: const Icon(Icons.analytics_outlined, size: 16),
-            label: const Text('View Stream Diagnostics & Telemetry'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildActionButton(
+    BuildContext context,
+    ThemeData theme,
+    bool showStop,
+    bool isLinux,
+  ) {
+    return SizedBox(
+      width: double.infinity,
+      height: 52,
+      child: FilledButton.icon(
+        style: FilledButton.styleFrom(
+          backgroundColor: showStop ? theme.colorScheme.error : null,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
           ),
         ),
-      ],
-    ),
-  );
-}
+        onPressed: controller.isLoading
+            ? null
+            : () async {
+                final ok = showStop
+                    ? await controller.stopScreenSharing()
+                    : await controller.startScreenSharing();
+                if (ok || !context.mounted) return;
+                final reason = controller.lastErrorMessage ??
+                    controller.session.lastError;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      reason ??
+                          (showStop
+                              ? 'Stop session failed'
+                              : 'Start session failed'),
+                    ),
+                    backgroundColor: Theme.of(context).colorScheme.error,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              },
+        icon: Icon(showStop
+            ? Icons.stop
+            : (isLinux ? Icons.phone_android : Icons.screen_share)),
+        label: Text(
+          showStop
+              ? (isLinux ? 'STOP RECEIVER SESSION' : 'STOP SCREEN SHARING')
+              : (isLinux ? 'MIRROR PHONE SCREEN' : 'START SCREEN SHARING'),
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
+      ),
+    );
+  }
 
   Widget _buildMirrorCard(
     BuildContext context,

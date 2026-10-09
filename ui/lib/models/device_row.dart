@@ -57,6 +57,20 @@ class DeviceRow {
     if (deviceId.length <= 12) return deviceId;
     return '${deviceId.substring(0, 6)}...${deviceId.substring(deviceId.length - 6)}';
   }
+
+  /// Disambiguation badge for when multiple devices share the same display name.
+  String disambiguationTag(List<DeviceRow> allRows) {
+    final sameNameCount = allRows
+        .where((r) => r.displayName.toLowerCase().trim() == displayName.toLowerCase().trim())
+        .length;
+    if (sameNameCount <= 1) return '';
+    if (isActiveTarget) return 'Connected';
+    if (discovered && !isStale) return 'Active on LAN';
+    if (revoked) return 'Revoked';
+    if (group == DeviceRowGroup.unavailable) return 'Offline';
+    if (group == DeviceRowGroup.untrusted) return 'Unpaired';
+    return '';
+  }
 }
 
 enum DeviceRowGroup { connected, available, untrusted, unavailable, revoked }

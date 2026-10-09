@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart' hide ClipboardStatus;
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import '../controllers/phonebridge_controller.dart';
 import '../models/clipboard_status.dart';
 
@@ -148,37 +149,68 @@ class ClipboardScreen extends StatelessWidget {
   }
 
   Widget _buildSyncNowCard(BuildContext context, ThemeData theme, bool isEnabled) {
-    return SizedBox(
-      width: double.infinity,
-      height: 48,
-      child: FilledButton.tonalIcon(
-        onPressed: (!isEnabled || controller.isLoading)
-            ? null
-            : () async {
-                final ok = await controller.triggerClipboardPull();
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      // A failed pull has three distinct causes and the old text
-                      // named the wrong one: nothing copied yet, a copy already
-                      // in flight, or no peer session to carry it. Saying "no
-                      // clip available" for all three left the user with no
-                      // idea that a connected device is part of the condition.
-                      content: Text(
-                        ok
-                            ? 'Clipboard synchronized'
-                            : 'Nothing forwarded — copy something on this device first, '
-                                'and make sure a paired device is connected',
-                      ),
-                      behavior: SnackBarBehavior.floating,
-                      duration: const Duration(seconds: 3),
-                    ),
-                  );
-                }
-              },
-        icon: const Icon(Icons.sync),
-        label: const Text('SYNC CURRENT CLIPBOARD NOW'),
-      ),
+    return Column(
+      children: [
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: FilledButton.tonalIcon(
+            onPressed: (!isEnabled || controller.isLoading)
+                ? null
+                : () async {
+                    final ok = await controller.triggerClipboardPull();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            ok
+                                ? 'Clipboard synchronized'
+                                : 'Nothing forwarded — copy something on this device first, '
+                                    'and make sure a paired device is connected',
+                          ),
+                          behavior: SnackBarBehavior.floating,
+                          duration: const Duration(seconds: 3),
+                        ),
+                      );
+                    }
+                  },
+            icon: const Icon(Icons.sync),
+            label: const Text('SYNC CURRENT CLIPBOARD NOW'),
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          height: 44,
+          child: OutlinedButton.icon(
+            onPressed: (!isEnabled || controller.isLoading)
+                ? null
+                : () async {
+                    final now = DateTime.now();
+                    final timeStr =
+                        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
+                    final testText = 'PhoneBridge Test Clip ($timeStr)';
+                    await Clipboard.setData(ClipboardData(text: testText));
+                    final ok = await controller.triggerClipboardPull();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            ok
+                                ? 'Test clip sent to paired device: "$testText"'
+                                : 'Test clip copied locally. Connect a device to sync automatically.',
+                          ),
+                          behavior: SnackBarBehavior.floating,
+                          duration: const Duration(seconds: 3),
+                        ),
+                      );
+                    }
+                  },
+            icon: const Icon(Icons.send_to_mobile, size: 18),
+            label: const Text('SEND TEST CLIP'),
+          ),
+        ),
+      ],
     );
   }
 

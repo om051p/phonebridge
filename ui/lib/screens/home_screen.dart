@@ -38,26 +38,191 @@ class HomeScreen extends StatelessWidget {
 
     return RefreshIndicator(
       onRefresh: controller.refreshAll,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-        children: [
-          if (controller.service.isAndroid && controller.hasMissingPermissions) ...[
-            PermissionOnboardingCard(controller: controller),
-            const SizedBox(height: 16),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isWide = constraints.maxWidth >= 720;
+          if (isWide) {
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+              children: [
+                if (controller.service.isAndroid && controller.hasMissingPermissions) ...[
+                  PermissionOnboardingCard(controller: controller),
+                  const SizedBox(height: 16),
+                ],
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      flex: 5,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildConnectionCard(context, theme, peer, link),
+                          const SizedBox(height: 16),
+                          _buildQuickActionHub(context, theme, peer),
+                          const SizedBox(height: 16),
+                          _buildClipboardQuickCard(context, theme, clipboard),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 20),
+                    Expanded(
+                      flex: 5,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildScreenShareHeroCard(context, theme, link, stats),
+                          const SizedBox(height: 16),
+                          TransferSummaryCard(
+                            controller: controller.transfers,
+                            onOpen: () => onNavigateToTab(4), // Transfers live in Activity
+                          ),
+                          const SizedBox(height: 16),
+                          _buildRecentActivitySection(context, theme, recentEvents),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          }
+
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+            children: [
+              if (controller.service.isAndroid && controller.hasMissingPermissions) ...[
+                PermissionOnboardingCard(controller: controller),
+                const SizedBox(height: 16),
+              ],
+              _buildConnectionCard(context, theme, peer, link),
+              const SizedBox(height: 16),
+              _buildQuickActionHub(context, theme, peer),
+              const SizedBox(height: 16),
+              _buildScreenShareHeroCard(context, theme, link, stats),
+              const SizedBox(height: 16),
+              _buildClipboardQuickCard(context, theme, clipboard),
+              const SizedBox(height: 16),
+              TransferSummaryCard(
+                controller: controller.transfers,
+                onOpen: () => onNavigateToTab(4), // Transfers live in Activity
+              ),
+              const SizedBox(height: 16),
+              _buildRecentActivitySection(context, theme, recentEvents),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildQuickActionHub(
+    BuildContext context,
+    ThemeData theme,
+    dynamic peer,
+  ) {
+    return Card(
+      elevation: 0,
+      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 12.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.bolt, size: 18, color: theme.colorScheme.primary),
+                const SizedBox(width: 6),
+                Text(
+                  'Quick Actions',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: _quickActionButton(
+                    theme,
+                    icon: Icons.screen_share_outlined,
+                    label: 'Cast Screen',
+                    onTap: () => onNavigateToTab(2),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _quickActionButton(
+                    theme,
+                    icon: Icons.content_paste_outlined,
+                    label: 'Copy / Paste',
+                    onTap: () => onNavigateToTab(3),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _quickActionButton(
+                    theme,
+                    icon: Icons.folder_shared_outlined,
+                    label: 'Share File',
+                    onTap: () => onNavigateToTab(4),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _quickActionButton(
+                    theme,
+                    icon: Icons.devices_outlined,
+                    label: 'Pair Device',
+                    onTap: () => onNavigateToTab(1),
+                  ),
+                ),
+              ],
+            ),
           ],
-          _buildConnectionCard(context, theme, peer, link),
-          const SizedBox(height: 16),
-          _buildScreenShareHeroCard(context, theme, link, stats),
-          const SizedBox(height: 16),
-          _buildClipboardQuickCard(context, theme, clipboard),
-          const SizedBox(height: 16),
-          TransferSummaryCard(
-            controller: controller.transfers,
-            onOpen: () => onNavigateToTab(4), // Transfers live in Activity
-          ),
-          const SizedBox(height: 16),
-          _buildRecentActivitySection(context, theme, recentEvents),
-        ],
+        ),
+      ),
+    );
+  }
+
+  Widget _quickActionButton(
+    ThemeData theme, {
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 20, color: theme.colorScheme.primary),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -73,6 +238,7 @@ class HomeScreen extends StatelessWidget {
     // paired device".
     final hasPeer = peer != null;
     final hasTrusted = controller.trustedDevices.any((d) => !d.revoked);
+    final isConnecting = controller.isSessionConnecting;
 
     return Card(
       elevation: 0,
@@ -93,7 +259,7 @@ class HomeScreen extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
-                hasPeer ? Icons.computer : Icons.devices,
+                hasPeer ? Icons.computer : (isConnecting ? Icons.sync : Icons.devices),
                 color: theme.colorScheme.onPrimaryContainer,
                 size: 26,
               ),
@@ -106,9 +272,11 @@ class HomeScreen extends StatelessWidget {
                   Text(
                     hasPeer
                         ? peer.displayName
-                        : (hasTrusted
-                            ? 'No active connection'
-                            : 'No paired device'),
+                        : (isConnecting
+                            ? 'Connecting…'
+                            : (hasTrusted
+                                ? 'No active connection'
+                                : 'No paired device')),
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -122,9 +290,11 @@ class HomeScreen extends StatelessWidget {
                         // below): "Trusted" never means "Online". The peer
                         // shown here is the live session target.
                         ? '${peer.platform} · Connected · LAN · Direct'
-                        : (hasTrusted
-                            ? 'Paired · select a device to connect'
-                            : 'Pair with your other device to connect'),
+                        : (isConnecting
+                            ? 'Negotiating session connection…'
+                            : (hasTrusted
+                                ? 'Paired · select a device to connect'
+                                : 'Pair with your other device to connect')),
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
@@ -139,23 +309,34 @@ class HomeScreen extends StatelessWidget {
                     ].join('\n'),
                     child: Row(
                       children: [
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: linkPhaseColor(theme, link.phase),
+                        if (isConnecting) ...[
+                          const SizedBox(
+                            width: 8,
+                            height: 8,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.amber,
+                            ),
                           ),
-                        ),
+                        ] else ...[
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: linkPhaseColor(theme, link.phase),
+                            ),
+                          ),
+                        ],
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
-                            link.label,
+                            isConnecting ? 'CONNECTING…' : link.label,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.bodySmall?.copyWith(
                               fontWeight: FontWeight.bold,
-                              color: linkPhaseColor(theme, link.phase),
+                              color: isConnecting ? Colors.amber.shade800 : linkPhaseColor(theme, link.phase),
                             ),
                           ),
                         ),

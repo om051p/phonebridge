@@ -366,6 +366,52 @@ class DevicesScreen extends StatelessWidget {
     );
   }
 
+  Future<void> _confirmClearDuplicateStale(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        icon: const Icon(Icons.cleaning_services_outlined, size: 36, color: Colors.amber),
+        title: const Text('Clean Up Duplicate Offline Devices?'),
+        content: const Text(
+          'This will remove stale offline pairings that share their name with an active or available device. '
+          'This typically occurs when the PhoneBridge app was reinstalled.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, false),
+            child: const Text('CANCEL'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogCtx, true),
+            child: const Text('CLEAN UP'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    final removed = await controller.clearDuplicateStaleDevices();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(removed > 0
+            ? 'Cleaned $removed duplicate device record(s).'
+            : 'No duplicate records found to remove.'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  bool _hasDuplicateUnavailable(List<DeviceRow> rows) {
+    final nameCounts = <String, int>{};
+    for (final r in rows) {
+      final key = r.displayName.toLowerCase().trim();
+      nameCounts[key] = (nameCounts[key] ?? 0) + 1;
+    }
+    return rows.any((r) =>
+        r.group == DeviceRowGroup.unavailable &&
+        (nameCounts[r.displayName.toLowerCase().trim()] ?? 0) > 1);
+  }
+
   String _formatDate(int ms) {
     if (ms <= 0) return 'Unknown';
     final dt = DateTime.fromMillisecondsSinceEpoch(ms);
@@ -682,8 +728,17 @@ class DevicesScreen extends StatelessWidget {
               'The one live session — disconnect or switch from here'),
           const SizedBox(height: 10),
           if (connected.isEmpty)
-            if (connectingRow != null)
-              _buildConnectingCard(context, theme, connectingRow)
+            if (connectingRow != null || controller.isSessionConnecting)
+              _buildConnectingCard(
+                context,
+                theme,
+                connectingRow ??
+                    DeviceRow(
+                      deviceId: controller.connectingDeviceId ?? '',
+                      displayName: 'Device',
+                      platform: 'Remote',
+                    ),
+              )
             else
               _buildEmptyConnectedCard(theme)
           else
@@ -706,8 +761,22 @@ class DevicesScreen extends StatelessWidget {
             const SizedBox(height: 20),
           ],
           if (unavailable.isNotEmpty) ...[
-            _sectionHeader(theme, 'Unavailable (${unavailable.length})',
-                'Trusted · not currently on the LAN'),
+            _sectionHeader(
+              theme,
+              'Unavailable (${unavailable.length})',
+              'Trusted · not currently on the LAN',
+              action: _hasDuplicateUnavailable(rows)
+                  ? TextButton.icon(
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.amber.shade900,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      onPressed: () => _confirmClearDuplicateStale(context),
+                      icon: const Icon(Icons.cleaning_services_outlined, size: 16),
+                      label: const Text('CLEAN DUPLICATES'),
+                    )
+                  : null,
+            ),
             const SizedBox(height: 10),
             ...unavailable.map((r) => _buildUnavailableTile(context, theme, r)),
             const SizedBox(height: 20),
@@ -1164,11 +1233,34 @@ class DevicesScreen extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      row.displayName,
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1,
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            row.displayName,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        ),
+                        if (row.disambiguationTag(controller.deviceRows).isNotEmpty) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              row.disambiguationTag(controller.deviceRows),
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                fontSize: 10,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -1377,11 +1469,34 @@ class DevicesScreen extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      row.displayName,
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1,
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            row.displayName,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        ),
+                        if (row.disambiguationTag(controller.deviceRows).isNotEmpty) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              row.disambiguationTag(controller.deviceRows),
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                fontSize: 10,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 6),
                     Wrap(

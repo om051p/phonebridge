@@ -75,6 +75,21 @@ class PhoneBridgeApp extends StatelessWidget {
           ),
           elevation: 3,
         ),
+        appBarTheme: const AppBarTheme(
+          elevation: 0,
+          scrolledUnderElevation: 1,
+          centerTitle: false,
+        ),
+        navigationBarTheme: const NavigationBarThemeData(
+          height: 68,
+          elevation: 2,
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        ),
+        navigationRailTheme: const NavigationRailThemeData(
+          elevation: 0,
+          labelType: NavigationRailLabelType.all,
+          groupAlignment: -0.85,
+        ),
         snackBarTheme: SnackBarThemeData(
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(

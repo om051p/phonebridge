@@ -1051,6 +1051,56 @@ class PhoneBridgeController extends ChangeNotifier {
     }
   }
 
+  /// Removes trusted devices that are currently unavailable (offline) and share
+  /// their display name with another active/available or newer device.
+  Future<int> clearDuplicateStaleDevices() async {
+    final rows = deviceRows;
+    final nameCounts = <String, int>{};
+    for (final r in rows) {
+      final key = r.displayName.toLowerCase().trim();
+      nameCounts[key] = (nameCounts[key] ?? 0) + 1;
+    }
+
+    // Find unavailable rows that share a display name with an active or available row
+    final duplicatesToRemove = rows.where((r) {
+      if (r.group != DeviceRowGroup.unavailable) return false;
+      final key = r.displayName.toLowerCase().trim();
+      final hasDuplicate = (nameCounts[key] ?? 0) > 1;
+      return hasDuplicate && r.trusted && !r.discovered;
+    }).toList();
+
+    if (duplicatesToRemove.isEmpty) return 0;
+
+    _isLoading = true;
+    _lastErrorMessage = null;
+    notifyListeners();
+    int removedCount = 0;
+    try {
+      for (final dev in duplicatesToRemove) {
+        final ok = await _service.removeDevice(dev.deviceId);
+        if (ok) {
+          removedCount++;
+        }
+      }
+      if (removedCount > 0) {
+        addActivityEvent(
+          ActivityCategory.pairing,
+          'Duplicate Devices Cleaned',
+          'Removed $removedCount stale duplicate device record(s)',
+          ActivityLevel.info,
+        );
+      }
+      await refreshAll();
+      return removedCount;
+    } catch (e) {
+      _lastErrorMessage = e.toString();
+      return removedCount;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
   Future<bool> triggerClipboardPull() async {
     try {
       final ok = await _service.triggerClipboardPull();

@@ -270,7 +270,14 @@ class StreamTelemetryCard extends StatelessWidget {
               children: [
                 Icon(Icons.analytics, color: theme.colorScheme.primary),
                 const SizedBox(width: 8),
-                Text('Live Stream Telemetry', style: theme.textTheme.titleMedium),
+                Flexible(
+                  child: Text(
+                    'Live Stream Telemetry',
+                    style: theme.textTheme.titleMedium,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               ],
             ),
             const Divider(),
