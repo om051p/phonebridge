@@ -3,6 +3,7 @@ package dev.phonebridge.service
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -762,12 +763,23 @@ class PhoneBridgeService : Service() {
             android.R.drawable.stat_notify_sync
         }
 
+        val syncIntent = Intent(this, dev.phonebridge.clipboard.ClipboardSyncActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION
+        }
+        val syncPendingIntent = PendingIntent.getActivity(
+            this,
+            101,
+            syncIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+        )
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("PhoneBridge")
             .setContentText(contentText)
             .setSmallIcon(icon)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .addAction(android.R.drawable.ic_menu_send, "Sync Clipboard", syncPendingIntent)
             .build()
     }
 

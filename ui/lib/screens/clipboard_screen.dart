@@ -187,6 +187,9 @@ class ClipboardScreen extends StatelessWidget {
     ThemeData theme,
     bool imeSelected,
   ) {
+    final accessibilityActive = controller.accessibilityEnabled;
+    final isAutoActive = accessibilityActive || imeSelected;
+
     return Card(
       elevation: 0,
       color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.25),
@@ -201,11 +204,17 @@ class ClipboardScreen extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.keyboard_outlined, color: theme.colorScheme.primary, size: 20),
+                Icon(
+                  accessibilityActive
+                      ? Icons.accessibility_new_outlined
+                      : Icons.keyboard_outlined,
+                  color: theme.colorScheme.primary,
+                  size: 20,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Companion Input Method',
+                    'Automated Background Sync',
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -217,15 +226,17 @@ class ClipboardScreen extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: imeSelected
+                    color: isAutoActive
                         ? Colors.green.withValues(alpha: 0.15)
                         : Colors.orange.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    imeSelected ? 'Active' : 'Optional',
+                    accessibilityActive
+                        ? 'Active (Accessibility)'
+                        : (imeSelected ? 'Active (Keyboard)' : 'Action Required'),
                     style: TextStyle(
-                      color: imeSelected ? Colors.green : Colors.orange.shade800,
+                      color: isAutoActive ? Colors.green : Colors.orange.shade800,
                       fontWeight: FontWeight.bold,
                       fontSize: 11,
                     ),
@@ -235,36 +246,41 @@ class ClipboardScreen extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              imeSelected
-                  ? 'The PhoneBridge Companion Keyboard is active. Copies are detected '
-                      'instantly and forwarded to your paired desktop without any manual pull.'
-                  : 'On modern Android, background apps are restricted from reading your '
-                      'clipboard. Enable and select the PhoneBridge Companion Keyboard so it can '
-                      'detect copy events instantly, then copy on the phone and it will appear '
-                      'on your desktop.',
+              accessibilityActive
+                  ? 'Automated background sync is active via PhoneBridge Accessibility Service. '
+                      'Any text you copy in Chrome, Notes, or other apps is forwarded instantly '
+                      'to your PC while you keep your normal keyboard (Gboard).'
+                  : (imeSelected
+                      ? 'The PhoneBridge Companion Keyboard is active. Copies are detected '
+                          'instantly and forwarded to your paired desktop without any manual pull.'
+                      : 'On modern Android, background apps are restricted from reading the clipboard. '
+                          'Enable the Accessibility Service (recommended, lets you keep Gboard) or activate '
+                          'the Companion Keyboard to automatically sync text when copied in any app.'),
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
                 height: 1.35,
               ),
             ),
-            if (!imeSelected) ...[
+            if (!isAutoActive) ...[
               const SizedBox(height: 12),
-              Row(
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
                 children: [
-                  Expanded(
-                    child: FilledButton.tonalIcon(
-                      onPressed: () => _openImeSettings(context),
-                      icon: const Icon(Icons.settings_outlined, size: 18),
-                      label: const Text('ENABLE KEYBOARD'),
-                    ),
+                  FilledButton.tonalIcon(
+                    onPressed: () => _openAccessibilitySettings(context),
+                    icon: const Icon(Icons.accessibility_new_outlined, size: 18),
+                    label: const Text('ENABLE ACCESSIBILITY'),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _selectIme(context),
-                      icon: const Icon(Icons.keyboard_alt_outlined, size: 18),
-                      label: const Text('SELECT KEYBOARD'),
-                    ),
+                  OutlinedButton.icon(
+                    onPressed: () => _openImeSettings(context),
+                    icon: const Icon(Icons.settings_outlined, size: 18),
+                    label: const Text('ENABLE KEYBOARD'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => _selectIme(context),
+                    icon: const Icon(Icons.keyboard_alt_outlined, size: 18),
+                    label: const Text('SELECT KEYBOARD'),
                   ),
                 ],
               ),
@@ -273,6 +289,22 @@ class ClipboardScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Opens the system Accessibility settings screen so the accessibility service can be enabled
+  /// for background copy detection without replacing the typing keyboard.
+  Future<void> _openAccessibilitySettings(BuildContext context) async {
+    final ok = await controller.openAccessibilitySettings();
+    if (!context.mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not open accessibility settings on this device'),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   /// Opens the system "Languages & input" screen so the companion IME can be

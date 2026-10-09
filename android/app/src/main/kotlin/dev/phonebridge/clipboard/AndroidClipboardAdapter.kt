@@ -93,6 +93,14 @@ object AndroidClipboardAdapter : ClipboardHostCallback {
     @Volatile private var writeInFlight = false
     @Volatile private var lastWriteUptimeMs = 0L
 
+    /**
+     * True when PhoneBridge is currently applying an inbound platform write
+     * from the remote peer, or during the cooldown window. Used to prevent
+     * echoing remote clips back to the remote peer.
+     */
+    val isWriteInFlight: Boolean
+        get() = writeInFlight || (SystemClock.uptimeMillis() - lastWriteUptimeMs) < 400
+
     // User intent for clipboard synchronization (the app's master switch).
     // Defaults to on because the adapter only starts when the service is active;
     // both directions are gated so flipping the switch actually stops sync
@@ -295,7 +303,7 @@ object AndroidClipboardAdapter : ClipboardHostCallback {
         return focusReadGate.run(nowMs) { readAndForwardCurrentClip() }
     }
 
-    private fun recomputeState() {
+    fun recomputeState() {
         if (!isStarted.get()) {
             transitionTo(AdapterState.STOPPED)
             return
@@ -306,7 +314,8 @@ object AndroidClipboardAdapter : ClipboardHostCallback {
             return
         }
 
-        if (imeSelected && imeBound) {
+        val accessibilityActive = dev.phonebridge.input.PhoneBridgeAccessibilityService.getInstance() != null
+        if ((imeSelected && imeBound) || accessibilityActive) {
             transitionTo(AdapterState.AMBIENT_ACTIVE)
         } else {
             transitionTo(AdapterState.WRITE_ONLY_DORMANT)

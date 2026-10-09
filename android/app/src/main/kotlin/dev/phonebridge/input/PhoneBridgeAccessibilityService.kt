@@ -3,6 +3,7 @@ package dev.phonebridge.input
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.Context
+import android.content.ClipboardManager
 import android.content.Intent
 import android.graphics.Path
 import android.os.Build
@@ -13,6 +14,8 @@ import android.util.Log
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import dev.phonebridge.clipboard.AndroidClipboardAdapter
+import dev.phonebridge.clipboard.ClipboardSyncActivity
 import kotlin.math.abs
 import kotlin.math.hypot
 
@@ -59,27 +62,104 @@ class PhoneBridgeAccessibilityService : AccessibilityService() {
     private var activePath: Path? = null
     private var isTrackingTouch = false
 
+    private var clipboardManager: ClipboardManager? = null
+    private var clipListener: ClipboardManager.OnPrimaryClipChangedListener? = null
+    private var lastAutoSyncUptimeMs = 0L
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
         Log.i(TAG, "PhoneBridgeAccessibilityService connected")
+
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        clipboardManager = cm
+        if (cm != null) {
+            val listener = ClipboardManager.OnPrimaryClipChangedListener {
+                handlePrimaryClipChanged("OnPrimaryClipChangedListener")
+            }
+            try {
+                cm.addPrimaryClipChangedListener(listener)
+                clipListener = listener
+                Log.i(TAG, "Registered OnPrimaryClipChangedListener in AccessibilityService")
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed to register clip listener: ${t.message}")
+            }
+        }
+        AndroidClipboardAdapter.recomputeState()
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
         Log.i(TAG, "PhoneBridgeAccessibilityService unbound")
+        clipListener?.let {
+            try {
+                clipboardManager?.removePrimaryClipChangedListener(it)
+            } catch (_: Throwable) {}
+        }
+        clipListener = null
         instance = null
+        AndroidClipboardAdapter.recomputeState()
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
+        clipListener?.let {
+            try {
+                clipboardManager?.removePrimaryClipChangedListener(it)
+            } catch (_: Throwable) {}
+        }
+        clipListener = null
         if (instance == this) {
             instance = null
         }
+        AndroidClipboardAdapter.recomputeState()
         super.onDestroy()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // No-op: Remote input only performs gestures and global actions.
+        if (event == null) return
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+            val text = event.text?.joinToString(" ") ?: ""
+            val desc = event.contentDescription?.toString() ?: ""
+            if (text.contains("copy", ignoreCase = true) || desc.contains("copy", ignoreCase = true) ||
+                text.contains("copiar", ignoreCase = true) || desc.contains("copiar", ignoreCase = true)) {
+                handlePrimaryClipChanged("AccessibilityEvent:CopyClicked")
+            }
+        }
+    }
+
+    private fun handlePrimaryClipChanged(source: String) {
+        // Echo suppression: ignore if PhoneBridge itself just applied a remote write from the PC
+        if (AndroidClipboardAdapter.isWriteInFlight) {
+            return
+        }
+
+        // Debounce rapid bursts (within 350ms)
+        val now = SystemClock.uptimeMillis()
+        if (now - lastAutoSyncUptimeMs < 350) {
+            return
+        }
+        lastAutoSyncUptimeMs = now
+
+        // 1. First attempt direct read (works if PhoneBridge has focus or permission)
+        if (AndroidClipboardAdapter.readAndForwardCurrentClip()) {
+            Log.i(TAG, "Auto clipboard sync succeeded via direct read ($source)")
+            return
+        }
+
+        // 2. On Android 10+, background read is restricted; launch the 1-shot invisible focus activity
+        try {
+            val intent = Intent(this, ClipboardSyncActivity::class.java).apply {
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_NO_ANIMATION or
+                    Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
+                )
+            }
+            startActivity(intent)
+            Log.i(TAG, "Auto clipboard sync ($source): launched ClipboardSyncActivity")
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to start ClipboardSyncActivity ($source): ${t.message}")
+        }
     }
 
     override fun onInterrupt() {
